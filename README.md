@@ -117,6 +117,24 @@ cloudflare-deploy/
 
 ---
 
+## Local scanner (hybrid scraping)
+
+Some careers pages can't be scanned from a Cloudflare Worker IP — Workday and similar systems either rate-limit Worker traffic or require browser-like sessions. The repo includes a Node.js scanner you run from your Mac that hits those APIs and POSTs results to the live Worker via `POST /api/local-jobs`.
+
+```bash
+# One-time
+SCAN_KEY=<your-key> node scripts/local-scan.mjs
+
+# Add to a daily cron / Cowork schedule:
+0 5 * * *   SCAN_KEY=<your-key> node /path/to/scripts/local-scan.mjs
+```
+
+The script ships with one scanner (Zendesk via Workday). To add more, follow the `scanWorkday` template in `scripts/local-scan.mjs` — pattern is identical for any Workday tenant once you find the right `host` and `site` from their careers page.
+
+The Worker's `/api/local-jobs` endpoint replaces all `source: "local"` postings with the new batch each call, so an empty array clears local jobs. Cloud-scanned and locally-scanned postings live in the same KV but never overwrite each other.
+
+---
+
 ## Modifying the tracked companies / keywords
 
 Edit `src/worker.js`:

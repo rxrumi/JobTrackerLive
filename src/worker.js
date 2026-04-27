@@ -249,6 +249,10 @@ export async function runScan(env) {
   const merged = {};
   for (const [id, p] of Object.entries(prev.postings)) {
     if (found[id]) continue;
+    if (p.source === "local") {
+      merged[id] = p;
+      continue;
+    }
     const filledDate = p.last_filled || today;
     if (daysBetween(filledDate, today) <= 7) {
       merged[id] = { ...p, last_filled: filledDate };
@@ -268,6 +272,70 @@ export async function runScan(env) {
   }));
 
   return { okCount, failCount, total: Object.keys(merged).length };
+}
+
+async function mergeLocalJobs(env, incoming) {
+  const today = todayUTC();
+  const prev = (await env.KV.get("state", "json")) || { postings: {} };
+  const merged = {};
+
+  // Keep all non-local postings as-is (cloud sources)
+  for (const [id, p] of Object.entries(prev.postings)) {
+    if (p.source !== "local") merged[id] = p;
+  }
+
+  // Replace local postings with the new batch
+  let added = 0;
+  for (const j of incoming) {
+    if (!j.company || !j.title || !j.url) continue;
+    const loc = j.city && j.country ? { city: j.city, country: j.country } : matchCountry(j.location);
+    if (!loc) continue;
+    const id = j.id ? `local-${j.company}-${j.id}` : `local-${j.company}-${hashStr(j.url)}`;
+    const fit = j.stack_fit || classifyFit(j.company.toLowerCase());
+    const visa = j.visa || "Strong";
+    const existed = prev.postings[id];
+    merged[id] = {
+      id,
+      source: "local",
+      company: j.company,
+      title: j.title,
+      location: j.location || `${loc.city}, ${loc.country}`,
+      city: loc.city,
+      country: loc.country,
+      url: j.url,
+      tier: j.tier || classifyTier(j.company.toLowerCase()),
+      stack_fit: fit,
+      visa,
+      score: j.score || calcScore(fit, visa),
+      first_seen: existed?.first_seen || today,
+      last_seen: today,
+      last_filled: null
+    };
+    added++;
+  }
+
+  const prevState = (await env.KV.get("state", "json")) || {};
+  const next = {
+    ...prevState,
+    last_local_scan_at: new Date().toISOString(),
+    postings: merged
+  };
+  await env.KV.put("state", JSON.stringify(next));
+  await env.KV.put("jobs", JSON.stringify({
+    last_scan: next.last_scan,
+    last_scan_at: next.last_scan_at,
+    last_local_scan_at: next.last_local_scan_at,
+    scan_meta: next.scan_meta,
+    postings: Object.values(merged)
+  }));
+
+  return { added, total: Object.keys(merged).length };
+}
+
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36);
 }
 
 export default {
@@ -295,6 +363,19 @@ export default {
         return new Response("unauthorized", { status: 401 });
       }
       const result = await runScan(env);
+      return Response.json(result);
+    }
+
+    if (url.pathname === "/api/local-jobs" && request.method === "POST") {
+      const auth = request.headers.get("X-Scan-Key") || url.searchParams.get("key");
+      if (auth !== env.SCAN_KEY) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      const body = await request.json().catch(() => null);
+      if (!body || !Array.isArray(body.jobs)) {
+        return Response.json({ error: "expected { jobs: [...] }" }, { status: 400 });
+      }
+      const result = await mergeLocalJobs(env, body.jobs);
       return Response.json(result);
     }
 
