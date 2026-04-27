@@ -1,6 +1,7 @@
 name = "job-tracker"
 main = "src/worker.js"
 compatibility_date = "2025-04-01"
+workers_dev = true
 
 [[kv_namespaces]]
 binding = "KV"
@@ -16,3 +17,13 @@ not_found_handling = "single-page-application"
 
 [observability]
 enabled = true
+
+[[routes]]
+pattern = "resumeforjd.com"
+custom_domain = true
+zone_id = "26201f140ccd499dca6a53206fe8e253"
+
+[[routes]]
+pattern = "www.resumeforjd.com"
+custom_domain = true
+zone_id = "26201f140ccd499dca6a53206fe8e253"

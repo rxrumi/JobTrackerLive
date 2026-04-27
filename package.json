@@ -8,6 +8,6 @@
     "scan": "wrangler tail --format pretty"
   },
   "devDependencies": {
-    "wrangler": "^3.95.0"
+    "wrangler": "^4.85.0"
   }
 }
