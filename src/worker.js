@@ -1,6 +1,6 @@
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
-// Cron handler (0 3 * * * UTC = 7 AM Dubai) scans Greenhouse APIs daily.
+// Cron handler (0 3 * * * UTC = 7 AM Dubai) scans supported ATS APIs daily.
 
 const GREENHOUSE_TOKENS = [
   "gongio", "klaviyo", "datadog", "cloudflare", "hubspot",
@@ -8,7 +8,8 @@ const GREENHOUSE_TOKENS = [
   "brex", "mercury", "vercel", "typeform", "feedzai",
   "mentimeter", "trustpilot", "twilio", "asana",
   "databricks", "mongodb", "elastic", "remote",
-  "sumologic", "contentful", "n26", "cognite"
+  "sumologic", "contentful", "n26", "cognite",
+  "talkdesk2", "boxinc"
 ];
 
 const ASHBY_TOKENS = [
@@ -19,6 +20,8 @@ const ASHBY_TOKENS = [
 const LEVER_TOKENS = ["pipedrive"];
 
 const SMARTRECRUITERS_TOKENS = ["canva", "wise"];
+const ACTIVE_SOURCES = new Set(["greenhouse", "ashby", "lever", "smartrecruiters"]);
+const FAILURE_ABORT_RATIO = 0.5;
 
 const CITY_TO_COUNTRY = {
   "London": "GB", "Manchester": "GB", "Edinburgh": "GB",
@@ -38,6 +41,27 @@ const CITY_TO_COUNTRY = {
   "Auckland": "NZ", "Wellington": "NZ"
 };
 
+const COUNTRY_HINTS = {
+  "united kingdom": { country: "GB", city: "United Kingdom" },
+  "great britain": { country: "GB", city: "United Kingdom" },
+  "england": { country: "GB", city: "United Kingdom" },
+  "uk": { country: "GB", city: "United Kingdom" },
+  "ireland": { country: "IE", city: "Ireland" },
+  "canada": { country: "CA", city: "Canada" },
+  "australia": { country: "AU", city: "Australia" },
+  "singapore": { country: "SG", city: "Singapore" },
+  "germany": { country: "DE", city: "Germany" },
+  "netherlands": { country: "NL", city: "Netherlands" },
+  "switzerland": { country: "CH", city: "Switzerland" },
+  "sweden": { country: "SE", city: "Sweden" },
+  "denmark": { country: "DK", city: "Denmark" },
+  "norway": { country: "NO", city: "Norway" },
+  "spain": { country: "ES", city: "Spain" },
+  "portugal": { country: "PT", city: "Portugal" },
+  "estonia": { country: "EE", city: "Estonia" },
+  "new zealand": { country: "NZ", city: "New Zealand" }
+};
+
 const ROLE_KEYWORDS = [
   "revenue operations", "revops", "rev ops",
   "sales operations", "sales ops",
@@ -49,10 +73,28 @@ const ROLE_KEYWORDS = [
   "strategy and operations", "strategy & operations"
 ];
 
+const COMPANY_ALIASES = {
+  talkdesk2: "talkdesk",
+  boxinc: "box"
+};
+
 const HIGH_FIT_COMPANIES = new Set([
   "hubspot", "gongio", "klaviyo", "pleo", "personio",
   "typeform", "factorialhr", "talkdesk", "mollie", "pipedrive",
   "mentimeter", "deel", "kahoot", "notion", "xero", "trustpilot", "miro"
+]);
+
+const STRONG_VISA_COMPANIES = new Set([
+  "hubspot", "datadog", "cloudflare", "gitlab", "figma", "twilio",
+  "databricks", "mongodb", "elastic", "confluent", "deel", "snowflake",
+  "xero", "canva", "wise"
+]);
+
+const LIKELY_VISA_COMPANIES = new Set([
+  "gongio", "klaviyo", "pleo", "celonis", "airtable", "brex", "mercury",
+  "vercel", "typeform", "feedzai", "mentimeter", "trustpilot", "asana",
+  "remote", "sumologic", "contentful", "n26", "cognite", "linear",
+  "mollie", "notion", "ramp", "pipedrive", "talkdesk", "box"
 ]);
 
 const ECOSYSTEM_COMPANIES = new Set([...HIGH_FIT_COMPANIES, "outsystems"]);
@@ -65,8 +107,12 @@ const SCALEUP_COMPANIES = new Set([
 
 function matchCountry(locationName) {
   if (!locationName) return null;
+  const normalized = locationName.toLowerCase();
   for (const [city, code] of Object.entries(CITY_TO_COUNTRY)) {
-    if (locationName.includes(city)) return { country: code, city };
+    if (normalized.includes(city.toLowerCase())) return { country: code, city };
+  }
+  for (const [hint, loc] of Object.entries(COUNTRY_HINTS)) {
+    if (normalized.includes(hint)) return loc;
   }
   return null;
 }
@@ -78,13 +124,25 @@ function matchKeywords(title) {
 }
 
 function classifyTier(token) {
-  if (ECOSYSTEM_COMPANIES.has(token)) return "Ecosystem";
-  if (SCALEUP_COMPANIES.has(token)) return "Scaleup";
+  const company = canonicalCompany(token);
+  if (ECOSYSTEM_COMPANIES.has(company)) return "Ecosystem";
+  if (SCALEUP_COMPANIES.has(company)) return "Scaleup";
   return "BigTech";
 }
 
 function classifyFit(token) {
-  return HIGH_FIT_COMPANIES.has(token) ? "High" : "Med";
+  return HIGH_FIT_COMPANIES.has(canonicalCompany(token)) ? "High" : "Med";
+}
+
+function classifyVisa(token) {
+  const company = canonicalCompany(token);
+  if (STRONG_VISA_COMPANIES.has(company)) return "Strong";
+  if (LIKELY_VISA_COMPANIES.has(company)) return "Likely";
+  return "Unknown";
+}
+
+function canonicalCompany(token) {
+  return COMPANY_ALIASES[token] || token;
 }
 
 function calcScore(fit, visa) {
@@ -100,6 +158,14 @@ function todayUTC() {
 function daysBetween(a, b) {
   const ms = new Date(b) - new Date(a);
   return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function sourceId(source) {
+  return `${source.source}-${source.token}`;
+}
+
+function postingSourceId(posting) {
+  return `${posting.source}-${posting.source_token || posting.company}`;
 }
 
 async function fetchJSON(url) {
@@ -190,6 +256,8 @@ export async function runScan(env) {
   const today = todayUTC();
   const prev = (await env.KV.get("state", "json")) || { postings: {} };
   const found = {};
+  const failedSources = new Set();
+  const okSources = new Set();
   let okCount = 0;
   let failCount = 0;
 
@@ -202,15 +270,24 @@ export async function runScan(env) {
 
   for (let i = 0; i < sources.length; i += 8) {
     const batch = sources.slice(i, i + 8);
-    const results = await Promise.allSettled(batch.map(async s => ({ s, jobs: await s.fetch(s.token) })));
+    const results = await Promise.allSettled(batch.map(async s => {
+      try {
+        return { s, jobs: await s.fetch(s.token) };
+      } catch {
+        return { s, jobs: null };
+      }
+    }));
 
     for (const r of results) {
       if (r.status !== "fulfilled" || !r.value.jobs) {
         failCount++;
+        const failed = r.status === "fulfilled" ? r.value.s : null;
+        if (failed) failedSources.add(sourceId(failed));
         continue;
       }
       okCount++;
       const { s, jobs } = r.value;
+      okSources.add(sourceId(s));
       for (const job of jobs) {
         const loc = matchCountry(job.location);
         if (!loc) continue;
@@ -219,12 +296,13 @@ export async function runScan(env) {
         const id = `${s.source}-${s.token}-${job.id}`;
         const existed = prev.postings[id];
         const fit = classifyFit(s.token);
-        const visa = "Strong";
+        const visa = classifyVisa(s.token);
 
         found[id] = {
           id,
           source: s.source,
-          company: s.token,
+          source_token: s.token,
+          company: canonicalCompany(s.token),
           title: job.title,
           location: job.location,
           city: loc.city,
@@ -243,13 +321,25 @@ export async function runScan(env) {
   }
 
   if (okCount === 0) {
-    return { error: "all_fetch_failed", okCount, failCount };
+    return { error: "all_fetch_failed", okCount, failCount, failedSources: [...failedSources] };
+  }
+
+  const totalBoards = sources.length;
+  if (failCount / totalBoards > FAILURE_ABORT_RATIO) {
+    return {
+      error: "too_many_fetch_failures",
+      okCount,
+      failCount,
+      totalBoards,
+      failedSources: [...failedSources]
+    };
   }
 
   const merged = {};
   for (const [id, p] of Object.entries(prev.postings)) {
     if (found[id]) continue;
-    if (p.source === "local") {
+    if (!ACTIVE_SOURCES.has(p.source)) continue;
+    if (failedSources.has(postingSourceId(p))) {
       merged[id] = p;
       continue;
     }
@@ -260,8 +350,18 @@ export async function runScan(env) {
   }
   Object.assign(merged, found);
 
-  const totalBoards = GREENHOUSE_TOKENS.length + ASHBY_TOKENS.length + LEVER_TOKENS.length + SMARTRECRUITERS_TOKENS.length;
-  const next = { last_scan: today, last_scan_at: new Date().toISOString(), postings: merged, scan_meta: { okCount, failCount, totalBoards } };
+  const next = {
+    last_scan: today,
+    last_scan_at: new Date().toISOString(),
+    postings: merged,
+    scan_meta: {
+      okCount,
+      failCount,
+      totalBoards,
+      okSources: [...okSources],
+      failedSources: [...failedSources]
+    }
+  };
 
   await env.KV.put("state", JSON.stringify(next));
   await env.KV.put("jobs", JSON.stringify({
@@ -272,70 +372,6 @@ export async function runScan(env) {
   }));
 
   return { okCount, failCount, total: Object.keys(merged).length };
-}
-
-async function mergeLocalJobs(env, incoming) {
-  const today = todayUTC();
-  const prev = (await env.KV.get("state", "json")) || { postings: {} };
-  const merged = {};
-
-  // Keep all non-local postings as-is (cloud sources)
-  for (const [id, p] of Object.entries(prev.postings)) {
-    if (p.source !== "local") merged[id] = p;
-  }
-
-  // Replace local postings with the new batch
-  let added = 0;
-  for (const j of incoming) {
-    if (!j.company || !j.title || !j.url) continue;
-    const loc = j.city && j.country ? { city: j.city, country: j.country } : matchCountry(j.location);
-    if (!loc) continue;
-    const id = j.id ? `local-${j.company}-${j.id}` : `local-${j.company}-${hashStr(j.url)}`;
-    const fit = j.stack_fit || classifyFit(j.company.toLowerCase());
-    const visa = j.visa || "Strong";
-    const existed = prev.postings[id];
-    merged[id] = {
-      id,
-      source: "local",
-      company: j.company,
-      title: j.title,
-      location: j.location || `${loc.city}, ${loc.country}`,
-      city: loc.city,
-      country: loc.country,
-      url: j.url,
-      tier: j.tier || classifyTier(j.company.toLowerCase()),
-      stack_fit: fit,
-      visa,
-      score: j.score || calcScore(fit, visa),
-      first_seen: existed?.first_seen || today,
-      last_seen: today,
-      last_filled: null
-    };
-    added++;
-  }
-
-  const prevState = (await env.KV.get("state", "json")) || {};
-  const next = {
-    ...prevState,
-    last_local_scan_at: new Date().toISOString(),
-    postings: merged
-  };
-  await env.KV.put("state", JSON.stringify(next));
-  await env.KV.put("jobs", JSON.stringify({
-    last_scan: next.last_scan,
-    last_scan_at: next.last_scan_at,
-    last_local_scan_at: next.last_local_scan_at,
-    scan_meta: next.scan_meta,
-    postings: Object.values(merged)
-  }));
-
-  return { added, total: Object.keys(merged).length };
-}
-
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h).toString(36);
 }
 
 export default {
@@ -358,24 +394,11 @@ export default {
     }
 
     if (url.pathname === "/api/scan-now") {
-      const auth = url.searchParams.get("key");
+      const auth = request.headers.get("X-Scan-Key");
       if (auth !== env.SCAN_KEY) {
         return new Response("unauthorized", { status: 401 });
       }
       const result = await runScan(env);
-      return Response.json(result);
-    }
-
-    if (url.pathname === "/api/local-jobs" && request.method === "POST") {
-      const auth = request.headers.get("X-Scan-Key") || url.searchParams.get("key");
-      if (auth !== env.SCAN_KEY) {
-        return new Response("unauthorized", { status: 401 });
-      }
-      const body = await request.json().catch(() => null);
-      if (!body || !Array.isArray(body.jobs)) {
-        return Response.json({ error: "expected { jobs: [...] }" }, { status: 400 });
-      }
-      const result = await mergeLocalJobs(env, body.jobs);
       return Response.json(result);
     }
 
