@@ -106,6 +106,36 @@ test("runScan applies company aliases for display and classification", async t =
   assert.equal(payload.postings[0].visa, "Likely");
 });
 
+test("runScan excludes broad operations false positives", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      canva: {
+        content: [{
+          id: "legal-1",
+          name: "Senior Legal Counsel, Business Operations",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "ops-1",
+          name: "Marketing Operations Specialist",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }],
+        totalFound: 2
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  assert.equal(payload.postings.length, 1);
+  assert.equal(payload.postings[0].title, "Marketing Operations Specialist");
+});
+
 test("runScan preserves previous postings from a failed active source", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     failedTokens: new Set(["hubspot"])

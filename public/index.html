@@ -118,7 +118,7 @@ tbody tr.is-filled .role { font-style: italic; }
 
 .company { font-weight: 500; }
 .role { color: var(--text); }
-.tier-badge, .fit-badge, .visa-badge, .new-badge, .filled-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.tier-badge, .fit-badge, .visa-badge, .new-badge, .filled-badge, .source-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .tier-bigtech { background: var(--tier-bigtech-bg); color: var(--tier-bigtech-fg); }
 .tier-scaleup { background: var(--tier-scaleup-bg); color: var(--tier-scaleup-fg); }
 .tier-ecosystem { background: var(--tier-ecosystem-bg); color: var(--tier-ecosystem-fg); }
@@ -143,6 +143,7 @@ tbody tr.is-filled .role { font-style: italic; }
 
 .new-badge { background: var(--new); color: var(--new-fg); margin-left: 6px; }
 .filled-badge { background: var(--fit-low-bg); color: var(--fit-low-fg); margin-left: 6px; }
+.source-badge { background: var(--hover); color: var(--muted); margin-left: 6px; }
 
 .apply-btn { padding: 5px 12px; background: var(--accent); color: var(--accent-fg); border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: 500; display: inline-block; transition: opacity 0.15s; white-space: nowrap; border: 0; cursor: pointer; font-family: inherit; }
 .apply-btn:hover { opacity: 0.85; }
@@ -219,7 +220,8 @@ tbody tr.is-filled .role { font-style: italic; }
 </div>
 
 <nav class="tabs" id="tabs">
-  <button class="tab active" data-tab="active">Active <span class="count" id="count-active">—</span></button>
+  <button class="tab active" data-tab="active">Live jobs <span class="count" id="count-active">—</span></button>
+  <button class="tab" data-tab="targets">Targets <span class="count" id="count-targets">—</span></button>
   <button class="tab" data-tab="pipeline">My pipeline <span class="count" id="count-pipeline">—</span></button>
   <button class="tab" data-tab="archive">Archive <span class="count" id="count-archive">—</span></button>
 </nav>
@@ -283,7 +285,7 @@ tbody tr.is-filled .role { font-style: italic; }
       <th data-sort="location">Location</th>
       <th>Tier · Stack · Visa</th>
       <th data-sort="score" class="sorted">Score</th>
-      <th>Apply</th>
+      <th>Link</th>
       <th data-col="notes">Notes</th>
       <th data-sort="status">Status</th>
     </tr>
@@ -300,6 +302,7 @@ tbody tr.is-filled .role { font-style: italic; }
     <strong>Stack fit:</strong> High = HubSpot/Clay/Gong/Outreach core to the role · Med = generic SFDC/HubSpot RevOps · Low = unfamiliar stack required.
     <strong>Visa:</strong> Strong = company is a known repeat sponsor at this location · Likely = international scale-up that sponsors selectively · Unknown = check careers page.
     <strong>Score:</strong> weighted blend of stack fit (40%), visa likelihood (40%), seniority match (20%).
+    <strong>LIVE</strong> = exact posting from a public ATS API. <strong>TARGET</strong> = curated company/search link, not a confirmed open role.
     <strong>NEW</strong> = first detected within the last 7 days. <strong>Filled</strong> = last seen in a previous scan, no longer listed (auto-prunes after 7 days).
     Status saves locally in your browser per device. Star a job (★) to pin it to the top.
   </div>
@@ -433,6 +436,14 @@ let JOBS = [];
 let LAST_SCAN = null;
 
 function buildJobs(dynamicPostings) {
+  const staticMapped = STATIC_JOBS.map(j => ({
+    ...j,
+    id: `static-${j.id}`,
+    is_static: true,
+    is_new: false,
+    is_filled: false
+  }));
+
   const dynamicMapped = dynamicPostings.map(p => ({
     id: p.id,
     company: prettyCompany(p.company),
@@ -444,12 +455,13 @@ function buildJobs(dynamicPostings) {
     visa: p.visa,
     apply: p.url,
     notes: p.last_filled ? `Last seen ${p.last_seen} — no longer listed` : `Auto-detected ${daysSince(p.first_seen)}d ago via ${p.company} careers`,
+    is_static: false,
     is_new: !p.last_filled && daysSince(p.first_seen) <= 7,
     is_filled: !!p.last_filled,
     score: p.score
   }));
 
-  JOBS = [...STATIC_JOBS, ...dynamicMapped];
+  JOBS = [...dynamicMapped, ...staticMapped];
   JOBS.forEach(j => {
     if (!j.score) j.score = calcScore(j);
     j.location = `${COUNTRY_FLAGS[j.country]} ${j.city}`;
@@ -471,8 +483,10 @@ const state = {
 
 function tabBucket(j) {
   const status = loadStatus(j.id);
-  if (j.is_filled || ARCHIVE_STATUSES.has(status)) return 'archive';
+  if (ARCHIVE_STATUSES.has(status)) return 'archive';
   if (PIPELINE_STATUSES.has(status)) return 'pipeline';
+  if (j.is_static) return 'targets';
+  if (j.is_filled) return 'archive';
   return 'active';
 }
 
@@ -572,7 +586,8 @@ function statusSelectHTML(id) {
 }
 
 function applyButtonHTML(j) {
-  return `<a class="apply-btn" href="${j.apply}" target="_blank" rel="noopener" data-id="${j.id}">Apply →</a>`;
+  const label = j.is_static ? 'Search roles ->' : 'Apply ->';
+  return `<a class="apply-btn" href="${j.apply}" target="_blank" rel="noopener" data-id="${j.id}">${label}</a>`;
 }
 
 function starHTML(id) {
@@ -615,9 +630,10 @@ function renderStats() {
 }
 
 function renderTabs() {
-  const buckets = { active: 0, pipeline: 0, archive: 0 };
+  const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0 };
   JOBS.forEach(j => buckets[tabBucket(j)]++);
   document.getElementById('count-active').textContent = buckets.active;
+  document.getElementById('count-targets').textContent = buckets.targets;
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
   document.getElementById('count-archive').textContent = buckets.archive;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === state.tab));
@@ -626,10 +642,11 @@ function renderTabs() {
 function rowHTML(j) {
   const newBadge = j.is_new ? `<span class="new-badge">NEW</span>` : '';
   const filledBadge = j.is_filled ? `<span class="filled-badge">FILLED</span>` : '';
+  const sourceBadge = `<span class="source-badge">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
   const rowCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled' : '');
   const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   return `<tr class="${rowCls.trim()}">
-    <td class="company">${starHTML(j.id)} ${j.company}${newBadge}${filledBadge}</td>
+    <td class="company">${starHTML(j.id)} ${j.company}${sourceBadge}${newBadge}${filledBadge}</td>
     <td class="role">${j.role}</td>
     <td>${j.location}</td>
     <td>${compositeBadgesHTML(j)}</td>
@@ -643,12 +660,13 @@ function rowHTML(j) {
 function cardHTML(j) {
   const newBadge = j.is_new ? `<span class="new-badge">NEW</span>` : '';
   const filledBadge = j.is_filled ? `<span class="filled-badge">FILLED</span>` : '';
+  const sourceBadge = `<span class="source-badge">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
   const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled' : '');
   const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   return `<article class="job-card ${cardCls.trim()}">
     <div class="card-line-1">
       ${starHTML(j.id)}
-      <span class="company">${j.company}${newBadge}${filledBadge}</span>
+      <span class="company">${j.company}${sourceBadge}${newBadge}${filledBadge}</span>
       <span class="score-cell">${scoreBarHTML(j.score)}<span class="score ${scoreClass}">${j.score}</span></span>
     </div>
     <div class="card-line-2">${j.role}</div>
@@ -712,6 +730,8 @@ function wireRowHandlers() {
   document.querySelectorAll('.apply-btn').forEach(a => {
     a.onclick = () => {
       const id = a.dataset.id;
+      const job = JOBS.find(j => String(j.id) === String(id));
+      if (job?.is_static) return;
       const cur = loadStatus(id);
       if (cur === 'Not started' || cur === 'Saved') {
         saveStatus(id, 'Applied');

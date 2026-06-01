@@ -73,6 +73,13 @@ const ROLE_KEYWORDS = [
   "strategy and operations", "strategy & operations"
 ];
 
+const EXCLUDED_TITLE_KEYWORDS = [
+  "intern", "internship",
+  "legal counsel", "senior legal counsel", "counsel, business operations",
+  "engineering lead", "engineer", "developer",
+  "risk, ethics", "advocacy & legal"
+];
+
 const COMPANY_ALIASES = {
   talkdesk2: "talkdesk",
   boxinc: "box"
@@ -120,6 +127,7 @@ function matchCountry(locationName) {
 function matchKeywords(title) {
   if (!title) return false;
   const t = title.toLowerCase();
+  if (EXCLUDED_TITLE_KEYWORDS.some(k => t.includes(k))) return false;
   return ROLE_KEYWORDS.some(k => t.includes(k));
 }
 
