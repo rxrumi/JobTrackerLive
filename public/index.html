@@ -14,9 +14,9 @@
   --tier-bigtech-bg: #E6F1FB; --tier-bigtech-fg: #0C447C;
   --tier-scaleup-bg: #EEEDFE; --tier-scaleup-fg: #3C3489;
   --tier-ecosystem-bg: #E1F5EE; --tier-ecosystem-fg: #085041;
-  --fit-high-bg: #EAF3DE; --fit-high-fg: #27500A;
-  --fit-med-bg: #FAEEDA; --fit-med-fg: #633806;
-  --fit-low-bg: #F1EFE8; --fit-low-fg: #444441;
+  --family-bg: #EAF3DE; --family-fg: #27500A;
+  --seniority-bg: #FAEEDA; --seniority-fg: #633806;
+  --neutral-bg: #F1EFE8; --neutral-fg: #444441;
   --visa-strong-bg: #EAF3DE; --visa-strong-fg: #27500A;
   --visa-likely-bg: #FAEEDA; --visa-likely-fg: #633806;
   --visa-unknown-bg: #F1EFE8; --visa-unknown-fg: #444441;
@@ -31,9 +31,9 @@
   --tier-bigtech-bg: rgba(91,176,235,0.12); --tier-bigtech-fg: #91c0eb;
   --tier-scaleup-bg: rgba(160,156,230,0.12); --tier-scaleup-fg: #c0bdf4;
   --tier-ecosystem-bg: rgba(120,200,170,0.12); --tier-ecosystem-fg: #88d4ba;
-  --fit-high-bg: rgba(160,210,120,0.14); --fit-high-fg: #b8d893;
-  --fit-med-bg: rgba(220,150,80,0.14); --fit-med-fg: #f0c178;
-  --fit-low-bg: rgba(200,200,190,0.08); --fit-low-fg: #b8b8b0;
+  --family-bg: rgba(160,210,120,0.14); --family-fg: #b8d893;
+  --seniority-bg: rgba(220,150,80,0.14); --seniority-fg: #f0c178;
+  --neutral-bg: rgba(200,200,190,0.08); --neutral-fg: #b8b8b0;
   --visa-strong-bg: rgba(160,210,120,0.14); --visa-strong-fg: #b8d893;
   --visa-likely-bg: rgba(220,150,80,0.14); --visa-likely-fg: #f0c178;
   --visa-unknown-bg: rgba(200,200,190,0.08); --visa-unknown-fg: #b8b8b0;
@@ -118,13 +118,12 @@ tbody tr.is-filled .role { font-style: italic; }
 
 .company { font-weight: 500; }
 .role { color: var(--text); }
-.tier-badge, .fit-badge, .visa-badge, .new-badge, .filled-badge, .source-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.tier-badge, .family-badge, .seniority-badge, .visa-badge, .new-badge, .filled-badge, .source-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .tier-bigtech { background: var(--tier-bigtech-bg); color: var(--tier-bigtech-fg); }
 .tier-scaleup { background: var(--tier-scaleup-bg); color: var(--tier-scaleup-fg); }
 .tier-ecosystem { background: var(--tier-ecosystem-bg); color: var(--tier-ecosystem-fg); }
-.fit-high { background: var(--fit-high-bg); color: var(--fit-high-fg); }
-.fit-med { background: var(--fit-med-bg); color: var(--fit-med-fg); }
-.fit-low { background: var(--fit-low-bg); color: var(--fit-low-fg); }
+.family-badge { background: var(--family-bg); color: var(--family-fg); }
+.seniority-badge { background: var(--seniority-bg); color: var(--seniority-fg); }
 .visa-strong { background: var(--visa-strong-bg); color: var(--visa-strong-fg); }
 .visa-likely { background: var(--visa-likely-bg); color: var(--visa-likely-fg); }
 .visa-unknown { background: var(--visa-unknown-bg); color: var(--visa-unknown-fg); }
@@ -142,7 +141,7 @@ tbody tr.is-filled .role { font-style: italic; }
 .score-low { color: var(--score-low); }
 
 .new-badge { background: var(--new); color: var(--new-fg); margin-left: 6px; }
-.filled-badge { background: var(--fit-low-bg); color: var(--fit-low-fg); margin-left: 6px; }
+.filled-badge { background: var(--neutral-bg); color: var(--neutral-fg); margin-left: 6px; }
 .source-badge { background: var(--hover); color: var(--muted); margin-left: 6px; }
 
 .apply-btn { padding: 5px 12px; background: var(--accent); color: var(--accent-fg); border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: 500; display: inline-block; transition: opacity 0.15s; white-space: nowrap; border: 0; cursor: pointer; font-family: inherit; }
@@ -151,12 +150,12 @@ tbody tr.is-filled .role { font-style: italic; }
 .status-select { padding: 4px 8px; border-radius: 6px; border: 0.5px solid var(--border); font-size: 12px; background: var(--card); color: var(--text); cursor: pointer; min-width: 110px; font-family: inherit; }
 .status-saved { background: var(--tier-bigtech-bg); color: var(--tier-bigtech-fg); }
 .status-applied { background: var(--tier-scaleup-bg); color: var(--tier-scaleup-fg); }
-.status-screen { background: var(--fit-med-bg); color: var(--fit-med-fg); }
+.status-screen { background: var(--seniority-bg); color: var(--seniority-fg); }
 .status-interview { background: var(--new); color: var(--new-fg); }
 .status-final { background: #EF9F27; color: #412402; font-weight: 500; }
 .status-offer { background: #97C459; color: #173404; font-weight: 500; }
 .status-rejected { background: #F7C1C1; color: #501313; }
-.status-onhold { background: var(--fit-low-bg); color: var(--fit-low-fg); }
+.status-onhold { background: var(--neutral-bg); color: var(--neutral-fg); }
 
 .notes-cell { color: var(--muted); font-size: 12px; max-width: 220px; }
 
@@ -212,8 +211,8 @@ tbody tr.is-filled .role { font-style: italic; }
 <body>
 <div class="header-row">
   <div>
-    <h1>Job search abroad — live tracker</h1>
-    <p class="subtitle">RevOps · BizOps · Sales Ops · Marketing Ops · curated for visa sponsorship</p>
+    <h1>Tech jobs abroad — live tracker</h1>
+    <p class="subtitle">Engineering · Product · Design · Data · Sales · Marketing · Finance · Operations · visa-aware</p>
     <p class="last-scan" id="last-scan">Loading dynamic postings...</p>
   </div>
   <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">☾</button>
@@ -238,16 +237,20 @@ tbody tr.is-filled .role { font-style: italic; }
     <summary>Tier <span class="badge-count" id="bc-tier">0</span></summary>
     <div class="filter-popup" id="filter-tier"></div>
   </details>
-  <details class="filter-dropdown" data-cat="fit">
-    <summary>Stack fit <span class="badge-count" id="bc-fit">0</span></summary>
-    <div class="filter-popup" id="filter-fit"></div>
+  <details class="filter-dropdown" data-cat="family">
+    <summary>Role family <span class="badge-count" id="bc-family">0</span></summary>
+    <div class="filter-popup" id="filter-family"></div>
+  </details>
+  <details class="filter-dropdown" data-cat="seniority">
+    <summary>Seniority <span class="badge-count" id="bc-seniority">0</span></summary>
+    <div class="filter-popup" id="filter-seniority"></div>
   </details>
   <details class="filter-dropdown" data-cat="visa">
     <summary>Visa <span class="badge-count" id="bc-visa">0</span></summary>
     <div class="filter-popup" id="filter-visa"></div>
   </details>
   <span class="preset-divider"></span>
-  <button class="chip preset" data-preset="high-fit">High fit</button>
+  <button class="chip preset" data-preset="senior">Senior+</button>
   <button class="chip preset" data-preset="strong-visa">Strong visa</button>
   <button class="chip preset" data-preset="new">NEW ≤7d</button>
   <button class="chip preset" data-preset="starred">★ Starred</button>
@@ -255,7 +258,7 @@ tbody tr.is-filled .role { font-style: italic; }
 
 <div class="search-row">
   <div class="search-wrap" id="search-wrap">
-    <input type="text" class="search" id="search" placeholder="Search company, role, city, notes..." />
+    <input type="text" class="search" id="search" placeholder="Search company, role, family, city, notes..." />
     <button class="search-clear" id="search-clear" aria-label="Clear search">×</button>
   </div>
   <select class="sort-select" id="sort-select">
@@ -283,8 +286,8 @@ tbody tr.is-filled .role { font-style: italic; }
       <th data-sort="company">Company</th>
       <th data-sort="role">Role</th>
       <th data-sort="location">Location</th>
-      <th>Tier · Stack · Visa</th>
-      <th data-sort="score" class="sorted">Score</th>
+      <th>Tier · Family · Seniority · Visa</th>
+      <th data-sort="score" class="sorted">Opportunity</th>
       <th>Link</th>
       <th data-col="notes">Notes</th>
       <th data-sort="status">Status</th>
@@ -297,11 +300,12 @@ tbody tr.is-filled .role { font-style: italic; }
 <div class="job-cards" id="job-cards"></div>
 
 <details class="legend-details">
-  <summary>Score &amp; badges legend</summary>
+  <summary>Opportunity score &amp; badges legend</summary>
   <div class="legend">
-    <strong>Stack fit:</strong> High = HubSpot/Clay/Gong/Outreach core to the role · Med = generic SFDC/HubSpot RevOps · Low = unfamiliar stack required.
+    <strong>Role family:</strong> broad job-function category inferred from the title, with static targets showing suggested families.
+    <strong>Seniority:</strong> inferred from title terms such as associate, manager, senior, lead, director, head, VP, and executive.
     <strong>Visa:</strong> Strong = company is a known repeat sponsor at this location · Likely = international scale-up that sponsors selectively · Unknown = check careers page.
-    <strong>Score:</strong> weighted blend of stack fit (40%), visa likelihood (40%), seniority match (20%).
+    <strong>Opportunity:</strong> weighted blend of visa likelihood (50%), seniority (30%), and freshness (20%).
     <strong>LIVE</strong> = exact posting from a public ATS API. <strong>TARGET</strong> = curated company/search link, not a confirmed open role.
     <strong>NEW</strong> = first detected within the last 7 days. <strong>Filled</strong> = last seen in a previous scan, no longer listed (auto-prunes after 7 days).
     Status saves locally in your browser per device. Star a job (★) to pin it to the top.
@@ -309,116 +313,120 @@ tbody tr.is-filled .role { font-style: italic; }
 </details>
 
 <script>
-const STATIC_JOBS = [
-  { id: 1, company: 'HubSpot', role: 'Senior Revenue Operations Manager', country: 'IE', city: 'Dublin', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin&teamId=Revenue%20Operations', notes: 'HubSpot HQ EMEA — your stack is their stack. Strongest fit overall.' },
-  { id: 2, company: 'HubSpot', role: 'Sales Operations Manager APAC', country: 'SG', city: 'Singapore', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Singapore', notes: 'HubSpot APAC hub — Employment Pass routinely granted.' },
-  { id: 3, company: 'HubSpot', role: 'Revenue Operations Lead APAC', country: 'AU', city: 'Sydney', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Sydney', notes: '482 visa sponsor; APAC growth office.' },
-  { id: 4, company: 'HubSpot', role: 'Sales Operations DACH', country: 'DE', city: 'Berlin', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Berlin', notes: 'EU Blue Card path — German skills helpful but not required.' },
-  { id: 5, company: 'HubSpot', role: 'Marketing Operations Manager', country: 'IE', city: 'Dublin', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin&teamId=Marketing', notes: 'Marketing Ops at HubSpot — meta-fit for the platform itself.' },
-  { id: 6, company: 'Stripe', role: 'Operations Manager, GTM Accelerate', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'High', visa: 'Strong', apply: 'https://stripe.com/jobs/listing/operations-manager-gtm-accelerate/7348391', notes: 'Confirmed live posting — leads inaugural Dublin SDC team.' },
-  { id: 7, company: 'Stripe', role: 'Revenue Operations / GTM Ops', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=Europe--London&teams=Sales%2C+Solutions+%26+Support', notes: 'Stripe London GTM team; Skilled Worker visa standard.' },
-  { id: 8, company: 'Stripe', role: 'GTM Operations APAC', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=Asia+Pacific--Singapore', notes: 'APAC HQ; high bar but established sponsor.' },
-  { id: 9, company: 'Gong', role: 'Senior Manager, GTM Field Operations', country: 'IE', city: 'Dublin', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?departments[]=Operations&offices[]=Dublin', notes: 'Gong scaling Dublin +75 roles for EMEA. Revenue Architecture team.' },
-  { id: 10, company: 'Gong', role: 'RevOps Manager APAC', country: 'SG', city: 'Singapore', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?offices[]=Singapore', notes: 'New Singapore office. Stack-perfect.' },
-  { id: 11, company: 'Datadog', role: 'Sales Operations Manager EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.datadoghq.com/dublin/?team=sales-operations', notes: 'Dublin EMEA hub; established Critical Skills permit sponsor.' },
-  { id: 12, company: 'Datadog', role: 'GTM Strategy & Ops APAC', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.datadoghq.com/apac/?location=singapore', notes: 'APAC HQ growing fast.' },
-  { id: 13, company: 'Datadog', role: 'EMEA Revenue Operations', country: 'NL', city: 'Amsterdam', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.datadoghq.com/all-jobs/?location=Amsterdam', notes: 'IND-recognized sponsor; Highly Skilled Migrant route + 30% ruling.' },
-  { id: 14, company: 'Datadog', role: 'Sales Operations EMEA', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.datadoghq.com/all-jobs/?location=London', notes: 'Skilled Worker license holder.' },
-  { id: 15, company: 'Salesforce', role: 'Revenue Operations Manager EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Dublin&team=sales-operations', notes: 'Major Dublin presence; routine sponsor.' },
-  { id: 16, company: 'Salesforce', role: 'Sales Strategy & Operations', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=London', notes: 'Skilled Worker sponsor.' },
-  { id: 17, company: 'Salesforce', role: 'APAC Sales Operations', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Singapore', notes: 'EP routinely granted.' },
-  { id: 18, company: 'Salesforce', role: 'Marketing Operations Benelux', country: 'NL', city: 'Amsterdam', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Amsterdam', notes: 'IND sponsor; Marketing Cloud roles common here.' },
-  { id: 19, company: 'Salesforce', role: 'Iberia Sales Operations', country: 'ES', city: 'Madrid', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Madrid', notes: 'Madrid hub; non-EU sponsorship via Highly Qualified Professional permit.' },
-  { id: 20, company: 'Google', role: 'Strategy & Operations Manager, gTech', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=London,%20UK&q=%22sales%20operations%22', notes: 'Tier-1 sponsor globally.' },
-  { id: 21, company: 'Google', role: 'Sales Operations Manager EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=Dublin,%20Ireland&q=%22sales%20operations%22', notes: 'Dublin Ads HQ; Critical Skills permit.' },
-  { id: 22, company: 'Google', role: 'Strategy & Ops Lead, APAC GTM', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=Singapore&q=%22strategy%20and%20operations%22', notes: 'Multiple S&O roles in APAC HQ.' },
-  { id: 23, company: 'Google', role: 'Strategy & Ops, EMEA Cloud', country: 'CH', city: 'Zurich', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=Zurich,%20Switzerland', notes: 'Google Zurich is largest engineering office outside US.' },
-  { id: 24, company: 'Meta', role: 'Business Operations Manager', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.metacareers.com/jobs/?offices[0]=London%2C%20UK&q=operations', notes: 'EMEA hub; Skilled Worker sponsor.' },
-  { id: 25, company: 'Meta', role: 'Sales Operations APAC', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.metacareers.com/jobs/?offices[0]=Singapore&q=sales%20operations', notes: 'APAC HQ; routine EP sponsor.' },
-  { id: 26, company: 'Meta', role: 'GTM Operations EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.metacareers.com/jobs/?offices[0]=Dublin%2C%20Ireland', notes: 'Major Dublin hub.' },
-  { id: 27, company: 'AWS / Amazon', role: 'Sales Operations Manager', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.amazon.jobs/en/search?base_query=sales+operations&loc_query=London%2C+United+Kingdom', notes: 'Top-volume Skilled Worker sponsor in UK.' },
-  { id: 28, company: 'AWS / Amazon', role: 'Revenue Operations EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.amazon.jobs/en/search?base_query=revenue+operations&loc_query=Dublin%2C+Ireland', notes: 'AWS EMEA HQ.' },
-  { id: 29, company: 'AWS / Amazon', role: 'APAC Sales Strategy', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.amazon.jobs/en/search?base_query=sales+strategy&loc_query=Singapore', notes: 'APAC HQ.' },
-  { id: 30, company: 'Microsoft', role: 'Sales Excellence Manager EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Dublin&p=Sales', notes: 'Dublin EMEA HQ.' },
-  { id: 31, company: 'Microsoft', role: 'GTM Operations', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=London', notes: 'Top UK sponsor.' },
-  { id: 32, company: 'Microsoft', role: 'Sales Operations APAC', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Singapore', notes: 'APAC HQ.' },
-  { id: 33, company: 'Microsoft', role: 'Sales Excellence DACH', country: 'CH', city: 'Zurich', tier: 'BigTech', stack_fit: 'Med', visa: 'Likely', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Zurich', notes: 'DACH GTM hub; CH visa is harder, Big Tech route.' },
-  { id: 34, company: 'Microsoft', role: 'Sales Operations Iberia', country: 'ES', city: 'Madrid', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Madrid', notes: 'Spanish HQP permit route via Beckham Law tax advantage.' },
-  { id: 35, company: 'Cloudflare', role: 'Revenue Operations Manager', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.cloudflare.com/careers/jobs/?location=London&department=Sales%20Operations', notes: 'Visible RevOps hiring.' },
-  { id: 36, company: 'Cloudflare', role: 'APAC RevOps', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.cloudflare.com/careers/jobs/?location=Singapore', notes: '37+ Singapore roles; Marketing & RevOps team active.' },
-  { id: 37, company: 'Adobe', role: 'Revenue Operations EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.adobe.com/us/en/search-results?keywords=%22revenue%20operations%22&location=Dublin', notes: 'Adobe EMEA HQ.' },
-  { id: 38, company: 'Snowflake', role: 'RevOps Manager EMEA', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.snowflake.com/us/en/search-results?keywords=%22revenue%20operations%22&location=London', notes: 'Strong sponsor; SFDC + analytics-heavy.' },
-  { id: 39, company: 'Snowflake', role: 'APAC Sales Operations', country: 'AU', city: 'Sydney', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.snowflake.com/us/en/search-results?keywords=sales%20operations&location=Sydney', notes: '482 sponsor in AU.' },
-  { id: 40, company: 'Databricks', role: 'GTM Strategy & Ops EMEA', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.databricks.com/company/careers/open-positions?department=Sales%20Operations&location=London', notes: 'Aggressive EMEA hiring.' },
-  { id: 41, company: 'Databricks', role: 'APAC Sales Strategy', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.databricks.com/company/careers/open-positions?location=Singapore', notes: 'APAC growth.' },
-  { id: 42, company: 'ServiceNow', role: 'Sales Operations EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.servicenow.com/careers/jobs/?country=Ireland&keywords=sales%20operations', notes: 'Dublin EMEA HQ.' },
-  { id: 43, company: 'ServiceNow', role: 'APAC RevOps', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.servicenow.com/careers/jobs/?country=Singapore', notes: 'EP sponsor.' },
-  { id: 44, company: 'ServiceNow', role: 'GTM Operations DACH', country: 'CH', city: 'Zurich', tier: 'BigTech', stack_fit: 'Med', visa: 'Likely', apply: 'https://careers.servicenow.com/careers/jobs/?country=Switzerland', notes: 'DACH coverage from Zurich; CH non-EU sponsorship is selective.' },
-  { id: 45, company: 'Atlassian', role: 'Revenue Operations Manager', country: 'AU', city: 'Sydney', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.atlassian.com/company/careers/all-jobs?team=Sales%20%26%20Success&location=Sydney', notes: 'HQ; Enterprise Deal Manager + GTM Ops roles.' },
-  { id: 46, company: 'Atlassian', role: 'EMEA Sales Operations', country: 'NL', city: 'Amsterdam', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.atlassian.com/company/careers/all-jobs?location=Amsterdam', notes: 'Atlassian EMEA hub; IND sponsor.' },
-  { id: 47, company: 'Canva', role: 'Revenue Operations Manager', country: 'AU', city: 'Sydney', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.lifeatcanva.com/en/jobs/?location=sydney&team=revenue-operations', notes: 'HQ; 482 + permanent residency path. Big international hiring.' },
-  { id: 48, company: 'Shopify', role: 'Revenue Operations Manager', country: 'CA', city: 'Toronto', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.shopify.com/careers/locations/toronto', notes: 'Canadian Global Talent Stream — fast-track work permit.' },
-  { id: 49, company: 'Shopify', role: 'Sales Operations', country: 'CA', city: 'Vancouver', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.shopify.com/careers/locations/vancouver', notes: 'GTS-eligible employer.' },
-  { id: 50, company: 'Personio', role: 'Senior Revenue Operations & Strategy Manager', country: 'DE', city: 'Munich', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.welcometothejungle.com/en/companies/personio/jobs/senior-revenue-operations-strategy-associate-f-m-x_munich', notes: 'EU Blue Card sponsor; HRtech unicorn, HubSpot-heavy.' },
-  { id: 51, company: 'Personio', role: 'GTM Operations', country: 'DE', city: 'Berlin', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.personio.com/careers/?location=Berlin&team=Revenue%20Operations', notes: 'Berlin office; Blue Card.' },
-  { id: 52, company: 'Celonis', role: 'GTM Strategy & Operations Manager', country: 'DE', city: 'Munich', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.celonis.com/jobs/search?team=GTM%20Strategy%20%26%20Operations&location=Munich', notes: 'Munich HQ unicorn.' },
-  { id: 53, company: 'N26', role: 'Business Operations Manager', country: 'DE', city: 'Berlin', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://n26.com/en/careers?location=berlin&team=Business%20Operations', notes: 'Berlin neobank unicorn; Blue Card route.' },
-  { id: 54, company: 'Miro', role: 'Strategic Programs & Operations Manager', country: 'NL', city: 'Amsterdam', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://miro.com/careers/vacancy/7121462002/', notes: 'Miro Amsterdam HQ; IND recognized sponsor.' },
-  { id: 55, company: 'Notion', role: 'Revenue Operations EMEA', country: 'IE', city: 'Dublin', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.notion.com/careers?location=Dublin', notes: 'Dublin EMEA HQ; Notion uses HubSpot.' },
-  { id: 56, company: 'Notion', role: 'APAC Revenue Operations', country: 'SG', city: 'Singapore', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.notion.com/careers?location=Singapore', notes: 'APAC growth office.' },
-  { id: 57, company: 'Klaviyo', role: 'RevOps Manager EMEA', country: 'GB', city: 'London', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.klaviyo.com/company/careers/jobs?location=London&team=revenue-operations', notes: 'Klaviyo + HubSpot common pairing; UK sponsor.' },
-  { id: 58, company: 'Klaviyo', role: 'APAC Revenue Operations', country: 'AU', city: 'Sydney', tier: 'Ecosystem', stack_fit: 'High', visa: 'Likely', apply: 'https://www.klaviyo.com/company/careers/jobs?location=Sydney', notes: 'New APAC office; sponsoring early hires.' },
-  { id: 59, company: 'Asana', role: 'Sales Operations EMEA', country: 'IE', city: 'Dublin', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://asana.com/jobs/all?location=Dublin', notes: 'EMEA HQ Dublin.' },
-  { id: 60, company: 'Figma', role: 'Revenue Operations', country: 'GB', city: 'London', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.figma.com/careers/?location=london', notes: 'London EMEA hub; Skilled Worker license.' },
-  { id: 61, company: 'Confluent', role: 'GTM Strategy & Ops EMEA', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Low', visa: 'Strong', apply: 'https://www.confluent.io/careers/?location=London', notes: 'Heavy SQL/data infra culture; less HubSpot.' },
-  { id: 62, company: 'GitLab', role: 'Field Operations Manager', country: 'NL', city: 'Remote (NL)', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://about.gitlab.com/jobs/all-jobs/?team=field-operations&country=Netherlands', notes: 'All-remote; sponsors via Deel/own entities.' },
-  { id: 63, company: 'Deel', role: 'Revenue Operations Manager', country: 'GB', city: 'Remote (UK)', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.deel.com/careers?team=Revenue%20Operations&location=United%20Kingdom', notes: 'Deel handles immigration as a product.' },
-  { id: 64, company: 'Deel', role: 'GTM Operations APAC', country: 'SG', city: 'Singapore', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.deel.com/careers?location=Singapore', notes: 'Built-in mobility infra.' },
-  { id: 65, company: 'Remote.com', role: 'Revenue Operations', country: 'PT', city: 'Lisbon', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://remote.com/careers?team=revenue-operations', notes: 'Remote.com Lisbon HQ; sponsor of choice for international hires.' },
-  { id: 66, company: 'HashiCorp', role: 'RevOps Manager EMEA', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.hashicorp.com/careers/open-positions?location=London&team=Sales%20Operations', notes: 'IBM-acquired; established UK sponsor.' },
-  { id: 67, company: 'Mollie', role: 'Revenue Operations Manager', country: 'NL', city: 'Amsterdam', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://jobs.mollie.com/?team=Revenue%20Operations', notes: 'Dutch payments unicorn; HubSpot-heavy; IND sponsor + 30% ruling.' },
-  { id: 68, company: 'Klarna', role: 'Senior Revenue Operations Manager', country: 'SE', city: 'Stockholm', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.klarna.com/careers/?location=Stockholm&department=Revenue%20Operations', notes: '90+ nationalities, hires 1000+/yr; sponsors routinely.' },
-  { id: 69, company: 'Spotify', role: 'Sales & Revenue Operations', country: 'SE', city: 'Stockholm', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.lifeatspotify.com/jobs?l=stockholm&t=sales-and-revenue-operations', notes: 'Highest-paying Swedish HQ employer; strong sponsor.' },
-  { id: 70, company: 'King', role: 'Business Operations Manager', country: 'SE', city: 'Stockholm', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://careers.king.com/?location=Stockholm', notes: 'Activision Blizzard owned (King Stockholm HQ).' },
-  { id: 71, company: 'Mentimeter', role: 'Revenue Operations Lead', country: 'SE', city: 'Stockholm', tier: 'Scaleup', stack_fit: 'High', visa: 'Likely', apply: 'https://careers.mentimeter.com/?team=revenue-operations', notes: 'PLG SaaS; HubSpot-native.' },
-  { id: 72, company: 'Pleo', role: 'Sales Ops / Operations Analyst', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.pleo.io/en/careers?team=Revenue%20Operations&location=Copenhagen', notes: 'Spend mgmt unicorn HQ’d in Copenhagen; HubSpot user.' },
-  { id: 73, company: 'Trustpilot', role: 'Revenue Operations Manager', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://careers.trustpilot.com/?location=Copenhagen&department=Revenue%20Operations', notes: 'Owns CS Operations roadmap EMEA & APAC; HubSpot stack.' },
-  { id: 74, company: 'Templafy', role: 'RevOps Manager', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://www.templafy.com/careers/?location=Copenhagen', notes: 'Document automation SaaS; CPH HQ.' },
-  { id: 75, company: 'Zendesk', role: 'Sales Operations EMEA', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://jobs.zendesk.com/us/en/search-results?location=Copenhagen', notes: 'Major CPH office; established sponsor.' },
-  { id: 76, company: 'Cognite', role: 'Business Operations Manager', country: 'NO', city: 'Oslo', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://www.cognite.com/careers?location=Oslo', notes: 'Industrial AI unicorn ($1.6B); 380 in Oslo HQ.' },
-  { id: 77, company: 'Kahoot!', role: 'Revenue Operations', country: 'NO', city: 'Oslo', tier: 'Scaleup', stack_fit: 'High', visa: 'Likely', apply: 'https://kahoot.com/careers/?location=Oslo', notes: 'EdTech B2B sponsors international; HubSpot-friendly.' },
-  { id: 78, company: 'Visma', role: 'Sales Operations Nordics', country: 'NO', city: 'Oslo', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://www.visma.com/careers/?location=Oslo', notes: 'Cloud business apps leader Nordics.' },
-  { id: 79, company: 'Typeform', role: 'Revenue Operations Manager', country: 'ES', city: 'Barcelona', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.typeform.com/careers/?location=Barcelona&team=Revenue%20Operations', notes: 'PLG SaaS; HubSpot user; documented Spanish visa sponsor.' },
-  { id: 80, company: 'Factorial', role: 'Revenue Operations', country: 'ES', city: 'Barcelona', tier: 'Scaleup', stack_fit: 'High', visa: 'Likely', apply: 'https://factorialhr.com/careers?location=Barcelona&team=Revenue%20Operations', notes: 'HR SaaS unicorn; HubSpot-heavy.' },
-  { id: 81, company: 'TravelPerk', role: 'GTM Operations Manager', country: 'ES', city: 'Barcelona', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://www.travelperk.com/careers/?location=Barcelona', notes: 'Business travel unicorn; international hiring.' },
-  { id: 82, company: 'Glovo', role: 'Business Operations Manager', country: 'ES', city: 'Barcelona', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://jobs.glovoapp.com/?location=Barcelona&team=Operations', notes: 'Delivery Hero owned; Spanish HQP route.' },
-  { id: 83, company: 'OutSystems', role: 'Revenue Operations', country: 'PT', city: 'Lisbon', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.outsystems.com/jobs?location=Lisbon&team=Revenue%20Operations', notes: 'Tech Visa accredited (1-3 month fast track).' },
-  { id: 84, company: 'Talkdesk', role: 'Sales Operations Manager', country: 'PT', city: 'Lisbon', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.talkdesk.com/careers/?location=Lisbon', notes: 'CCaaS unicorn; HubSpot/SFDC ecosystem; LIS HQ.' },
-  { id: 85, company: 'Feedzai', role: 'Business Operations', country: 'PT', city: 'Lisbon', tier: 'Scaleup', stack_fit: 'Med', visa: 'Strong', apply: 'https://feedzai.com/careers/?location=Lisbon', notes: 'Anti-fraud unicorn; Tech Visa accredited.' },
-  { id: 86, company: 'Unbabel', role: 'Revenue Operations', country: 'PT', city: 'Lisbon', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://unbabel.com/careers/?location=Lisbon', notes: 'AI translation; Lisbon HQ.' },
-  { id: 87, company: 'Pipedrive', role: 'Sales Operations', country: 'EE', city: 'Tallinn', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Tallinn&team=Revenue%20Operations', notes: 'CRM platform itself; perfect stack adjacency.' },
-  { id: 88, company: 'Pipedrive', role: 'Revenue Operations', country: 'PT', city: 'Lisbon', tier: 'Ecosystem', stack_fit: 'High', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Lisbon', notes: 'Pipedrive Lisbon hub; Tech Visa.' },
-  { id: 89, company: 'Wise', role: 'Revenue Operations', country: 'EE', city: 'Tallinn', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://wise.jobs/?location=Tallinn', notes: 'Wise Tallinn HQ; international hiring routine.' },
-  { id: 90, company: 'Bolt', role: 'Business Operations', country: 'EE', city: 'Tallinn', tier: 'Scaleup', stack_fit: 'Med', visa: 'Likely', apply: 'https://bolt.eu/en/careers/?location=Tallinn&team=Operations', notes: 'Mobility super-app; Estonia HQ.' },
-  { id: 91, company: 'Xero', role: 'Revenue Operations APAC', country: 'NZ', city: 'Auckland', tier: 'Scaleup', stack_fit: 'High', visa: 'Strong', apply: 'https://www.xero.com/about/careers/?location=Auckland&team=Revenue%20Operations', notes: 'Accounting SaaS HQ; Skilled Migrant Category visa.' },
-  { id: 92, company: 'Twilio', role: 'Revenue Operations EMEA', country: 'GB', city: 'London', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.twilio.com/en-us/company/jobs?location=London', notes: 'CPaaS leader; UK sponsor.' },
-  { id: 93, company: 'Twilio', role: 'APAC RevOps', country: 'SG', city: 'Singapore', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.twilio.com/en-us/company/jobs?location=Singapore', notes: 'APAC HQ.' },
-  { id: 94, company: 'Pinterest', role: 'Sales Operations EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://www.pinterestcareers.com/jobs/?location=Dublin', notes: 'Dublin EMEA HQ.' },
-  { id: 95, company: 'LinkedIn', role: 'Sales Operations EMEA', country: 'IE', city: 'Dublin', tier: 'BigTech', stack_fit: 'Med', visa: 'Strong', apply: 'https://careers.linkedin.com/jobs?location=Dublin&keywords=sales%20operations', notes: 'Microsoft-owned; Dublin EMEA HQ.' }
+const STATIC_COMPANIES = [
+  { id: 1, company: 'HubSpot', country: 'IE', city: 'Dublin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin&teamId=Revenue%20Operations' },
+  { id: 2, company: 'HubSpot', country: 'SG', city: 'Singapore', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Singapore' },
+  { id: 3, company: 'HubSpot', country: 'AU', city: 'Sydney', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Sydney' },
+  { id: 4, company: 'HubSpot', country: 'DE', city: 'Berlin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Berlin' },
+  { id: 5, company: 'HubSpot', country: 'IE', city: 'Dublin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin&teamId=Marketing' },
+  { id: 6, company: 'Stripe', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/listing/operations-manager-gtm-accelerate/7348391' },
+  { id: 7, company: 'Stripe', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=Europe--London&teams=Sales%2C+Solutions+%26+Support' },
+  { id: 8, company: 'Stripe', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=Asia+Pacific--Singapore' },
+  { id: 9, company: 'Gong', country: 'IE', city: 'Dublin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?departments[]=Operations&offices[]=Dublin' },
+  { id: 10, company: 'Gong', country: 'SG', city: 'Singapore', tier: 'Ecosystem', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?offices[]=Singapore' },
+  { id: 11, company: 'Datadog', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.datadoghq.com/dublin/?team=sales-operations' },
+  { id: 12, company: 'Datadog', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.datadoghq.com/apac/?location=singapore' },
+  { id: 13, company: 'Datadog', country: 'NL', city: 'Amsterdam', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.datadoghq.com/all-jobs/?location=Amsterdam' },
+  { id: 14, company: 'Datadog', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.datadoghq.com/all-jobs/?location=London' },
+  { id: 15, company: 'Salesforce', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Dublin&team=sales-operations' },
+  { id: 16, company: 'Salesforce', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=London' },
+  { id: 17, company: 'Salesforce', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Singapore' },
+  { id: 18, company: 'Salesforce', country: 'NL', city: 'Amsterdam', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Amsterdam' },
+  { id: 19, company: 'Salesforce', country: 'ES', city: 'Madrid', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=Madrid' },
+  { id: 20, company: 'Google', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=London,%20UK&q=%22sales%20operations%22' },
+  { id: 21, company: 'Google', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=Dublin,%20Ireland&q=%22sales%20operations%22' },
+  { id: 22, company: 'Google', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=Singapore&q=%22strategy%20and%20operations%22' },
+  { id: 23, company: 'Google', country: 'CH', city: 'Zurich', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=Zurich,%20Switzerland' },
+  { id: 24, company: 'Meta', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.metacareers.com/jobs/?offices[0]=London%2C%20UK&q=operations' },
+  { id: 25, company: 'Meta', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://www.metacareers.com/jobs/?offices[0]=Singapore&q=sales%20operations' },
+  { id: 26, company: 'Meta', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://www.metacareers.com/jobs/?offices[0]=Dublin%2C%20Ireland' },
+  { id: 27, company: 'AWS / Amazon', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.amazon.jobs/en/search?base_query=sales+operations&loc_query=London%2C+United+Kingdom' },
+  { id: 28, company: 'AWS / Amazon', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://www.amazon.jobs/en/search?base_query=revenue+operations&loc_query=Dublin%2C+Ireland' },
+  { id: 29, company: 'AWS / Amazon', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://www.amazon.jobs/en/search?base_query=sales+strategy&loc_query=Singapore' },
+  { id: 30, company: 'Microsoft', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Dublin&p=Sales' },
+  { id: 31, company: 'Microsoft', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=London' },
+  { id: 32, company: 'Microsoft', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Singapore' },
+  { id: 33, company: 'Microsoft', country: 'CH', city: 'Zurich', tier: 'BigTech', visa: 'Likely', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Zurich' },
+  { id: 34, company: 'Microsoft', country: 'ES', city: 'Madrid', tier: 'BigTech', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Madrid' },
+  { id: 35, company: 'Cloudflare', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.cloudflare.com/careers/jobs/?location=London&department=Sales%20Operations' },
+  { id: 36, company: 'Cloudflare', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://www.cloudflare.com/careers/jobs/?location=Singapore' },
+  { id: 37, company: 'Adobe', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.adobe.com/us/en/search-results?keywords=%22revenue%20operations%22&location=Dublin' },
+  { id: 38, company: 'Snowflake', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.snowflake.com/us/en/search-results?keywords=%22revenue%20operations%22&location=London' },
+  { id: 39, company: 'Snowflake', country: 'AU', city: 'Sydney', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.snowflake.com/us/en/search-results?keywords=sales%20operations&location=Sydney' },
+  { id: 40, company: 'Databricks', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.databricks.com/company/careers/open-positions?department=Sales%20Operations&location=London' },
+  { id: 41, company: 'Databricks', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://www.databricks.com/company/careers/open-positions?location=Singapore' },
+  { id: 42, company: 'ServiceNow', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.servicenow.com/careers/jobs/?country=Ireland&keywords=sales%20operations' },
+  { id: 43, company: 'ServiceNow', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.servicenow.com/careers/jobs/?country=Singapore' },
+  { id: 44, company: 'ServiceNow', country: 'CH', city: 'Zurich', tier: 'BigTech', visa: 'Likely', apply: 'https://careers.servicenow.com/careers/jobs/?country=Switzerland' },
+  { id: 45, company: 'Atlassian', country: 'AU', city: 'Sydney', tier: 'BigTech', visa: 'Strong', apply: 'https://www.atlassian.com/company/careers/all-jobs?team=Sales%20%26%20Success&location=Sydney' },
+  { id: 46, company: 'Atlassian', country: 'NL', city: 'Amsterdam', tier: 'BigTech', visa: 'Strong', apply: 'https://www.atlassian.com/company/careers/all-jobs?location=Amsterdam' },
+  { id: 47, company: 'Canva', country: 'AU', city: 'Sydney', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.lifeatcanva.com/en/jobs/?location=sydney&team=revenue-operations' },
+  { id: 48, company: 'Shopify', country: 'CA', city: 'Toronto', tier: 'BigTech', visa: 'Strong', apply: 'https://www.shopify.com/careers/locations/toronto' },
+  { id: 49, company: 'Shopify', country: 'CA', city: 'Vancouver', tier: 'BigTech', visa: 'Strong', apply: 'https://www.shopify.com/careers/locations/vancouver' },
+  { id: 50, company: 'Personio', country: 'DE', city: 'Munich', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.welcometothejungle.com/en/companies/personio/jobs/senior-revenue-operations-strategy-associate-f-m-x_munich' },
+  { id: 51, company: 'Personio', country: 'DE', city: 'Berlin', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.personio.com/careers/?location=Berlin&team=Revenue%20Operations' },
+  { id: 52, company: 'Celonis', country: 'DE', city: 'Munich', tier: 'Scaleup', visa: 'Strong', apply: 'https://careers.celonis.com/jobs/search?team=GTM%20Strategy%20%26%20Operations&location=Munich' },
+  { id: 53, company: 'N26', country: 'DE', city: 'Berlin', tier: 'Scaleup', visa: 'Likely', apply: 'https://n26.com/en/careers?location=berlin&team=Business%20Operations' },
+  { id: 54, company: 'Miro', country: 'NL', city: 'Amsterdam', tier: 'Scaleup', visa: 'Strong', apply: 'https://miro.com/careers/vacancy/7121462002/' },
+  { id: 55, company: 'Notion', country: 'IE', city: 'Dublin', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.notion.com/careers?location=Dublin' },
+  { id: 56, company: 'Notion', country: 'SG', city: 'Singapore', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.notion.com/careers?location=Singapore' },
+  { id: 57, company: 'Klaviyo', country: 'GB', city: 'London', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.klaviyo.com/company/careers/jobs?location=London&team=revenue-operations' },
+  { id: 58, company: 'Klaviyo', country: 'AU', city: 'Sydney', tier: 'Ecosystem', visa: 'Likely', apply: 'https://www.klaviyo.com/company/careers/jobs?location=Sydney' },
+  { id: 59, company: 'Asana', country: 'IE', city: 'Dublin', tier: 'Scaleup', visa: 'Strong', apply: 'https://asana.com/jobs/all?location=Dublin' },
+  { id: 60, company: 'Figma', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.figma.com/careers/?location=london' },
+  { id: 61, company: 'Confluent', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.confluent.io/careers/?location=London' },
+  { id: 62, company: 'GitLab', country: 'NL', city: 'Remote (NL)', tier: 'Scaleup', visa: 'Likely', apply: 'https://about.gitlab.com/jobs/all-jobs/?team=field-operations&country=Netherlands' },
+  { id: 63, company: 'Deel', country: 'GB', city: 'Remote (UK)', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.deel.com/careers?team=Revenue%20Operations&location=United%20Kingdom' },
+  { id: 64, company: 'Deel', country: 'SG', city: 'Singapore', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.deel.com/careers?location=Singapore' },
+  { id: 65, company: 'Remote.com', country: 'PT', city: 'Lisbon', tier: 'Scaleup', visa: 'Strong', apply: 'https://remote.com/careers?team=revenue-operations' },
+  { id: 66, company: 'HashiCorp', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.hashicorp.com/careers/open-positions?location=London&team=Sales%20Operations' },
+  { id: 67, company: 'Mollie', country: 'NL', city: 'Amsterdam', tier: 'Scaleup', visa: 'Strong', apply: 'https://jobs.mollie.com/?team=Revenue%20Operations' },
+  { id: 68, company: 'Klarna', country: 'SE', city: 'Stockholm', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.klarna.com/careers/?location=Stockholm&department=Revenue%20Operations' },
+  { id: 69, company: 'Spotify', country: 'SE', city: 'Stockholm', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.lifeatspotify.com/jobs?l=stockholm&t=sales-and-revenue-operations' },
+  { id: 70, company: 'King', country: 'SE', city: 'Stockholm', tier: 'Scaleup', visa: 'Likely', apply: 'https://careers.king.com/?location=Stockholm' },
+  { id: 71, company: 'Mentimeter', country: 'SE', city: 'Stockholm', tier: 'Scaleup', visa: 'Likely', apply: 'https://careers.mentimeter.com/?team=revenue-operations' },
+  { id: 72, company: 'Pleo', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.pleo.io/en/careers?team=Revenue%20Operations&location=Copenhagen' },
+  { id: 73, company: 'Trustpilot', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', visa: 'Strong', apply: 'https://careers.trustpilot.com/?location=Copenhagen&department=Revenue%20Operations' },
+  { id: 74, company: 'Templafy', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', visa: 'Likely', apply: 'https://www.templafy.com/careers/?location=Copenhagen' },
+  { id: 75, company: 'Zendesk', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', visa: 'Strong', apply: 'https://jobs.zendesk.com/us/en/search-results?location=Copenhagen' },
+  { id: 76, company: 'Cognite', country: 'NO', city: 'Oslo', tier: 'Scaleup', visa: 'Likely', apply: 'https://www.cognite.com/careers?location=Oslo' },
+  { id: 77, company: 'Kahoot!', country: 'NO', city: 'Oslo', tier: 'Scaleup', visa: 'Likely', apply: 'https://kahoot.com/careers/?location=Oslo' },
+  { id: 78, company: 'Visma', country: 'NO', city: 'Oslo', tier: 'Scaleup', visa: 'Likely', apply: 'https://www.visma.com/careers/?location=Oslo' },
+  { id: 79, company: 'Typeform', country: 'ES', city: 'Barcelona', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.typeform.com/careers/?location=Barcelona&team=Revenue%20Operations' },
+  { id: 80, company: 'Factorial', country: 'ES', city: 'Barcelona', tier: 'Scaleup', visa: 'Likely', apply: 'https://factorialhr.com/careers?location=Barcelona&team=Revenue%20Operations' },
+  { id: 81, company: 'TravelPerk', country: 'ES', city: 'Barcelona', tier: 'Scaleup', visa: 'Likely', apply: 'https://www.travelperk.com/careers/?location=Barcelona' },
+  { id: 82, company: 'Glovo', country: 'ES', city: 'Barcelona', tier: 'Scaleup', visa: 'Likely', apply: 'https://jobs.glovoapp.com/?location=Barcelona&team=Operations' },
+  { id: 83, company: 'OutSystems', country: 'PT', city: 'Lisbon', tier: 'Scaleup', visa: 'Strong', apply: 'https://careers.outsystems.com/jobs?location=Lisbon&team=Revenue%20Operations' },
+  { id: 84, company: 'Talkdesk', country: 'PT', city: 'Lisbon', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.talkdesk.com/careers/?location=Lisbon' },
+  { id: 85, company: 'Feedzai', country: 'PT', city: 'Lisbon', tier: 'Scaleup', visa: 'Strong', apply: 'https://feedzai.com/careers/?location=Lisbon' },
+  { id: 86, company: 'Unbabel', country: 'PT', city: 'Lisbon', tier: 'Scaleup', visa: 'Likely', apply: 'https://unbabel.com/careers/?location=Lisbon' },
+  { id: 87, company: 'Pipedrive', country: 'EE', city: 'Tallinn', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Tallinn&team=Revenue%20Operations' },
+  { id: 88, company: 'Pipedrive', country: 'PT', city: 'Lisbon', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Lisbon' },
+  { id: 89, company: 'Wise', country: 'EE', city: 'Tallinn', tier: 'Scaleup', visa: 'Likely', apply: 'https://wise.jobs/?location=Tallinn' },
+  { id: 90, company: 'Bolt', country: 'EE', city: 'Tallinn', tier: 'Scaleup', visa: 'Likely', apply: 'https://bolt.eu/en/careers/?location=Tallinn&team=Operations' },
+  { id: 91, company: 'Xero', country: 'NZ', city: 'Auckland', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.xero.com/about/careers/?location=Auckland&team=Revenue%20Operations' },
+  { id: 92, company: 'Twilio', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.twilio.com/en-us/company/jobs?location=London' },
+  { id: 93, company: 'Twilio', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://www.twilio.com/en-us/company/jobs?location=Singapore' },
+  { id: 94, company: 'Pinterest', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://www.pinterestcareers.com/jobs/?location=Dublin' },
+  { id: 95, company: 'LinkedIn', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.linkedin.com/jobs?location=Dublin&keywords=sales%20operations' }
 ];
 
 const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand' };
 const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿' };
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', Ecosystem: 'HubSpot/Clay' };
+const ROLE_FAMILIES = ['Engineering', 'Product', 'Design', 'Data/Analytics', 'Security/IT', 'Sales', 'Marketing', 'Finance', 'Operations', 'Customer Success/Support', 'People/HR', 'Legal/Compliance', 'Strategy/Program', 'Other'];
+const SENIORITIES = ['Executive', 'Director/Head', 'Senior/Lead', 'Manager', 'Associate/Analyst', 'Unknown'];
+const SENIOR_PLUS = new Set(['Executive', 'Director/Head', 'Senior/Lead', 'Manager']);
 const STATUSES = ['Not started', 'Saved', 'Applied', 'Recruiter screen', 'Interview', 'Final round', 'Offer', 'Rejected', 'On hold'];
 const STATUS_CLASS = { 'Not started': '', 'Saved': 'status-saved', 'Applied': 'status-applied', 'Recruiter screen': 'status-screen', 'Interview': 'status-interview', 'Final round': 'status-final', 'Offer': 'status-offer', 'Rejected': 'status-rejected', 'On hold': 'status-onhold' };
 const PIPELINE_STATUSES = new Set(['Saved', 'Applied', 'Recruiter screen', 'Interview', 'Final round', 'Offer']);
 const ARCHIVE_STATUSES = new Set(['Rejected', 'On hold']);
 
 function calcScore(j) {
-  const fitW = { High: 100, Med: 70, Low: 40 };
   const visaW = { Strong: 100, Likely: 75, Unknown: 50 };
-  return Math.round((fitW[j.stack_fit] || 70) * 0.4 + (visaW[j.visa] || 75) * 0.4 + 85 * 0.2);
+  const seniorityW = { Executive: 95, 'Director/Head': 90, 'Senior/Lead': 85, Manager: 80, 'Associate/Analyst': 70, Unknown: 65 };
+  const freshness = j.is_filled ? 30 : j.is_new ? 100 : 80;
+  return Math.round((visaW[j.visa] || 50) * 0.5 + (seniorityW[j.seniority] || 65) * 0.3 + freshness * 0.2);
 }
 
 function daysSince(iso) {
@@ -432,17 +440,58 @@ function prettyCompany(token) {
   return token.charAt(0).toUpperCase() + token.slice(1);
 }
 
+function inferRoleFamily(title) {
+  const t = (title || '').toLowerCase();
+  if (/(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|site reliability|sre|devops|developer|technical lead|engineering manager|machine learning|ml engineer)/.test(t)) return 'Engineering';
+  if (/product/.test(t)) return 'Product';
+  if (/(designer|design|ux|ui|user researcher|content designer)/.test(t)) return 'Design';
+  if (/(data|analytics|business intelligence|bi analyst|insights)/.test(t)) return 'Data/Analytics';
+  if (/(security|cybersecurity|information security|it support|systems administrator|network)/.test(t)) return 'Security/IT';
+  if (/(sales|account executive|business development|bdr|sdr|partnership|partner manager|commercial account|enterprise account)/.test(t)) return 'Sales';
+  if (/(marketing|growth|demand generation|product marketing|content marketing|field marketing|brand marketing|seo|lifecycle)/.test(t)) return 'Marketing';
+  if (/(fp&a|fpa|financial planning|accounting|accountant|controller|strategic finance|revenue finance|deal desk|corporate finance|tax|treasury|procurement|payroll|finance)/.test(t)) return 'Finance';
+  if (/(operations|revops|rev ops|biz ops|gtm ops|go-to-market|salesforce administrator)/.test(t)) return 'Operations';
+  if (/(customer success|customer support|technical support|implementation|onboarding|solutions consultant|professional services|renewals)/.test(t)) return 'Customer Success/Support';
+  if (/(people|human resources|hr business partner|talent acquisition|recruiter|recruiting|compensation|benefits|employee experience)/.test(t)) return 'People/HR';
+  if (/(legal|counsel|compliance|regulatory|risk manager|contract manager)/.test(t)) return 'Legal/Compliance';
+  if (/(strategy|strategic programs|program manager|project manager|chief of staff|business planning)/.test(t)) return 'Strategy/Program';
+  return 'Other';
+}
+
+function inferSeniority(title) {
+  const t = (title || '').toLowerCase();
+  if (/\b(chief|cfo|cto|cio|coo|cmo|cro|ceo|vp|vice president|executive)\b/.test(t)) return 'Executive';
+  if (/\b(director|head of|global head|regional head)\b/.test(t)) return 'Director/Head';
+  if (/\b(senior|sr\.?|lead|principal|staff)\b/.test(t)) return 'Senior/Lead';
+  if (/\b(manager|mgr)\b/.test(t)) return 'Manager';
+  if (/\b(associate|analyst|specialist|coordinator|administrator|consultant)\b/.test(t)) return 'Associate/Analyst';
+  return 'Unknown';
+}
+
 let JOBS = [];
 let LAST_SCAN = null;
 
 function buildJobs(dynamicPostings) {
-  const staticMapped = STATIC_JOBS.map(j => ({
-    ...j,
-    id: `static-${j.id}`,
-    is_static: true,
-    is_new: false,
-    is_filled: false
-  }));
+  const seenTargets = new Set();
+  const staticMapped = STATIC_COMPANIES
+    .filter(j => {
+      const key = `${j.company}|${j.country}|${j.city}`;
+      if (seenTargets.has(key)) return false;
+      seenTargets.add(key);
+      return true;
+    })
+    .map(j => ({
+      ...j,
+      id: `static-${j.id}`,
+      role: 'Company career target',
+      role_family: 'Multiple',
+      role_families: j.role_families || ROLE_FAMILIES.filter(f => f !== 'Other'),
+      seniority: 'Any',
+      notes: `Career target in ${COUNTRY_NAMES[j.country] || j.country}; use search link for open roles across suggested families.`,
+      is_static: true,
+      is_new: false,
+      is_filled: false
+    }));
 
   const dynamicMapped = dynamicPostings.map(p => ({
     id: p.id,
@@ -451,7 +500,9 @@ function buildJobs(dynamicPostings) {
     country: p.country,
     city: p.city || p.location,
     tier: p.tier,
-    stack_fit: p.stack_fit,
+    role_family: p.role_family || inferRoleFamily(p.title),
+    role_families: [p.role_family || inferRoleFamily(p.title)],
+    seniority: p.seniority || inferSeniority(p.title),
     visa: p.visa,
     apply: p.url,
     notes: p.last_filled ? `Last seen ${p.last_seen} — no longer listed` : `Auto-detected ${daysSince(p.first_seen)}d ago via ${p.company} careers`,
@@ -466,6 +517,8 @@ function buildJobs(dynamicPostings) {
     if (!j.score) j.score = calcScore(j);
     j.location = `${COUNTRY_FLAGS[j.country]} ${j.city}`;
     j.tierLabel = TIER_LABELS[j.tier] || j.tier;
+    j.familyLabel = j.is_static ? 'Multiple' : j.role_family;
+    j.seniorityLabel = j.seniority || 'Unknown';
   });
 }
 
@@ -476,7 +529,7 @@ function saveStar(id, v) { try { localStorage.setItem('jobtrack-star-' + id, v ?
 
 const state = {
   tab: 'active',
-  country: new Set(), tier: new Set(), fit: new Set(), visa: new Set(),
+  country: new Set(), tier: new Set(), family: new Set(), seniority: new Set(), visa: new Set(),
   presets: new Set(),
   search: '', sort: 'score', dir: 'desc'
 };
@@ -512,12 +565,13 @@ function buildFilters() {
   };
   make('country', Object.entries(COUNTRY_NAMES).map(([k,v]) => [k, COUNTRY_FLAGS[k] + ' ' + v]));
   make('tier', [['BigTech', 'Big Tech'], ['Scaleup', 'Scale-up'], ['Ecosystem', 'HubSpot/Clay ecosystem']]);
-  make('fit', [['High', 'High'], ['Med', 'Med'], ['Low', 'Low']]);
+  make('family', ROLE_FAMILIES.map(f => [f, f]));
+  make('seniority', SENIORITIES.map(s => [s, s]));
   make('visa', [['Strong', 'Strong'], ['Likely', 'Likely'], ['Unknown', 'Unknown']]);
 }
 
 function updateFilterBadges() {
-  ['country','tier','fit','visa'].forEach(cat => {
+  ['country','tier','family','seniority','visa'].forEach(cat => {
     const n = state[cat].size;
     const summary = document.querySelector(`details[data-cat="${cat}"] > summary`);
     const badge = document.getElementById('bc-' + cat);
@@ -527,7 +581,7 @@ function updateFilterBadges() {
 }
 
 function passesPresets(j) {
-  if (state.presets.has('high-fit') && j.stack_fit !== 'High') return false;
+  if (state.presets.has('senior') && !SENIOR_PLUS.has(j.seniority)) return false;
   if (state.presets.has('strong-visa') && j.visa !== 'Strong') return false;
   if (state.presets.has('new') && !j.is_new) return false;
   if (state.presets.has('starred') && !loadStar(j.id)) return false;
@@ -540,11 +594,12 @@ function filtered() {
     if (tabBucket(j) !== state.tab) return false;
     if (state.country.size && !state.country.has(j.country)) return false;
     if (state.tier.size && !state.tier.has(j.tier)) return false;
-    if (state.fit.size && !state.fit.has(j.stack_fit)) return false;
+    if (state.family.size && !(j.role_families || [j.role_family]).some(f => state.family.has(f))) return false;
+    if (state.seniority.size && !j.is_static && !state.seniority.has(j.seniority)) return false;
     if (state.visa.size && !state.visa.has(j.visa)) return false;
     if (!passesPresets(j)) return false;
     if (q) {
-      const blob = (j.company + ' ' + j.role + ' ' + j.city + ' ' + (j.notes||'') + ' ' + j.tierLabel).toLowerCase();
+      const blob = (j.company + ' ' + j.role + ' ' + j.familyLabel + ' ' + j.seniorityLabel + ' ' + j.city + ' ' + (j.notes||'') + ' ' + j.tierLabel).toLowerCase();
       if (!blob.includes(q)) return false;
     }
     return true;
@@ -573,9 +628,11 @@ function scoreBarHTML(score) {
 }
 
 function compositeBadgesHTML(j) {
+  const familyTitle = j.is_static ? (j.role_families || []).join(', ') : j.familyLabel;
   return `<span class="composite-cell">
     <span class="tier-badge tier-${j.tier.toLowerCase()}">${j.tierLabel}</span>
-    <span class="fit-badge fit-${j.stack_fit.toLowerCase()}">${j.stack_fit}</span>
+    <span class="family-badge" title="${familyTitle}">${j.familyLabel}</span>
+    <span class="seniority-badge">${j.seniorityLabel}</span>
     <span class="visa-badge visa-${j.visa.toLowerCase()}">${j.visa}</span>
   </span>`;
 }
@@ -598,13 +655,13 @@ function starHTML(id) {
 function renderStats() {
   const visible = filtered();
   const newCount = visible.filter(j => j.is_new).length;
-  const high = visible.filter(j => j.stack_fit === 'High').length;
+  const families = new Set(visible.flatMap(j => j.role_families || [j.role_family])).size;
   const strong = visible.filter(j => j.visa === 'Strong').length;
   const starred = JOBS.filter(j => loadStar(j.id)).length;
   let html = '';
   html += `<div class="stat"><div class="stat-label">Showing</div><div class="stat-value">${visible.length}</div></div>`;
   html += `<div class="stat"><div class="stat-label">New (≤7d)</div><div class="stat-value">${newCount}</div></div>`;
-  html += `<div class="stat"><div class="stat-label">High stack fit</div><div class="stat-value">${high}</div></div>`;
+  html += `<div class="stat"><div class="stat-label">Role families</div><div class="stat-value">${families}</div></div>`;
   html += `<div class="stat"><div class="stat-label">Strong visa</div><div class="stat-value">${strong}</div></div>`;
   html += `<div class="stat"><div class="stat-label">★ Starred</div><div class="stat-value">${starred}</div></div>`;
   document.getElementById('stats').innerHTML = html;
@@ -742,7 +799,7 @@ function wireRowHandlers() {
 }
 
 function resetAll() {
-  state.country.clear(); state.tier.clear(); state.fit.clear(); state.visa.clear(); state.presets.clear();
+  state.country.clear(); state.tier.clear(); state.family.clear(); state.seniority.clear(); state.visa.clear(); state.presets.clear();
   state.search = '';
   document.getElementById('search').value = '';
   document.getElementById('search-wrap').classList.remove('has-text');

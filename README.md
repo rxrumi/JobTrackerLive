@@ -4,7 +4,7 @@ Self-contained Cloudflare Worker that:
 - Serves the live job-search tracker at `/`
 - Exposes `/api/jobs` returning the latest dynamic postings from KV
 - Runs a daily cron at `0 3 * * *` UTC that scans supported public ATS APIs
-- Filters jobs by target geography and RevOps/BizOps/Sales-Ops/Marketing-Ops keywords
+- Filters jobs by target geography and broad professional tech-company role families
 - Tracks NEW and FILLED state across scans
 
 Free tier on Cloudflare handles this volume comfortably.
@@ -103,8 +103,7 @@ Edit `src/worker.js`:
 
 - `GREENHOUSE_TOKENS`, `ASHBY_TOKENS`, `LEVER_TOKENS`, `SMARTRECRUITERS_TOKENS` — add or remove scanned boards
 - `CITY_TO_COUNTRY` — add cities/geographies
-- `ROLE_KEYWORDS` — adjust title matching
-- `HIGH_FIT_COMPANIES` — companies that get the High stack-fit boost
+- `ROLE_FAMILIES` — adjust title matching and role-family classification
 - `SCALEUP_COMPANIES` — companies classified as scale-ups
 - `STRONG_VISA_COMPANIES`, `LIKELY_VISA_COMPANIES` — dynamic visa scoring assumptions
 - `COMPANY_ALIASES` — maps non-obvious ATS tokens to display/classification names

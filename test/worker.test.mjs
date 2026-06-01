@@ -75,7 +75,10 @@ test("runScan matches lowercase/country-hint locations and classifies visa", asy
   assert.equal(payload.postings.length, 1);
   assert.equal(payload.postings[0].city, "London");
   assert.equal(payload.postings[0].country, "GB");
+  assert.equal(payload.postings[0].role_family, "Operations");
+  assert.equal(payload.postings[0].seniority, "Manager");
   assert.equal(payload.postings[0].visa, "Strong");
+  assert.equal(payload.postings[0].score, 94);
 });
 
 test("runScan applies company aliases for display and classification", async t => {
@@ -102,26 +105,106 @@ test("runScan applies company aliases for display and classification", async t =
   assert.equal(payload.postings[0].company, "talkdesk");
   assert.equal(payload.postings[0].source_token, "talkdesk2");
   assert.equal(payload.postings[0].tier, "Ecosystem");
-  assert.equal(payload.postings[0].stack_fit, "High");
+  assert.equal(payload.postings[0].role_family, "Operations");
   assert.equal(payload.postings[0].visa, "Likely");
 });
 
-test("runScan excludes broad operations false positives", async t => {
+test("runScan classifies broad professional role families", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     jobsByToken: {
       canva: {
         content: [{
-          id: "legal-1",
-          name: "Senior Legal Counsel, Business Operations",
+          id: "eng-1",
+          name: "Senior Software Engineer",
           location: { fullLocation: "Sydney, NSW, Australia" },
           company: { identifier: "Canva" }
         }, {
-          id: "ops-1",
-          name: "Marketing Operations Specialist",
+          id: "sales-1",
+          name: "Enterprise Account Executive",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "marketing-1",
+          name: "Product Marketing Manager",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "finance-1",
+          name: "Strategic Finance Analyst",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "product-1",
+          name: "Product Manager",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "data-1",
+          name: "Data Analyst",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "people-1",
+          name: "Talent Acquisition Specialist",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "cs-1",
+          name: "Customer Success Manager",
           location: { fullLocation: "Sydney, NSW, Australia" },
           company: { identifier: "Canva" }
         }],
-        totalFound: 2
+        totalFound: 8
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const families = new Set(payload.postings.map(p => p.role_family));
+  assert.equal(payload.postings.length, 8);
+  assert.deepEqual(families, new Set([
+    "Engineering",
+    "Sales",
+    "Marketing",
+    "Finance",
+    "Product",
+    "Data/Analytics",
+    "People/HR",
+    "Customer Success/Support"
+  ]));
+});
+
+test("runScan excludes early-career and noisy unmatched titles", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      canva: {
+        content: [{
+          id: "intern-1",
+          name: "Software Engineer Intern",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "grad-1",
+          name: "Graduate Program - Business Analyst",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "noise-1",
+          name: "Office Coordinator, Risk, Ethics",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "legal-1",
+          name: "Senior Legal Counsel",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }],
+        totalFound: 4
       }
     }
   }));
@@ -133,7 +216,8 @@ test("runScan excludes broad operations false positives", async t => {
   const jobsPut = KV.puts.find(p => p.key === "jobs");
   const payload = JSON.parse(jobsPut.value);
   assert.equal(payload.postings.length, 1);
-  assert.equal(payload.postings[0].title, "Marketing Operations Specialist");
+  assert.equal(payload.postings[0].title, "Senior Legal Counsel");
+  assert.equal(payload.postings[0].role_family, "Legal/Compliance");
 });
 
 test("runScan preserves previous postings from a failed active source", async t => {
@@ -151,9 +235,10 @@ test("runScan preserves previous postings from a failed active source", async t 
     country: "GB",
     url: "https://example.com/old",
     tier: "Ecosystem",
-    stack_fit: "High",
+    role_family: "Operations",
+    seniority: "Senior/Lead",
     visa: "Strong",
-    score: 97,
+    score: 96,
     first_seen: "2026-05-20",
     last_seen: "2026-05-20",
     last_filled: null
@@ -182,9 +267,10 @@ test("runScan drops postings from retired sources", async t => {
     country: "GB",
     url: "https://example.com/old",
     tier: "Scaleup",
-    stack_fit: "Med",
+    role_family: "Operations",
+    seniority: "Senior/Lead",
     visa: "Unknown",
-    score: 65,
+    score: 68,
     first_seen: "2026-05-20",
     last_seen: "2026-05-20",
     last_filled: null

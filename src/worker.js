@@ -62,22 +62,76 @@ const COUNTRY_HINTS = {
   "new zealand": { country: "NZ", city: "New Zealand" }
 };
 
-const ROLE_KEYWORDS = [
-  "revenue operations", "revops", "rev ops",
-  "sales operations", "sales ops",
-  "marketing operations", "marketing ops",
-  "business operations", "biz ops",
-  "gtm operations", "gtm ops", "go-to-market operations",
-  "field operations",
-  "sales strategy", "revenue strategy", "sales excellence",
-  "strategy and operations", "strategy & operations"
+const EXCLUDED_TITLE_KEYWORDS = [
+  "intern", "internship", "apprentice", "apprenticeship", "graduate program",
+  "graduate scheme", "working student", "student worker", "campus ambassador",
+  "risk, ethics", "advocacy & legal"
 ];
 
-const EXCLUDED_TITLE_KEYWORDS = [
-  "intern", "internship",
-  "legal counsel", "senior legal counsel", "counsel, business operations",
-  "engineering lead", "engineer", "developer",
-  "risk, ethics", "advocacy & legal"
+const ROLE_FAMILIES = [
+  {
+    family: "Engineering",
+    keywords: [
+      "software engineer", "frontend engineer", "front end engineer", "backend engineer",
+      "back end engineer", "full stack engineer", "fullstack engineer", "mobile engineer",
+      "ios engineer", "android engineer", "platform engineer", "infrastructure engineer",
+      "site reliability", "sre", "devops", "developer", "technical lead", "engineering manager",
+      "solutions engineer", "sales engineer", "machine learning engineer", "ml engineer"
+    ]
+  },
+  {
+    family: "Product",
+    keywords: ["product manager", "product owner", "product lead", "product strategy", "group product", "product operations", "product ops"]
+  },
+  {
+    family: "Design",
+    keywords: ["product designer", "ux designer", "ui designer", "content designer", "brand designer", "visual designer", "design manager", "user researcher", "ux researcher"]
+  },
+  {
+    family: "Data/Analytics",
+    keywords: ["data analyst", "business analyst", "analytics", "data scientist", "data science", "business intelligence", "bi analyst", "data engineer", "analytics engineer", "insights analyst"]
+  },
+  {
+    family: "Security/IT",
+    keywords: ["security", "cybersecurity", "information security", "trust and safety", "it support", "systems administrator", "network engineer", "cloud infrastructure", "privacy engineer"]
+  },
+  {
+    family: "Sales",
+    keywords: ["account executive", "sales", "business development", "bdr", "sdr", "account manager", "partnerships", "partner manager", "enterprise account", "commercial account", "sales operations", "sales ops", "sales strategy", "sales excellence"]
+  },
+  {
+    family: "Marketing",
+    keywords: ["marketing", "growth", "demand generation", "demand gen", "product marketing", "content marketing", "field marketing", "brand marketing", "marketing operations", "marketing ops", "seo", "performance marketing", "lifecycle marketing"]
+  },
+  {
+    family: "Finance",
+    keywords: ["fp&a", "fpa", "financial planning", "accounting", "accountant", "controller", "strategic finance", "revenue finance", "deal desk", "corporate finance", "tax", "treasury", "procurement", "payroll", "finance manager", "finance analyst"]
+  },
+  {
+    family: "Operations",
+    keywords: ["operations", "revenue operations", "revops", "rev ops", "business operations", "biz ops", "gtm operations", "gtm ops", "go-to-market operations", "field operations", "workplace operations", "salesforce administrator"]
+  },
+  {
+    family: "Customer Success/Support",
+    keywords: ["customer success", "customer support", "technical support", "support engineer", "implementation", "onboarding", "solutions consultant", "professional services", "customer experience", "renewals", "support manager"]
+  },
+  {
+    family: "People/HR",
+    keywords: ["people", "human resources", "hr business partner", "talent acquisition", "recruiter", "recruiting", "compensation", "benefits", "people operations", "employee experience", "learning and development"]
+  },
+  {
+    family: "Legal/Compliance",
+    keywords: ["legal counsel", "senior legal counsel", "commercial counsel", "privacy counsel", "compliance", "regulatory", "risk manager", "legal operations", "contract manager"]
+  },
+  {
+    family: "Strategy/Program",
+    keywords: ["strategy", "strategic programs", "program manager", "project manager", "chief of staff", "business planning", "revenue strategy", "strategy and operations", "strategy & operations"]
+  }
+];
+
+const ROLE_FALLBACK_KEYWORDS = [
+  "engineer", "developer", "designer", "analyst", "manager", "lead", "director",
+  "specialist", "associate", "consultant", "architect", "administrator"
 ];
 
 const COMPANY_ALIASES = {
@@ -124,11 +178,25 @@ function matchCountry(locationName) {
   return null;
 }
 
-function matchKeywords(title) {
+function classifyRoleFamily(title) {
   if (!title) return false;
   const t = title.toLowerCase();
   if (EXCLUDED_TITLE_KEYWORDS.some(k => t.includes(k))) return false;
-  return ROLE_KEYWORDS.some(k => t.includes(k));
+  for (const group of ROLE_FAMILIES) {
+    if (group.keywords.some(k => t.includes(k))) return group.family;
+  }
+  return ROLE_FALLBACK_KEYWORDS.some(k => t.includes(k)) ? "Other" : null;
+}
+
+function classifySeniority(title) {
+  if (!title) return "Unknown";
+  const t = title.toLowerCase();
+  if (/\b(chief|cfo|cto|cio|coo|cmo|cro|ceo|vp|vice president|executive)\b/.test(t)) return "Executive";
+  if (/\b(director|head of|global head|regional head)\b/.test(t)) return "Director/Head";
+  if (/\b(senior|sr\.?|lead|principal|staff)\b/.test(t)) return "Senior/Lead";
+  if (/\b(manager|mgr)\b/.test(t)) return "Manager";
+  if (/\b(associate|analyst|specialist|coordinator|administrator|consultant)\b/.test(t)) return "Associate/Analyst";
+  return "Unknown";
 }
 
 function classifyTier(token) {
@@ -136,10 +204,6 @@ function classifyTier(token) {
   if (ECOSYSTEM_COMPANIES.has(company)) return "Ecosystem";
   if (SCALEUP_COMPANIES.has(company)) return "Scaleup";
   return "BigTech";
-}
-
-function classifyFit(token) {
-  return HIGH_FIT_COMPANIES.has(canonicalCompany(token)) ? "High" : "Med";
 }
 
 function classifyVisa(token) {
@@ -153,10 +217,38 @@ function canonicalCompany(token) {
   return COMPANY_ALIASES[token] || token;
 }
 
-function calcScore(fit, visa) {
-  const fitW = { High: 100, Med: 70, Low: 40 };
+function calcScore({ visa, seniority, firstSeen, lastFilled, today }) {
   const visaW = { Strong: 100, Likely: 75, Unknown: 50 };
-  return Math.round(fitW[fit] * 0.4 + visaW[visa] * 0.4 + 85 * 0.2);
+  const seniorityW = {
+    Executive: 95,
+    "Director/Head": 90,
+    "Senior/Lead": 85,
+    Manager: 80,
+    "Associate/Analyst": 70,
+    Unknown: 65
+  };
+  const freshness = lastFilled ? 30 : daysBetween(firstSeen, today) <= 7 ? 100 : 80;
+  return Math.round((visaW[visa] || 50) * 0.5 + (seniorityW[seniority] || 65) * 0.3 + freshness * 0.2);
+}
+
+function normalizePosting(posting, today) {
+  const roleFamily = posting.role_family || classifyRoleFamily(posting.title) || "Other";
+  const seniority = posting.seniority || classifySeniority(posting.title);
+  const visa = posting.visa || "Unknown";
+  const firstSeen = posting.first_seen || today;
+  const score = calcScore({
+    visa,
+    seniority,
+    firstSeen,
+    lastFilled: posting.last_filled,
+    today
+  });
+  return {
+    ...posting,
+    role_family: roleFamily,
+    seniority,
+    score
+  };
 }
 
 function todayUTC() {
@@ -299,12 +391,14 @@ export async function runScan(env) {
       for (const job of jobs) {
         const loc = matchCountry(job.location);
         if (!loc) continue;
-        if (!matchKeywords(job.title)) continue;
+        const roleFamily = classifyRoleFamily(job.title);
+        if (!roleFamily) continue;
 
         const id = `${s.source}-${s.token}-${job.id}`;
         const existed = prev.postings[id];
-        const fit = classifyFit(s.token);
         const visa = classifyVisa(s.token);
+        const firstSeen = existed?.first_seen || today;
+        const seniority = classifySeniority(job.title);
 
         found[id] = {
           id,
@@ -317,10 +411,11 @@ export async function runScan(env) {
           country: loc.country,
           url: job.url,
           tier: classifyTier(s.token),
-          stack_fit: fit,
+          role_family: roleFamily,
+          seniority,
           visa,
-          score: calcScore(fit, visa),
-          first_seen: existed?.first_seen || today,
+          score: calcScore({ visa, seniority, firstSeen, lastFilled: null, today }),
+          first_seen: firstSeen,
           last_seen: today,
           last_filled: null
         };
@@ -348,12 +443,12 @@ export async function runScan(env) {
     if (found[id]) continue;
     if (!ACTIVE_SOURCES.has(p.source)) continue;
     if (failedSources.has(postingSourceId(p))) {
-      merged[id] = p;
+      merged[id] = normalizePosting(p, today);
       continue;
     }
     const filledDate = p.last_filled || today;
     if (daysBetween(filledDate, today) <= 7) {
-      merged[id] = { ...p, last_filled: filledDate };
+      merged[id] = normalizePosting({ ...p, last_filled: filledDate }, today);
     }
   }
   Object.assign(merged, found);
