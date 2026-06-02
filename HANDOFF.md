@@ -9,8 +9,8 @@ The project is now cloud-only.
 | Where | URL / Path |
 |---|---|
 | Repo | `https://github.com/rxrumi/JobTrackerLive` |
-| Live primary | `https://resumeforjd.com` |
-| Live alt | `https://www.resumeforjd.com` |
+| Live primary | `https://livejobindex.com` |
+| Live alt | `https://www.livejobindex.com` |
 | Worker direct | `https://job-tracker.sohaibkazmi-r.workers.dev` |
 | Local working copy | `/Users/kazmi/Desktop/GitRepositories/JobTrackerLive` |
 

@@ -19,11 +19,11 @@ not_found_handling = "single-page-application"
 enabled = true
 
 [[routes]]
-pattern = "resumeforjd.com"
+pattern = "livejobindex.com"
 custom_domain = true
-zone_id = "26201f140ccd499dca6a53206fe8e253"
+zone_name = "livejobindex.com"
 
 [[routes]]
-pattern = "www.resumeforjd.com"
+pattern = "www.livejobindex.com"
 custom_domain = true
-zone_id = "26201f140ccd499dca6a53206fe8e253"
+zone_name = "livejobindex.com"
