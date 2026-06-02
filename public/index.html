@@ -179,6 +179,36 @@ tbody tr.is-filled .role { font-style: italic; }
 .legend strong { color: var(--text); font-weight: 500; }
 
 .loading { text-align: center; padding: 12px; color: var(--subtle); font-size: 12px; }
+[hidden] { display: none !important; }
+
+.header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.account-pill { border: 0.5px solid var(--border); border-radius: 999px; padding: 5px 10px; color: var(--muted); font-size: 12px; background: var(--card); }
+.auth-panel, .onboarding-panel { max-width: 760px; margin: 28px auto; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 22px; box-shadow: var(--shadow); }
+.auth-title { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+.auth-copy { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+.auth-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.auth-tab { border: 0.5px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-family: inherit; font-size: 13px; }
+.auth-tab.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-field { display: flex; flex-direction: column; gap: 5px; }
+.form-field.full { grid-column: 1 / -1; }
+.form-field label, .choice-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.form-field input, .form-field select, .form-field textarea { border: 0.5px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg); color: var(--text); font: inherit; min-width: 0; }
+.form-field textarea { min-height: 72px; resize: vertical; }
+.form-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.primary-btn, .secondary-btn { border-radius: 8px; padding: 8px 13px; cursor: pointer; font-family: inherit; font-size: 13px; border: 0.5px solid var(--border); }
+.primary-btn { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.secondary-btn { background: transparent; color: var(--text); }
+.form-message { min-height: 18px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.form-message.error { color: #B3261E; }
+.choice-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 16px; }
+.choice-card { border: 0.5px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 12px; text-align: left; cursor: pointer; font-family: inherit; }
+.choice-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.choice-card strong { display: block; margin-bottom: 4px; }
+.choice-card span { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+.check-grid label { display: flex; align-items: center; gap: 7px; padding: 7px 8px; border: 0.5px solid var(--border); border-radius: 8px; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 12px; background: var(--bg); }
+.check-grid input { width: auto; }
 
 .job-cards { display: none; }
 .job-card { background: var(--card); border: 0.5px solid var(--border); border-left: 3px solid transparent; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
@@ -199,6 +229,7 @@ tbody tr.is-filled .role { font-style: italic; }
   .job-cards { display: block; }
   .filter-bar { padding: 8px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
+  .form-grid, .choice-row { grid-template-columns: 1fr; }
 }
 </style>
 <script>
@@ -221,9 +252,194 @@ tbody tr.is-filled .role { font-style: italic; }
     <p class="subtitle">Live and curated visa-aware roles across target relocation markets.</p>
     <p class="last-scan" id="last-scan">Loading dynamic postings...</p>
   </div>
-  <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">☾</button>
+  <div class="header-actions">
+    <span class="account-pill" id="account-pill" hidden></span>
+    <button class="secondary-btn" id="logout-btn" hidden>Log out</button>
+    <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">☾</button>
+  </div>
 </div>
 
+<section class="auth-panel" id="auth-panel" hidden>
+  <h2 class="auth-title">Sign in</h2>
+  <p class="auth-copy">Access your saved jobs, pipeline, and onboarding profile.</p>
+  <div class="auth-tabs">
+    <button class="auth-tab active" id="show-login" type="button">Login</button>
+    <button class="auth-tab" id="show-signup" type="button">Create account</button>
+  </div>
+  <form id="login-form">
+    <div class="form-grid">
+      <div class="form-field">
+        <label for="login-email">Email</label>
+        <input id="login-email" name="email" type="email" autocomplete="email" required>
+      </div>
+      <div class="form-field">
+        <label for="login-password">Password</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="primary-btn" type="submit">Log in</button>
+    </div>
+  </form>
+  <form id="signup-form" hidden>
+    <div class="form-grid">
+      <div class="form-field">
+        <label for="signup-name">Full name</label>
+        <input id="signup-name" name="full_name" type="text" autocomplete="name" required>
+      </div>
+      <div class="form-field">
+        <label for="signup-email">Email</label>
+        <input id="signup-email" name="email" type="email" autocomplete="email" required>
+      </div>
+      <div class="form-field">
+        <label for="signup-password">Password</label>
+        <input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="primary-btn" type="submit">Create account</button>
+    </div>
+  </form>
+  <div class="form-message" id="auth-message"></div>
+</section>
+
+<section class="onboarding-panel" id="onboarding-panel" hidden>
+  <h2 class="auth-title">Complete onboarding</h2>
+  <p class="auth-copy">Choose how you plan to use JobTrackerLive, then save the matching profile.</p>
+  <div class="choice-row">
+    <button class="choice-card" id="choose-individual" type="button" data-account-type="individual">
+      <strong>For my own job search</strong>
+      <span>Track visa-friendly technology roles and application progress.</span>
+    </button>
+    <button class="choice-card" id="choose-agency" type="button" data-account-type="agency">
+      <strong>Agency, recruiting, or data use</strong>
+      <span>Explore market data and record integration interest for later.</span>
+    </button>
+  </div>
+
+  <form id="individual-form" hidden>
+    <div class="form-grid">
+      <div class="form-field">
+        <label for="individual-name">Full name</label>
+        <input id="individual-name" name="full_name" type="text" required>
+      </div>
+      <div class="form-field">
+        <label for="current-title">Current title</label>
+        <input id="current-title" name="current_title" type="text" required>
+      </div>
+      <div class="form-field">
+        <label for="years-experience">Years experience</label>
+        <input id="years-experience" name="years_experience" type="number" min="0" step="0.5" required>
+      </div>
+      <div class="form-field">
+        <label for="target-seniority">Target seniority</label>
+        <select id="target-seniority" name="target_seniority" required></select>
+      </div>
+      <div class="form-field">
+        <label for="preferred-work-mode">Work mode</label>
+        <select id="preferred-work-mode" name="preferred_work_mode">
+          <option value="">Any</option>
+          <option value="remote">Remote</option>
+          <option value="hybrid">Hybrid</option>
+          <option value="onsite">On-site</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="salary-min-usd">Minimum salary USD</label>
+        <input id="salary-min-usd" name="salary_min_usd" type="number" min="0" step="1000">
+      </div>
+      <div class="form-field">
+        <label for="linkedin-url">LinkedIn URL</label>
+        <input id="linkedin-url" name="linkedin_url" type="url">
+      </div>
+      <div class="form-field">
+        <label for="resume-url">Resume URL</label>
+        <input id="resume-url" name="resume_url" type="url">
+      </div>
+      <div class="form-field full">
+        <span class="choice-label">Target countries</span>
+        <div class="check-grid" id="individual-countries"></div>
+      </div>
+      <div class="form-field full">
+        <span class="choice-label">Role families</span>
+        <div class="check-grid" id="individual-role-families"></div>
+      </div>
+      <div class="form-field full">
+        <label><input id="visa-needed" name="visa_needed" type="checkbox" checked> Visa sponsorship needed</label>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="primary-btn" type="submit">Save profile</button>
+    </div>
+  </form>
+
+  <form id="agency-form" hidden>
+    <div class="form-grid">
+      <div class="form-field">
+        <label for="agency-name">Agency/company name</label>
+        <input id="agency-name" name="agency_name" type="text" required>
+      </div>
+      <div class="form-field">
+        <label for="agency-type">Agency type</label>
+        <select id="agency-type" name="agency_type" required>
+          <option value="recruiting_agency">Recruiting agency</option>
+          <option value="lead_gen_agency">Lead-gen agency</option>
+          <option value="immigration_consultancy">Immigration consultancy</option>
+          <option value="career_services">Career services</option>
+          <option value="market_research">Market research</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="agency-use-case">Use case</label>
+        <select id="agency-use-case" name="use_case" required>
+          <option value="recruiting">Recruiting</option>
+          <option value="lead_generation">Lead generation</option>
+          <option value="visa_market_research">Visa market research</option>
+          <option value="talent_intelligence">Talent intelligence</option>
+          <option value="job_data_integration">Job data integration</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="integration-interest">Integration interest</label>
+        <select id="integration-interest" name="integration_interest">
+          <option value="none">None</option>
+          <option value="zapier">Zapier</option>
+          <option value="make">Make</option>
+          <option value="clay">Clay</option>
+          <option value="airtable">Airtable</option>
+          <option value="google_sheets">Google Sheets</option>
+          <option value="crm">CRM</option>
+          <option value="api">API</option>
+          <option value="webhook">Webhook</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="monthly-data-volume">Monthly data volume</label>
+        <input id="monthly-data-volume" name="monthly_data_volume" type="text">
+      </div>
+      <div class="form-field full">
+        <span class="choice-label">Target countries</span>
+        <div class="check-grid" id="agency-countries"></div>
+      </div>
+      <div class="form-field full">
+        <span class="choice-label">Role families</span>
+        <div class="check-grid" id="agency-role-families"></div>
+      </div>
+      <div class="form-field full">
+        <label for="target-markets">Target markets</label>
+        <textarea id="target-markets" name="target_markets" placeholder="SaaS, GTM tools, RevOps agencies"></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="primary-btn" type="submit">Save profile</button>
+    </div>
+  </form>
+  <div class="form-message" id="onboarding-message"></div>
+</section>
+
+<main id="dashboard" hidden>
 <nav class="tabs" id="tabs">
   <button class="tab active" data-tab="active">Live jobs <span class="count" id="count-active">—</span></button>
   <button class="tab" data-tab="targets">Targets <span class="count" id="count-targets">—</span></button>
@@ -311,9 +527,10 @@ tbody tr.is-filled .role { font-style: italic; }
     <strong>Score:</strong> visa likelihood 50%, seniority 30%, freshness 20%.
     <strong>LIVE</strong> = confirmed ATS posting. <strong>TARGET</strong> = curated careers search.
     <strong>NEW</strong> = first seen within 7 days. <strong>FILLED</strong> = disappeared from the source feed and prunes after 7 days.
-    Status, stars, and theme save in this browser.
+    Status and stars save to your account. Theme saves in this browser.
   </div>
 </details>
+</main>
 
 <script>
 const STATIC_COMPANIES = [
@@ -474,6 +691,10 @@ function inferSeniority(title) {
 
 let JOBS = [];
 let LAST_SCAN = null;
+let ME = null;
+let USER_JOBS = new Map();
+let AUTH_MODE = 'login';
+let ONBOARDING_ACCOUNT_TYPE = 'individual';
 
 function buildJobs(dynamicPostings) {
   const seenTargets = new Set();
@@ -526,10 +747,48 @@ function buildJobs(dynamicPostings) {
   });
 }
 
-function loadStatus(id) { try { return localStorage.getItem('jobtrack-' + id) || 'Not started'; } catch (e) { return 'Not started'; } }
-function saveStatus(id, v) { try { localStorage.setItem('jobtrack-' + id, v); } catch (e) {} }
-function loadStar(id) { try { return localStorage.getItem('jobtrack-star-' + id) === '1'; } catch (e) { return false; } }
-function saveStar(id, v) { try { localStorage.setItem('jobtrack-star-' + id, v ? '1' : '0'); } catch (e) {} }
+async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  const r = await fetch(path, { ...options, headers });
+  const text = await r.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!r.ok) throw new Error(data?.error || 'Request failed');
+  return data;
+}
+
+function loadUserJob(id) {
+  return USER_JOBS.get(String(id)) || null;
+}
+
+function setUserJob(id, patch) {
+  const key = String(id);
+  const current = USER_JOBS.get(key) || { job_id: key, status: 'Not started', starred: false, notes: null };
+  USER_JOBS.set(key, { ...current, ...patch, job_id: key });
+}
+
+function loadStatus(id) { return loadUserJob(id)?.status || 'Not started'; }
+function loadStar(id) { return Boolean(loadUserJob(id)?.starred); }
+
+async function persistUserJob(id, patch) {
+  setUserJob(id, patch);
+  render();
+  try {
+    const data = await api('/api/user-jobs/' + encodeURIComponent(id), {
+      method: 'PUT',
+      body: JSON.stringify(patch)
+    });
+    if (data?.job) {
+      USER_JOBS.set(String(id), data.job);
+      render();
+    }
+  } catch (e) {
+    document.getElementById('last-scan').textContent = 'Could not save job state: ' + e.message;
+  }
+}
+
+function saveStatus(id, v) { persistUserJob(id, { status: v }); }
+function saveStar(id, v) { persistUserJob(id, { starred: v }); }
 
 const state = {
   tab: 'active',
@@ -816,11 +1075,19 @@ function wireRowHandlers() {
     a.onclick = () => {
       const id = a.dataset.id;
       const job = JOBS.find(j => String(j.id) === String(id));
+      api('/api/activity', {
+        method: 'POST',
+        body: JSON.stringify({
+          event_type: 'apply_clicked',
+          entity_type: job?.is_static ? 'target' : 'job',
+          entity_id: id,
+          metadata: { company: job?.company, role: job?.role, url: job?.apply }
+        })
+      }).catch(() => {});
       if (job?.is_static) return;
       const cur = loadStatus(id);
       if (cur === 'Not started' || cur === 'Saved') {
         saveStatus(id, 'Applied');
-        setTimeout(render, 50);
       }
     };
   });
@@ -921,10 +1188,257 @@ function wireStaticHandlers() {
   });
 }
 
+function setMessage(id, message, isError = false) {
+  const el = document.getElementById(id);
+  el.textContent = message || '';
+  el.classList.toggle('error', Boolean(isError));
+}
+
+function updateAuthTabs() {
+  document.getElementById('show-login').classList.toggle('active', AUTH_MODE === 'login');
+  document.getElementById('show-signup').classList.toggle('active', AUTH_MODE === 'signup');
+  document.getElementById('login-form').hidden = AUTH_MODE !== 'login';
+  document.getElementById('signup-form').hidden = AUTH_MODE !== 'signup';
+  document.querySelector('#auth-panel .auth-title').textContent = AUTH_MODE === 'login' ? 'Sign in' : 'Create account';
+  setMessage('auth-message', '');
+}
+
+function showAuth() {
+  document.getElementById('auth-panel').hidden = false;
+  document.getElementById('onboarding-panel').hidden = true;
+  document.getElementById('dashboard').hidden = true;
+  document.getElementById('account-pill').hidden = true;
+  document.getElementById('logout-btn').hidden = true;
+  updateAuthTabs();
+}
+
+function showOnboarding() {
+  document.getElementById('auth-panel').hidden = true;
+  document.getElementById('onboarding-panel').hidden = false;
+  document.getElementById('dashboard').hidden = true;
+  document.getElementById('logout-btn').hidden = false;
+  syncAccountHeader();
+  selectAccountType(ME?.user?.account_type || 'individual', false);
+}
+
+function showDashboard() {
+  document.getElementById('auth-panel').hidden = true;
+  document.getElementById('onboarding-panel').hidden = true;
+  document.getElementById('dashboard').hidden = false;
+  document.getElementById('logout-btn').hidden = false;
+  syncAccountHeader();
+}
+
+function syncAccountHeader() {
+  const pill = document.getElementById('account-pill');
+  const type = ME?.user?.account_type || 'individual';
+  const plan = ME?.account_access?.plan || 'free';
+  pill.textContent = `${type === 'agency' ? 'Agency' : 'Individual'} · ${plan}`;
+  pill.hidden = false;
+  document.querySelector('.subtitle').textContent = type === 'agency'
+    ? 'Explore live hiring data across target markets. API and CRM integrations are available on approved agency plans.'
+    : 'Track visa-friendly jobs across top global tech companies.';
+}
+
+function checkedValues(containerId) {
+  return [...document.querySelectorAll(`#${containerId} input:checked`)].map(input => input.value);
+}
+
+function commaList(value) {
+  return (value || '').split(',').map(v => v.trim()).filter(Boolean);
+}
+
+function buildCheckGrid(containerId, entries) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = entries.map(([value, label]) => (
+    `<label><input type="checkbox" value="${value}"> ${label}</label>`
+  )).join('');
+}
+
+function buildOnboardingOptions() {
+  const countryEntries = Object.entries(COUNTRY_NAMES).map(([code, name]) => [code, `${COUNTRY_FLAGS[code]} ${name}`]);
+  const familyEntries = ROLE_FAMILIES.filter(f => f !== 'Other').map(f => [f, f]);
+  buildCheckGrid('individual-countries', countryEntries);
+  buildCheckGrid('agency-countries', countryEntries);
+  buildCheckGrid('individual-role-families', familyEntries);
+  buildCheckGrid('agency-role-families', familyEntries);
+  document.getElementById('target-seniority').innerHTML = SENIORITIES
+    .map(s => `<option value="${s}">${s}</option>`)
+    .join('');
+}
+
+async function selectAccountType(accountType, persist = true) {
+  ONBOARDING_ACCOUNT_TYPE = accountType;
+  document.getElementById('choose-individual').classList.toggle('active', accountType === 'individual');
+  document.getElementById('choose-agency').classList.toggle('active', accountType === 'agency');
+  document.getElementById('individual-form').hidden = accountType !== 'individual';
+  document.getElementById('agency-form').hidden = accountType !== 'agency';
+  setMessage('onboarding-message', '');
+  if (!persist) return;
+  try {
+    ME = await api('/api/onboarding/account-type', {
+      method: 'PATCH',
+      body: JSON.stringify({ account_type: accountType })
+    });
+    syncAccountHeader();
+  } catch (e) {
+    setMessage('onboarding-message', e.message, true);
+  }
+}
+
+async function loadMe() {
+  try {
+    ME = await api('/api/me');
+    return ME;
+  } catch {
+    ME = null;
+    return null;
+  }
+}
+
+async function loadUserJobs() {
+  const data = await api('/api/user-jobs');
+  USER_JOBS = new Map((data.jobs || []).map(job => [String(job.job_id), job]));
+}
+
+async function completeOnboarding() {
+  ME = await api('/api/onboarding/complete', { method: 'POST' });
+  await loadUserJobs();
+  showDashboard();
+  render();
+}
+
+function wireAuthHandlers() {
+  document.getElementById('show-login').onclick = () => {
+    AUTH_MODE = 'login';
+    updateAuthTabs();
+  };
+  document.getElementById('show-signup').onclick = () => {
+    AUTH_MODE = 'signup';
+    updateAuthTabs();
+  };
+
+  document.getElementById('login-form').onsubmit = async (e) => {
+    e.preventDefault();
+    setMessage('auth-message', 'Signing in...');
+    const form = new FormData(e.currentTarget);
+    try {
+      ME = await api('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: form.get('email'),
+          password: form.get('password')
+        })
+      });
+      if (ME.user?.onboarding_completed) {
+        await loadUserJobs();
+        showDashboard();
+        render();
+      } else {
+        showOnboarding();
+      }
+    } catch (err) {
+      setMessage('auth-message', err.message, true);
+    }
+  };
+
+  document.getElementById('signup-form').onsubmit = async (e) => {
+    e.preventDefault();
+    setMessage('auth-message', 'Creating account...');
+    const form = new FormData(e.currentTarget);
+    try {
+      const data = await api('/api/signup', {
+        method: 'POST',
+        body: JSON.stringify({
+          full_name: form.get('full_name'),
+          email: form.get('email'),
+          password: form.get('password')
+        })
+      });
+      if (data.confirmation_required) {
+        AUTH_MODE = 'login';
+        updateAuthTabs();
+        setMessage('auth-message', 'Check your email to confirm your account, then log in.');
+      } else {
+        AUTH_MODE = 'login';
+        updateAuthTabs();
+        setMessage('auth-message', 'Account created. You can log in now.');
+      }
+    } catch (err) {
+      setMessage('auth-message', err.message, true);
+    }
+  };
+
+  document.getElementById('logout-btn').onclick = async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    ME = null;
+    USER_JOBS = new Map();
+    showAuth();
+  };
+
+  document.getElementById('choose-individual').onclick = () => selectAccountType('individual');
+  document.getElementById('choose-agency').onclick = () => selectAccountType('agency');
+
+  document.getElementById('individual-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const payload = {
+      full_name: form.get('full_name'),
+      current_title: form.get('current_title'),
+      years_experience: form.get('years_experience'),
+      target_role_families: checkedValues('individual-role-families'),
+      target_seniority: form.get('target_seniority'),
+      target_countries: checkedValues('individual-countries'),
+      visa_needed: document.getElementById('visa-needed').checked,
+      preferred_work_mode: form.get('preferred_work_mode'),
+      salary_min_usd: form.get('salary_min_usd'),
+      linkedin_url: form.get('linkedin_url'),
+      resume_url: form.get('resume_url')
+    };
+    try {
+      setMessage('onboarding-message', 'Saving profile...');
+      ME = await api('/api/onboarding/individual-profile', {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      await completeOnboarding();
+    } catch (err) {
+      setMessage('onboarding-message', err.message, true);
+    }
+  };
+
+  document.getElementById('agency-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const payload = {
+      agency_name: form.get('agency_name'),
+      agency_type: form.get('agency_type'),
+      use_case: form.get('use_case'),
+      integration_interest: form.get('integration_interest'),
+      monthly_data_volume: form.get('monthly_data_volume'),
+      target_markets: commaList(form.get('target_markets')),
+      target_role_families: checkedValues('agency-role-families'),
+      target_countries: checkedValues('agency-countries')
+    };
+    try {
+      setMessage('onboarding-message', 'Saving profile...');
+      ME = await api('/api/onboarding/agency-profile', {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      await completeOnboarding();
+    } catch (err) {
+      setMessage('onboarding-message', err.message, true);
+    }
+  };
+}
+
 async function init() {
   buildJobs([]);
   buildFilters();
+  buildOnboardingOptions();
   wireStaticHandlers();
+  wireAuthHandlers();
   render();
 
   try {
@@ -944,6 +1458,17 @@ async function init() {
     }
   } catch (e) {
     document.getElementById('last-scan').textContent = 'Static entries only — dynamic feed unavailable.';
+  }
+
+  const me = await loadMe();
+  if (!me) {
+    showAuth();
+  } else if (!me.user?.onboarding_completed) {
+    showOnboarding();
+  } else {
+    await loadUserJobs();
+    showDashboard();
+    render();
   }
 }
 

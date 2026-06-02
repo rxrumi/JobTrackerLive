@@ -78,7 +78,8 @@ The UI:
 - Shows job rows in a desktop table.
 - Shows mobile-friendly job cards on smaller screens.
 - Lets the user filter, search, sort, star, and set status.
-- Stores personal UI state in browser `localStorage`.
+- Stores status, stars, onboarding, access, and profile state through Supabase.
+- Keeps theme preference in browser `localStorage`.
 
 The cloud scanner:
 
@@ -101,6 +102,7 @@ Cloudflare Worker: job-tracker
 ├── fetch handler
 │   ├── GET /              -> static UI from public/index.html
 │   ├── GET /api/jobs      -> public job payload from KV key "jobs"
+│   ├── account routes     -> Supabase Auth, onboarding, and user pipeline state
 │   └── GET /api/scan-now  -> manual scan, requires X-Scan-Key
 └── scheduled handler
     └── runScan(env)       -> scan ATS feeds, filter, score, diff, write KV
@@ -108,6 +110,15 @@ Cloudflare Worker: job-tracker
 Cloudflare KV namespace: job-tracker-state
 ├── state                  -> full scan state and posting history
 └── jobs                   -> flattened payload consumed by the UI
+
+Supabase
+├── auth.users             -> email/password identity
+├── public.users           -> account type and onboarding state
+├── public.user_profiles   -> individual job-seeker profile
+├── public.agency_profiles -> agency/data-user profile
+├── public.user_jobs       -> per-user status, stars, notes, and timestamps
+├── public.user_activity   -> behavior/event log
+└── public.account_access  -> plan and gated feature access
 ```
 
 Configured Cloudflare resources live in `wrangler.toml`:
@@ -142,11 +153,12 @@ Configured Cloudflare resources live in `wrangler.toml`:
 - Cloudflare Workers for compute.
 - Cloudflare Workers Assets for the static HTML UI.
 - Cloudflare KV for persistent scan state and public job payload.
+- Supabase Auth and Postgres for account, onboarding, access, activity, and user-specific pipeline state.
 - Wrangler for local development, dry-run validation, deployment, secrets, logs, and KV inspection.
 - Plain HTML, CSS, and JavaScript for the frontend.
 - Node's built-in `node:test` runner for tests.
 
-There is no separate backend server, database server, frontend build step, or local scanner.
+There is no separate backend server, frontend build step, or local scanner.
 
 ## HTTP Routes
 
@@ -183,6 +195,24 @@ Headers:
 - `Access-Control-Allow-Origin: *`
 
 If KV has no `jobs` key yet, the route returns an empty fallback payload with `last_scan`, `last_scan_at`, and `scan_meta` set to `null`.
+
+### Account routes
+
+Supabase-backed account routes are handled by the Worker with HttpOnly session cookies:
+
+- `POST /api/signup`
+- `POST /api/login`
+- `POST /api/logout`
+- `GET /api/me`
+- `PATCH /api/onboarding/account-type`
+- `PATCH /api/onboarding/individual-profile`
+- `PATCH /api/onboarding/agency-profile`
+- `POST /api/onboarding/complete`
+- `GET /api/user-jobs`
+- `PUT /api/user-jobs/:job_id`
+- `POST /api/activity`
+
+These routes require `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the Worker environment. The public job feed remains in Cloudflare KV and does not require authentication.
 
 ### `GET /api/scan-now`
 
@@ -668,13 +698,17 @@ Signal badges:
 
 ## Personal State
 
-The app stores personal state in browser `localStorage`.
+The app stores personal job state in Supabase after sign-in.
 
 Stored values:
 
-- Theme: `jobtrack-theme`
-- Status per job: `jobtrack-{jobId}`
-- Star per job: `jobtrack-star-{jobId}`
+- `user_jobs.status`
+- `user_jobs.starred`
+- `user_jobs.notes`
+- `user_jobs.saved_at`
+- `user_jobs.applied_at`
+- `user_jobs.archived_at`
+- Theme remains browser-local as `jobtrack-theme`
 
 Statuses:
 
@@ -692,7 +726,7 @@ When the user clicks `Apply` for a live dynamic job, the app automatically moves
 
 Static target rows use a `Search` button instead of `Apply` and do not auto-change status.
 
-Because this state is stored in the browser, it is per-device and per-browser. It does not sync across devices.
+Because this state is stored in Supabase, it syncs across browsers after the user signs in.
 
 ## Static Curated Targets
 
@@ -755,6 +789,19 @@ Login to Cloudflare:
 
 ```bash
 npx wrangler login
+```
+
+Apply Supabase schema:
+
+```bash
+npx supabase migration up
+```
+
+Set Supabase Worker secrets:
+
+```bash
+npx wrangler secret put SUPABASE_URL
+npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
 ```
 
 Deploy:
@@ -827,6 +874,9 @@ The test suite covers key scanner behavior:
 - Dropping postings from retired sources.
 - Aborting KV writes when too many sources fail.
 - Manual scan auth with `X-Scan-Key`.
+- Account route authentication.
+- Onboarding completion validation.
+- User job state upsert behavior.
 
 Run:
 
@@ -898,10 +948,8 @@ Use static entries for companies that are important but cannot be scanned reliab
 - Visa classification is heuristic and company-level.
 - Role matching is title-based; it does not inspect job descriptions.
 - `content=false` is used for Greenhouse, so description text is not fetched.
-- Personal status, stars, and theme are stored in browser `localStorage` and do not sync across devices.
+- Theme is stored in browser `localStorage`.
 - There is no email digest yet.
-- There is no user account system.
-- There is no server-side application-status API.
 - KV is eventually consistent, so very recent writes may take a short time to appear everywhere.
 - The app is optimized for low personal usage, not high-volume public traffic.
 

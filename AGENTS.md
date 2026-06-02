@@ -20,6 +20,16 @@ KV namespace: job-tracker-state (id 8cf95c7c04054745bff09d88ea57d707)
 └── "jobs"  -> flattened public payload (what /api/jobs returns)
 ```
 
+Supabase MCP project for this app:
+
+- Organization: `SysBlue Supa Org` (`vjqmcajdibrllgtgefjs`)
+- Project name: `LiveJobTracker`
+- Project ref / project_id: `rjdlgvltsszkjrixifim`
+- Region: `eu-west-3`
+- Status observed: `ACTIVE_HEALTHY`
+
+When using the Supabase MCP for this repository, use project id `rjdlgvltsszkjrixifim` by default. Do not use the other project in the same organization (`CallBricks App`, ref `thusksxvvecwepulvgdb`) for JobTrackerLive work unless explicitly instructed.
+
 The local scanner has been removed. The app is cloud-only. On load, `public/index.html` fetches `/api/jobs` and merges dynamic postings on top of curated static company-location targets, with `NEW` (within 7 days of `first_seen`) and `FILLED` (no longer listed) badges.
 
 ## Files

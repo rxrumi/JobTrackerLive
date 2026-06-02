@@ -220,6 +220,176 @@ test("runScan excludes early-career and noisy unmatched titles", async t => {
   assert.equal(payload.postings[0].role_family, "Legal/Compliance");
 });
 
+function createSupabaseFake({ user, rows = {} } = {}) {
+  const calls = [];
+  const data = {
+    users: [],
+    user_profiles: [],
+    agency_profiles: [],
+    account_access: [],
+    user_jobs: [],
+    user_activity: [],
+    ...rows
+  };
+
+  function matches(row, filters) {
+    return filters.every(([col, value]) => row[col] === value);
+  }
+
+  function chain(table) {
+    const filters = [];
+    const api = {
+      select() {
+        return api;
+      },
+      eq(col, value) {
+        filters.push([col, value]);
+        return api;
+      },
+      maybeSingle() {
+        return Promise.resolve({
+          data: (data[table] || []).find(row => matches(row, filters)) || null,
+          error: null
+        });
+      },
+      single() {
+        return Promise.resolve({
+          data: (data[table] || []).find(row => matches(row, filters)) || null,
+          error: null
+        });
+      },
+      order() {
+        return Promise.resolve({
+          data: (data[table] || []).filter(row => matches(row, filters)),
+          error: null
+        });
+      },
+      insert(payload) {
+        const row = Array.isArray(payload) ? payload[0] : payload;
+        calls.push({ table, action: "insert", payload: row });
+        data[table].push(row);
+        return Promise.resolve({ data: row, error: null });
+      },
+      update(payload) {
+        return {
+          eq(col, value) {
+            calls.push({ table, action: "update", payload, filter: [col, value] });
+            for (const row of data[table]) {
+              if (row[col] === value) Object.assign(row, payload);
+            }
+            return Promise.resolve({ data: null, error: null });
+          }
+        };
+      },
+      upsert(payload, options = {}) {
+        const row = { ...payload };
+        calls.push({ table, action: "upsert", payload: row, options });
+        const conflictCols = (options.onConflict || "").split(",").filter(Boolean);
+        const existing = conflictCols.length
+          ? data[table].find(item => conflictCols.every(col => item[col] === row[col]))
+          : null;
+        let saved = row;
+        if (existing) {
+          if (!options.ignoreDuplicates) Object.assign(existing, row);
+          saved = existing;
+        } else {
+          data[table].push(row);
+        }
+        const promise = Promise.resolve({ data: saved, error: null });
+        promise.select = () => ({
+          single: () => Promise.resolve({ data: saved, error: null })
+        });
+        return promise;
+      }
+    };
+    return api;
+  }
+
+  return {
+    calls,
+    rows: data,
+    auth: {
+      getUser: async () => user ? { data: { user }, error: null } : { data: { user: null }, error: { message: "unauthorized" } },
+      signOut: async () => ({ error: null })
+    },
+    from: chain
+  };
+}
+
+test("account routes require authentication without affecting public jobs", async () => {
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: [{ id: "job-1" }] }));
+
+  const jobsResponse = await worker.fetch(new Request("https://example.com/api/jobs"), { KV });
+  assert.equal(jobsResponse.status, 200);
+  assert.equal(jobsResponse.headers.get("Cache-Control"), "public, max-age=300");
+  const jobsPayload = await jobsResponse.json();
+  assert.equal(jobsPayload.postings.length, 1);
+
+  const meResponse = await worker.fetch(new Request("https://example.com/api/me"), { KV });
+  assert.equal(meResponse.status, 401);
+});
+
+test("complete onboarding requires an individual profile for individual accounts", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000001", email: "king@example.com" };
+  const fake = createSupabaseFake({
+    user,
+    rows: {
+      users: [{ id: user.id, email: user.email, account_type: "individual", onboarding_completed: false }],
+      account_access: [{ user_id: user.id, account_type: "individual", plan: "free" }]
+    }
+  });
+
+  const response = await worker.fetch(new Request("https://example.com/api/onboarding/complete", {
+    method: "POST",
+    headers: { Cookie: "session=1" }
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, "individual profile is required");
+});
+
+test("complete onboarding requires an agency profile for agency accounts", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000002", email: "agency@example.com" };
+  const fake = createSupabaseFake({
+    user,
+    rows: {
+      users: [{ id: user.id, email: user.email, account_type: "agency", onboarding_completed: false }],
+      account_access: [{ user_id: user.id, account_type: "agency", plan: "free" }]
+    }
+  });
+
+  const response = await worker.fetch(new Request("https://example.com/api/onboarding/complete", {
+    method: "POST",
+    headers: { Cookie: "session=1" }
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, "agency profile is required");
+});
+
+test("user job upsert stores status, star, and derived timestamps", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000003", email: "king@example.com" };
+  const fake = createSupabaseFake({ user });
+
+  const response = await worker.fetch(new Request("https://example.com/api/user-jobs/greenhouse-hubspot-101", {
+    method: "PUT",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ status: "Applied", starred: true, notes: "High fit" })
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.job.user_id, user.id);
+  assert.equal(payload.job.job_id, "greenhouse-hubspot-101");
+  assert.equal(payload.job.status, "Applied");
+  assert.equal(payload.job.starred, true);
+  assert.equal(payload.job.notes, "High fit");
+  assert.ok(payload.job.saved_at);
+  assert.ok(payload.job.applied_at);
+  assert.equal(payload.job.archived_at, null);
+});
+
 test("runScan preserves previous postings from a failed active source", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     failedTokens: new Set(["hubspot"])

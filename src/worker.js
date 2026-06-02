@@ -1,3 +1,5 @@
+import { createServerClient, parseCookieHeader, serializeCookieHeader } from "@supabase/ssr";
+
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
 // Cron handler (0 3 * * * UTC = 7 AM Dubai) scans supported ATS APIs daily.
@@ -477,6 +479,453 @@ export async function runScan(env) {
   return { okCount, failCount, total: Object.keys(merged).length };
 }
 
+const ACCOUNT_TYPES = new Set(["individual", "agency"]);
+const STATUSES = new Set([
+  "Not started",
+  "Saved",
+  "Applied",
+  "Recruiter screen",
+  "Interview",
+  "Final round",
+  "Offer",
+  "Rejected",
+  "On hold"
+]);
+const ARCHIVE_STATUSES = new Set(["Rejected", "On hold"]);
+
+function jsonResponse(data, init = {}, supabaseContext = null) {
+  const headers = new Headers(init.headers || {});
+  headers.set("Content-Type", "application/json");
+  for (const cookie of supabaseContext?.cookieHeaders || []) {
+    headers.append("Set-Cookie", cookie);
+  }
+  return new Response(JSON.stringify(data), { ...init, headers });
+}
+
+function errorResponse(status, message, supabaseContext = null) {
+  return jsonResponse({ error: message }, { status }, supabaseContext);
+}
+
+async function readJSON(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+function hasAuthMaterial(request) {
+  return !!request.headers.get("Authorization") || !!request.headers.get("Cookie");
+}
+
+function createSupabaseContext(request, env) {
+  if (env.SUPABASE_CLIENT) {
+    return { supabase: env.SUPABASE_CLIENT, cookieHeaders: [] };
+  }
+  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
+    throw new Error("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required for account routes");
+  }
+
+  const cookieHeaders = [];
+  const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
+    cookies: {
+      getAll() {
+        return parseCookieHeader(request.headers.get("Cookie") || "");
+      },
+      setAll(cookiesToSet) {
+        for (const { name, value, options } of cookiesToSet) {
+          cookieHeaders.push(serializeCookieHeader(name, value, options));
+        }
+      }
+    }
+  });
+
+  return { supabase, cookieHeaders };
+}
+
+async function requireUser(request, env) {
+  if (!hasAuthMaterial(request) && !env.SUPABASE_CLIENT) {
+    return { response: errorResponse(401, "unauthorized") };
+  }
+
+  const context = createSupabaseContext(request, env);
+  const { data, error } = await context.supabase.auth.getUser();
+  if (error || !data?.user) {
+    return { context, response: errorResponse(401, "unauthorized", context) };
+  }
+  return { context, user: data.user };
+}
+
+function cleanString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function cleanStringArray(value) {
+  return Array.isArray(value)
+    ? value.map(cleanString).filter(Boolean)
+    : [];
+}
+
+function buildUserDefaults(user, accountType = "individual") {
+  return {
+    id: user.id,
+    email: user.email || "",
+    account_type: accountType,
+    onboarding_completed: false
+  };
+}
+
+async function ensureAccountRows(supabase, user, accountType = "individual") {
+  await supabase
+    .from("users")
+    .upsert(buildUserDefaults(user, accountType), { onConflict: "id", ignoreDuplicates: true });
+
+  await supabase
+    .from("account_access")
+    .upsert({
+      user_id: user.id,
+      account_type: accountType,
+      plan: "free",
+      api_access_enabled: false,
+      integrations_enabled: false,
+      export_enabled: accountType === "agency" ? "limited" : "none",
+      rate_limit_tier: "free"
+    }, { onConflict: "user_id", ignoreDuplicates: true });
+}
+
+async function fetchMe(supabase, user) {
+  await ensureAccountRows(supabase, user);
+
+  const [
+    appUser,
+    individualProfile,
+    agencyProfile,
+    accountAccess
+  ] = await Promise.all([
+    supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
+    supabase.from("user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
+    supabase.from("agency_profiles").select("*").eq("user_id", user.id).maybeSingle(),
+    supabase.from("account_access").select("*").eq("user_id", user.id).maybeSingle()
+  ]);
+
+  for (const result of [appUser, individualProfile, agencyProfile, accountAccess]) {
+    if (result.error) throw result.error;
+  }
+
+  return {
+    auth_user: {
+      id: user.id,
+      email: user.email || null
+    },
+    user: appUser.data,
+    individual_profile: individualProfile.data,
+    agency_profile: agencyProfile.data,
+    account_access: accountAccess.data
+  };
+}
+
+async function recordActivity(supabase, userId, eventType, entityType = null, entityId = null, metadata = {}) {
+  await supabase.from("user_activity").insert({
+    user_id: userId,
+    event_type: eventType,
+    entity_type: entityType,
+    entity_id: entityId,
+    metadata
+  });
+}
+
+function validateIndividualProfile(payload) {
+  const profile = {
+    full_name: cleanString(payload.full_name),
+    current_title: cleanString(payload.current_title),
+    years_experience: Number(payload.years_experience),
+    target_role_families: cleanStringArray(payload.target_role_families),
+    target_seniority: cleanString(payload.target_seniority),
+    target_countries: cleanStringArray(payload.target_countries),
+    visa_needed: Boolean(payload.visa_needed),
+    preferred_work_mode: cleanString(payload.preferred_work_mode) || null,
+    salary_min_usd: payload.salary_min_usd === "" || payload.salary_min_usd == null
+      ? null
+      : Number(payload.salary_min_usd),
+    linkedin_url: cleanString(payload.linkedin_url) || null,
+    resume_url: cleanString(payload.resume_url) || null
+  };
+
+  if (!profile.full_name) return { error: "full_name is required" };
+  if (!profile.current_title) return { error: "current_title is required" };
+  if (!Number.isFinite(profile.years_experience) || profile.years_experience < 0) {
+    return { error: "years_experience must be a non-negative number" };
+  }
+  if (!profile.target_role_families.length) return { error: "target_role_families is required" };
+  if (!profile.target_seniority) return { error: "target_seniority is required" };
+  if (!profile.target_countries.length) return { error: "target_countries is required" };
+  if (profile.salary_min_usd != null && (!Number.isFinite(profile.salary_min_usd) || profile.salary_min_usd < 0)) {
+    return { error: "salary_min_usd must be a non-negative number" };
+  }
+
+  return { profile };
+}
+
+function validateAgencyProfile(payload) {
+  const profile = {
+    agency_name: cleanString(payload.agency_name),
+    agency_type: cleanString(payload.agency_type),
+    target_markets: cleanStringArray(payload.target_markets),
+    target_role_families: cleanStringArray(payload.target_role_families),
+    target_countries: cleanStringArray(payload.target_countries),
+    use_case: cleanString(payload.use_case),
+    integration_interest: cleanString(payload.integration_interest) || "none",
+    monthly_data_volume: cleanString(payload.monthly_data_volume) || null
+  };
+
+  if (!profile.agency_name) return { error: "agency_name is required" };
+  if (!profile.agency_type) return { error: "agency_type is required" };
+  if (!profile.use_case) return { error: "use_case is required" };
+  if (!profile.target_role_families.length) return { error: "target_role_families is required" };
+  if (!profile.target_countries.length) return { error: "target_countries is required" };
+
+  return { profile };
+}
+
+async function handleSignup(request, env) {
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json");
+
+  const email = cleanString(payload.email).toLowerCase();
+  const password = typeof payload.password === "string" ? payload.password : "";
+  const fullName = cleanString(payload.full_name || payload.name);
+  if (!email || !password || !fullName) {
+    return errorResponse(400, "email, password, and full_name are required");
+  }
+
+  const context = createSupabaseContext(request, env);
+  const origin = new URL(request.url).origin;
+  const { data, error } = await context.supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { full_name: fullName },
+      emailRedirectTo: origin
+    }
+  });
+  if (error) return errorResponse(400, error.message, context);
+
+  if (data?.user && data?.session) {
+    await ensureAccountRows(context.supabase, data.user);
+  }
+
+  return jsonResponse({
+    confirmation_required: !data?.session,
+    user: data?.user ? { id: data.user.id, email: data.user.email } : null
+  }, { status: 201 }, context);
+}
+
+async function handleLogin(request, env) {
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json");
+
+  const email = cleanString(payload.email).toLowerCase();
+  const password = typeof payload.password === "string" ? payload.password : "";
+  if (!email || !password) return errorResponse(400, "email and password are required");
+
+  const context = createSupabaseContext(request, env);
+  const { data, error } = await context.supabase.auth.signInWithPassword({ email, password });
+  if (error || !data?.user) return errorResponse(401, error?.message || "unauthorized", context);
+
+  await ensureAccountRows(context.supabase, data.user);
+  await context.supabase
+    .from("users")
+    .update({ last_login_at: new Date().toISOString(), email: data.user.email || email })
+    .eq("id", data.user.id);
+  await recordActivity(context.supabase, data.user.id, "login");
+
+  return jsonResponse(await fetchMe(context.supabase, data.user), {}, context);
+}
+
+async function handleLogout(request, env) {
+  const context = createSupabaseContext(request, env);
+  await context.supabase.auth.signOut();
+  return jsonResponse({ ok: true }, {}, context);
+}
+
+async function handleMe(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+}
+
+async function handleAccountType(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const payload = await readJSON(request);
+  const accountType = cleanString(payload?.account_type);
+  if (!ACCOUNT_TYPES.has(accountType)) {
+    return errorResponse(400, "account_type must be individual or agency", auth.context);
+  }
+
+  await ensureAccountRows(auth.context.supabase, auth.user, accountType);
+  const { error } = await auth.context.supabase
+    .from("users")
+    .update({ account_type: accountType, onboarding_completed: false })
+    .eq("id", auth.user.id);
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_account_type", "account", auth.user.id, { account_type: accountType });
+  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+}
+
+async function handleIndividualProfile(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+
+  const validated = validateIndividualProfile(payload);
+  if (validated.error) return errorResponse(400, validated.error, auth.context);
+
+  const { error } = await auth.context.supabase
+    .from("user_profiles")
+    .upsert({ user_id: auth.user.id, ...validated.profile }, { onConflict: "user_id" });
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_individual_profile");
+  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+}
+
+async function handleAgencyProfile(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+
+  const validated = validateAgencyProfile(payload);
+  if (validated.error) return errorResponse(400, validated.error, auth.context);
+
+  const { error } = await auth.context.supabase
+    .from("agency_profiles")
+    .upsert({ user_id: auth.user.id, ...validated.profile }, { onConflict: "user_id" });
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_agency_profile");
+  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+}
+
+async function handleCompleteOnboarding(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const me = await fetchMe(auth.context.supabase, auth.user);
+  const accountType = me.user?.account_type;
+  if (!ACCOUNT_TYPES.has(accountType)) {
+    return errorResponse(400, "account_type is required", auth.context);
+  }
+  if (accountType === "individual" && !me.individual_profile) {
+    return errorResponse(400, "individual profile is required", auth.context);
+  }
+  if (accountType === "agency" && !me.agency_profile) {
+    return errorResponse(400, "agency profile is required", auth.context);
+  }
+
+  const { error } = await auth.context.supabase
+    .from("users")
+    .update({ onboarding_completed: true })
+    .eq("id", auth.user.id);
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_complete", "account", auth.user.id, { account_type: accountType });
+  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+}
+
+async function handleGetUserJobs(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const { data, error } = await auth.context.supabase
+    .from("user_jobs")
+    .select("*")
+    .eq("user_id", auth.user.id)
+    .order("updated_at", { ascending: false });
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  return jsonResponse({ jobs: data || [] }, {}, auth.context);
+}
+
+async function handlePutUserJob(request, env, jobId) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+
+  const normalizedJobId = cleanString(jobId);
+  if (!normalizedJobId) return errorResponse(400, "job_id is required", auth.context);
+
+  const { data: existing, error: existingError } = await auth.context.supabase
+    .from("user_jobs")
+    .select("*")
+    .eq("user_id", auth.user.id)
+    .eq("job_id", normalizedJobId)
+    .maybeSingle();
+  if (existingError) return errorResponse(500, existingError.message, auth.context);
+
+  const status = payload.status == null ? existing?.status || "Not started" : cleanString(payload.status);
+  if (!STATUSES.has(status)) return errorResponse(400, "invalid status", auth.context);
+
+  const now = new Date().toISOString();
+  const row = {
+    user_id: auth.user.id,
+    job_id: normalizedJobId,
+    status,
+    starred: payload.starred == null ? Boolean(existing?.starred) : Boolean(payload.starred),
+    notes: payload.notes == null ? existing?.notes || null : cleanString(payload.notes) || null,
+    saved_at: existing?.saved_at || null,
+    applied_at: existing?.applied_at || null,
+    archived_at: existing?.archived_at || null
+  };
+
+  if ((status === "Saved" || row.starred) && !row.saved_at) row.saved_at = now;
+  if (status === "Applied" && !row.applied_at) row.applied_at = now;
+  if (ARCHIVE_STATUSES.has(status) && !row.archived_at) row.archived_at = now;
+
+  const { data, error } = await auth.context.supabase
+    .from("user_jobs")
+    .upsert(row, { onConflict: "user_id,job_id" })
+    .select("*")
+    .single();
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  await recordActivity(auth.context.supabase, auth.user.id, "job_state_updated", "job", normalizedJobId, {
+    status,
+    starred: row.starred
+  });
+  return jsonResponse({ job: data }, {}, auth.context);
+}
+
+async function handleActivity(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+
+  const eventType = cleanString(payload.event_type);
+  if (!eventType) return errorResponse(400, "event_type is required", auth.context);
+
+  const { error } = await auth.context.supabase.from("user_activity").insert({
+    user_id: auth.user.id,
+    event_type: eventType,
+    entity_type: cleanString(payload.entity_type) || null,
+    entity_id: cleanString(payload.entity_id) || null,
+    metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {}
+  });
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  return jsonResponse({ ok: true }, { status: 201 }, auth.context);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -494,6 +943,51 @@ export default {
           "Access-Control-Allow-Origin": "*"
         }
       });
+    }
+
+    if (url.pathname === "/api/signup" && request.method === "POST") {
+      return handleSignup(request, env);
+    }
+
+    if (url.pathname === "/api/login" && request.method === "POST") {
+      return handleLogin(request, env);
+    }
+
+    if (url.pathname === "/api/logout" && request.method === "POST") {
+      return handleLogout(request, env);
+    }
+
+    if (url.pathname === "/api/me" && request.method === "GET") {
+      return handleMe(request, env);
+    }
+
+    if (url.pathname === "/api/onboarding/account-type" && request.method === "PATCH") {
+      return handleAccountType(request, env);
+    }
+
+    if (url.pathname === "/api/onboarding/individual-profile" && request.method === "PATCH") {
+      return handleIndividualProfile(request, env);
+    }
+
+    if (url.pathname === "/api/onboarding/agency-profile" && request.method === "PATCH") {
+      return handleAgencyProfile(request, env);
+    }
+
+    if (url.pathname === "/api/onboarding/complete" && request.method === "POST") {
+      return handleCompleteOnboarding(request, env);
+    }
+
+    if (url.pathname === "/api/user-jobs" && request.method === "GET") {
+      return handleGetUserJobs(request, env);
+    }
+
+    const userJobMatch = url.pathname.match(/^\/api\/user-jobs\/(.+)$/);
+    if (userJobMatch && request.method === "PUT") {
+      return handlePutUserJob(request, env, decodeURIComponent(userJobMatch[1]));
+    }
+
+    if (url.pathname === "/api/activity" && request.method === "POST") {
+      return handleActivity(request, env);
     }
 
     if (url.pathname === "/api/scan-now") {
