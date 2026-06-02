@@ -1,8 +1,8 @@
 # JobTrackerLive — Handoff
 
-JobTrackerLive is a Cloudflare Worker that hosts a personal job-search tracker for visa-sponsoring RevOps, BizOps, Sales Ops, Marketing Ops, and GTM Ops roles abroad.
+JobTrackerLive is a Cloudflare Worker that hosts a personal, visa-aware technology job tracker for relocation markets. It scans supported public ATS APIs, keeps historical state in KV, and serves a static UI for live jobs, curated targets, pipeline status, and archived/filled roles.
 
-The project is now cloud-only.
+The project is cloud-only.
 
 ## Live System
 
@@ -19,15 +19,15 @@ The project is now cloud-only.
 ```text
 Cloudflare Worker (job-tracker)
 ├── fetch handler
-│   ├── GET /              → public/index.html
-│   ├── GET /api/jobs      → KV "jobs" key, 5-minute cache
-│   └── GET /api/scan-now  → manual scan trigger, requires X-Scan-Key
+│   ├── GET /              -> public/index.html
+│   ├── GET /api/jobs      -> KV "jobs" key, 5-minute cache
+│   └── GET /api/scan-now  -> manual scan trigger, requires X-Scan-Key
 └── scheduled handler
-    └── runScan()          → scans public ATS APIs, filters, diffs, writes KV
+    └── runScan()          -> scans public ATS APIs, filters, diffs, writes KV
 
 KV namespace: job-tracker-state
-├── state → full scan history
-└── jobs  → flattened public payload consumed by the UI
+├── state -> full scan history
+└── jobs  -> flattened public payload consumed by the UI
 ```
 
 ## Scanned Sources
@@ -45,6 +45,7 @@ Each source has a fetcher that normalizes jobs to:
 {
   id,
   source,
+  source_token,
   company,
   title,
   location,
@@ -52,7 +53,8 @@ Each source has a fetcher that normalizes jobs to:
   country,
   url,
   tier,
-  stack_fit,
+  role_family,
+  seniority,
   visa,
   score,
   first_seen,
@@ -67,9 +69,21 @@ Target cities map to 15 country codes in `CITY_TO_COUNTRY`:
 
 `GB`, `IE`, `CA`, `AU`, `SG`, `DE`, `NL`, `CH`, `SE`, `DK`, `NO`, `ES`, `PT`, `EE`, `NZ`.
 
-Role matching is a case-insensitive substring check against `ROLE_KEYWORDS`, including:
+Country-level fallback matching lives in `COUNTRY_HINTS`.
 
-`revenue operations`, `revops`, `sales operations`, `marketing operations`, `business operations`, `gtm operations`, `sales strategy`, `revenue strategy`, and `strategy and operations`.
+Role matching is title-based and uses `ROLE_FAMILIES`, `ROLE_FALLBACK_KEYWORDS`, and `EXCLUDED_TITLE_KEYWORDS`. The scope is broad professional tech roles: Engineering, Product, Design, Data/Analytics, Security/IT, Sales, Marketing, Finance, Operations, Customer Success/Support, People/HR, Legal/Compliance, Strategy/Program, and Other.
+
+Seniority is inferred from title text by `classifySeniority()`.
+
+## Scoring
+
+Current formula:
+
+```js
+score = round(visa * 0.5 + seniority * 0.3 + freshness * 0.2)
+```
+
+Keep `calcScore()` aligned in both `src/worker.js` and `public/index.html`.
 
 ## Scan Behavior
 
@@ -108,7 +122,7 @@ npx wrangler tail
 Manual scan:
 
 ```bash
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://job-tracker.<subdomain>.workers.dev/api/scan-now"
+curl -H "X-Scan-Key: <SCAN_KEY>" "https://job-tracker.sohaibkazmi-r.workers.dev/api/scan-now"
 ```
 
 Inspect KV:
@@ -122,17 +136,19 @@ Force a clean re-scan:
 
 ```bash
 npx wrangler kv:key delete state --binding KV
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://job-tracker.<subdomain>.workers.dev/api/scan-now"
+curl -H "X-Scan-Key: <SCAN_KEY>" "https://job-tracker.sohaibkazmi-r.workers.dev/api/scan-now"
 ```
 
 ## Common Changes
 
 - Add a public ATS board: add its token to the relevant token array and deploy.
-- Add a country/city: update `CITY_TO_COUNTRY` in `src/worker.js` and `COUNTRY_NAMES` / `COUNTRY_FLAGS` in `public/index.html`.
-- Add a role keyword: update `ROLE_KEYWORDS`.
-- Change fit/tier classification: update `HIGH_FIT_COMPANIES`, `ECOSYSTEM_COMPANIES`, or `SCALEUP_COMPANIES`.
+- Add a static target: add a company-location entry to `STATIC_COMPANIES` in `public/index.html`.
+- Add a country/city: update `CITY_TO_COUNTRY` / `COUNTRY_HINTS` in `src/worker.js` and `COUNTRY_NAMES` / `COUNTRY_FLAGS` in `public/index.html`.
+- Change role matching: update `ROLE_FAMILIES`, `ROLE_FALLBACK_KEYWORDS`, or `EXCLUDED_TITLE_KEYWORDS`; mirror display fallback changes in `public/index.html` if needed.
+- Change tier classification: update `HIGH_FIT_COMPANIES`, `ECOSYSTEM_COMPANIES`, or `SCALEUP_COMPANIES`.
 - Change visa assumptions: update `STRONG_VISA_COMPANIES` or `LIKELY_VISA_COMPANIES`.
 - Normalize a non-obvious ATS token: update `COMPANY_ALIASES`.
+- Change scoring: update `calcScore()` in both `src/worker.js` and `public/index.html`.
 
 ## Verification
 
@@ -144,6 +160,8 @@ npx wrangler deploy --dry-run
 ## Known Limits
 
 - Proprietary, JS-rendered, login-gated, or bot-protected ATSs are not scanned.
-- Big Tech entries are static links in `public/index.html`.
+- Static target entries are not live postings.
+- Role matching is title-based; job descriptions are not fetched.
+- Visa classification is heuristic and company-level.
 - User status and starred jobs are stored in browser `localStorage`.
-- There is no secondary ingest path; all dynamic jobs come from the cloud scan.
+- There is no email digest or server-side status sync yet.
