@@ -1,0 +1,63 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="slab" x1="148" y1="82" x2="876" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E66FF"/>
+      <stop offset="0.38" stop-color="#0B3EDB"/>
+      <stop offset="1" stop-color="#04103E"/>
+    </linearGradient>
+    <radialGradient id="slabGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(250 165) rotate(49.7) scale(720 790)">
+      <stop offset="0" stop-color="#67B7FF" stop-opacity="0.42"/>
+      <stop offset="0.45" stop-color="#2D6FFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="lGrad" x1="325" y1="256" x2="650" y2="750" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BDEEFF"/>
+      <stop offset="0.34" stop-color="#6DBBFF"/>
+      <stop offset="0.72" stop-color="#1E6DFF"/>
+      <stop offset="1" stop-color="#0D4DFF"/>
+    </linearGradient>
+    <radialGradient id="dotGrad" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(648 303) rotate(111.8) scale(140)">
+      <stop offset="0" stop-color="#B9FFC5"/>
+      <stop offset="0.38" stop-color="#62F676"/>
+      <stop offset="1" stop-color="#18C755"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="130" y1="88" x2="886" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#74B9FF" stop-opacity="0.68"/>
+      <stop offset="0.45" stop-color="#1E5BFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.35"/>
+    </linearGradient>
+    <filter id="slabShadow" x="30" y="44" width="964" height="964" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="34" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="innerSoft" x="129" y="114" width="766" height="766" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="0.6"/>
+    </filter>
+    <filter id="markShadow" x="218" y="202" width="558" height="570" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#001038" flood-opacity="0.44"/>
+      <feDropShadow dx="0" dy="3" stdDeviation="7" flood-color="#83CCFF" flood-opacity="0.22"/>
+    </filter>
+    <filter id="dotShadow" x="512" y="169" width="262" height="262" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#00113D" flood-opacity="0.45"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#4DFF76" flood-opacity="0.25"/>
+    </filter>
+    <clipPath id="clipSlab">
+      <rect x="96" y="96" width="832" height="832" rx="156"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="transparent"/>
+  <g filter="url(#slabShadow)">
+    <rect x="96" y="96" width="832" height="832" rx="156" fill="url(#slab)"/>
+    <rect x="96" y="96" width="832" height="832" rx="156" fill="url(#slabGlow)"/>
+    <rect x="100" y="100" width="824" height="824" rx="152" stroke="url(#edge)" stroke-width="8"/>
+  </g>
+  <g filter="url(#markShadow)">
+    <!-- Rounded L shape built from two slabs -->
+    <path d="M326 286C326 251.758 353.758 224 388 224H411C445.242 224 473 251.758 473 286V578H688C722.242 578 750 605.758 750 640V663C750 697.242 722.242 725 688 725H388C353.758 725 326 697.242 326 663V286Z" fill="url(#lGrad)"/>
+    <path d="M326 286C326 251.758 353.758 224 388 224H411C445.242 224 473 251.758 473 286V578H688C722.242 578 750 605.758 750 640V663C750 697.242 722.242 725 688 725H388C353.758 725 326 697.242 326 663V286Z" fill="white" opacity="0.06"/>
+    <path d="M352 287C352 267.67 367.67 252 387 252H413C432.33 252 448 267.67 448 287V592C448 598.627 453.373 604 460 604H688C707.33 604 723 619.67 723 639V665C723 684.33 707.33 700 688 700H388C368.67 700 353 684.33 353 665V287H352Z" stroke="white" stroke-opacity="0.22" stroke-width="4"/>
+  </g>
+  <g filter="url(#dotShadow)">
+    <circle cx="648" cy="304" r="71" fill="url(#dotGrad)"/>
+    <circle cx="625" cy="275" r="28" fill="white" opacity="0.2"/>
+  </g>
+</svg>

@@ -3,7 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Job Search Abroad — Live Tracker</title>
+<title>Live Job Index - Visa-aware tech job tracker</title>
+<meta name="description" content="Live Job Index tracks visa-aware technology jobs across relocation markets with daily public ATS scans, curated targets, and a personal application pipeline.">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://livejobindex.com/">
+<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/logo.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://livejobindex.com/">
+<meta property="og:title" content="Live Job Index">
+<meta property="og:description" content="A live, visa-aware technology job tracker for relocation markets.">
+<meta property="og:image" content="https://livejobindex.com/assets/logo.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Live Job Index">
+<meta name="twitter:description" content="A live, visa-aware technology job tracker for relocation markets.">
+<meta name="twitter:image" content="https://livejobindex.com/assets/logo.png">
+<!-- Search Console verification: add the google-site-verification meta tag here when the token is available. -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-CNP336YP4G"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-CNP336YP4G');
+</script>
 <style>
 :root {
   color-scheme: light dark;
@@ -43,6 +65,9 @@
 * { box-sizing: border-box; }
 body { margin: 0 auto; padding: 24px; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.5; max-width: 1400px; }
 .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.brand-block { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.brand-logo { width: 42px; height: 42px; border-radius: 10px; flex: 0 0 auto; }
+.brand-copy { min-width: 0; }
 h1 { font-size: 24px; font-weight: 600; margin: 0 0 3px; letter-spacing: 0; }
 .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
 .last-scan { color: var(--subtle); font-size: 11px; margin: 0; }
@@ -189,6 +214,11 @@ tbody tr.is-filled .role { font-style: italic; }
 .auth-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
 .auth-tab { border: 0.5px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-family: inherit; font-size: 13px; }
 .auth-tab.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.google-btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 0.5px solid var(--border); border-radius: 8px; padding: 9px 13px; background: var(--bg); color: var(--text); text-decoration: none; font-size: 13px; font-weight: 500; }
+.google-btn:hover { background: var(--hover); }
+.google-mark { width: 18px; height: 18px; display: inline-block; }
+.auth-divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; margin: 14px 0; text-transform: uppercase; letter-spacing: 0.04em; }
+.auth-divider::before, .auth-divider::after { content: ""; height: 1px; background: var(--border); flex: 1; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .form-field { display: flex; flex-direction: column; gap: 5px; }
 .form-field.full { grid-column: 1 / -1; }
@@ -222,9 +252,15 @@ tbody tr.is-filled .role { font-style: italic; }
 .job-card .card-line-3 .composite-cell { gap: 4px; flex: 1; min-width: 0; }
 .job-card .card-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .job-card .notes-mobile { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+.site-footer { margin: 22px 0 0; padding-top: 16px; border-top: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.site-footer a { color: var(--muted); text-decoration: none; }
+.site-footer a:hover { color: var(--text); }
+.footer-links { display: flex; gap: 12px; flex-wrap: wrap; }
 
 @media (max-width: 800px) {
   body { padding: 16px; }
+  .header-row { align-items: flex-start; }
+  .brand-logo { width: 36px; height: 36px; border-radius: 8px; }
   .table-wrap { display: none; }
   .job-cards { display: block; }
   .filter-bar { padding: 8px; }
@@ -247,10 +283,13 @@ tbody tr.is-filled .role { font-style: italic; }
 </head>
 <body>
 <div class="header-row">
-  <div>
-    <h1>Tech jobs abroad</h1>
-    <p class="subtitle">Live and curated visa-aware roles across target relocation markets.</p>
-    <p class="last-scan" id="last-scan">Loading dynamic postings...</p>
+  <div class="brand-block">
+    <img class="brand-logo" src="/assets/logo.svg" alt="Live Job Index logo" width="42" height="42">
+    <div class="brand-copy">
+      <h1>Live Job Index</h1>
+      <p class="subtitle">Live and curated visa-aware roles across target relocation markets.</p>
+      <p class="last-scan" id="last-scan">Loading dynamic postings...</p>
+    </div>
   </div>
   <div class="header-actions">
     <span class="account-pill" id="account-pill" hidden></span>
@@ -262,6 +301,16 @@ tbody tr.is-filled .role { font-style: italic; }
 <section class="auth-panel" id="auth-panel" hidden>
   <h2 class="auth-title">Sign in</h2>
   <p class="auth-copy">Access your saved jobs, pipeline, and onboarding profile.</p>
+  <a class="google-btn" href="/api/auth/google">
+    <svg class="google-mark" viewBox="0 0 18 18" aria-hidden="true">
+      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+      <path fill="#FBBC05" d="M3.97 10.72A5.41 5.41 0 0 1 3.69 9c0-.6.1-1.18.28-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.05l3.01-2.33z"/>
+      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.43 1.35l2.59-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+    </svg>
+    Continue with Google
+  </a>
+  <div class="auth-divider">or use email</div>
   <div class="auth-tabs">
     <button class="auth-tab active" id="show-login" type="button">Login</button>
     <button class="auth-tab" id="show-signup" type="button">Create account</button>
@@ -319,9 +368,9 @@ tbody tr.is-filled .role { font-style: italic; }
 
   <form id="individual-form" hidden>
     <div class="form-grid">
-      <div class="form-field">
+      <div class="form-field" id="individual-name-field">
         <label for="individual-name">Full name</label>
-        <input id="individual-name" name="full_name" type="text" required>
+        <input id="individual-name" name="full_name" type="text" autocomplete="name" required>
       </div>
       <div class="form-field">
         <label for="current-title">Current title</label>
@@ -531,6 +580,15 @@ tbody tr.is-filled .role { font-style: italic; }
   </div>
 </details>
 </main>
+
+<footer class="site-footer">
+  <span>Live Job Index operated by Sohaib Kazmi.</span>
+  <nav class="footer-links" aria-label="Legal links">
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </nav>
+</footer>
 
 <script>
 const STATIC_COMPANIES = [
@@ -1203,13 +1261,14 @@ function updateAuthTabs() {
   setMessage('auth-message', '');
 }
 
-function showAuth() {
+function showAuth(message = '') {
   document.getElementById('auth-panel').hidden = false;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('dashboard').hidden = true;
   document.getElementById('account-pill').hidden = true;
   document.getElementById('logout-btn').hidden = true;
   updateAuthTabs();
+  if (message) setMessage('auth-message', message, true);
 }
 
 function showOnboarding() {
@@ -1218,6 +1277,7 @@ function showOnboarding() {
   document.getElementById('dashboard').hidden = true;
   document.getElementById('logout-btn').hidden = false;
   syncAccountHeader();
+  syncIndividualNameField();
   selectAccountType(ME?.user?.account_type || 'individual', false);
 }
 
@@ -1248,6 +1308,19 @@ function commaList(value) {
   return (value || '').split(',').map(v => v.trim()).filter(Boolean);
 }
 
+function knownFullName() {
+  return ME?.individual_profile?.full_name || ME?.auth_user?.full_name || '';
+}
+
+function syncIndividualNameField() {
+  const field = document.getElementById('individual-name-field');
+  const input = document.getElementById('individual-name');
+  const fullName = knownFullName();
+  input.value = fullName || input.value;
+  input.required = !fullName;
+  field.hidden = Boolean(fullName);
+}
+
 function buildCheckGrid(containerId, entries) {
   const el = document.getElementById(containerId);
   el.innerHTML = entries.map(([value, label]) => (
@@ -1273,6 +1346,7 @@ async function selectAccountType(accountType, persist = true) {
   document.getElementById('choose-agency').classList.toggle('active', accountType === 'agency');
   document.getElementById('individual-form').hidden = accountType !== 'individual';
   document.getElementById('agency-form').hidden = accountType !== 'agency';
+  syncIndividualNameField();
   setMessage('onboarding-message', '');
   if (!persist) return;
   try {
@@ -1306,6 +1380,23 @@ async function completeOnboarding() {
   await loadUserJobs();
   showDashboard();
   render();
+}
+
+function readAuthError() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('auth_error');
+  if (!code) return '';
+  params.delete('auth_error');
+  const nextSearch = params.toString();
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, '', nextUrl);
+  const messages = {
+    google_oauth_unavailable: 'Google sign-in is unavailable right now. Try email sign-in or try again shortly.',
+    missing_code: 'Google sign-in did not return a valid login code. Try again.',
+    oauth_exchange_failed: 'Google sign-in could not be completed. Try again.',
+    oauth_user_missing: 'Google sign-in completed, but the account session could not be loaded.'
+  };
+  return messages[code] || 'Sign-in could not be completed. Try again.';
 }
 
 function wireAuthHandlers() {
@@ -1434,6 +1525,7 @@ function wireAuthHandlers() {
 }
 
 async function init() {
+  const authError = readAuthError();
   buildJobs([]);
   buildFilters();
   buildOnboardingOptions();
@@ -1462,7 +1554,7 @@ async function init() {
 
   const me = await loadMe();
   if (!me) {
-    showAuth();
+    showAuth(authError);
   } else if (!me.user?.onboarding_completed) {
     showOnboarding();
   } else {

@@ -220,8 +220,9 @@ test("runScan excludes early-career and noisy unmatched titles", async t => {
   assert.equal(payload.postings[0].role_family, "Legal/Compliance");
 });
 
-function createSupabaseFake({ user, rows = {} } = {}) {
+function createSupabaseFake({ user, exchangeUser, exchangeError = null, oauthUrl = "https://supabase.example/auth/v1/authorize", rows = {} } = {}) {
   const calls = [];
+  let currentUser = user || null;
   const data = {
     users: [],
     user_profiles: [],
@@ -309,7 +310,17 @@ function createSupabaseFake({ user, rows = {} } = {}) {
     calls,
     rows: data,
     auth: {
-      getUser: async () => user ? { data: { user }, error: null } : { data: { user: null }, error: { message: "unauthorized" } },
+      getUser: async () => currentUser ? { data: { user: currentUser }, error: null } : { data: { user: null }, error: { message: "unauthorized" } },
+      signInWithOAuth: async options => {
+        calls.push({ table: "auth", action: "signInWithOAuth", payload: options });
+        return { data: { url: oauthUrl }, error: null };
+      },
+      exchangeCodeForSession: async code => {
+        calls.push({ table: "auth", action: "exchangeCodeForSession", payload: code });
+        if (exchangeError) return { data: null, error: exchangeError };
+        currentUser = exchangeUser || currentUser;
+        return { data: { user: currentUser }, error: null };
+      },
       signOut: async () => ({ error: null })
     },
     from: chain
@@ -347,6 +358,84 @@ test("complete onboarding requires an individual profile for individual accounts
 
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error, "individual profile is required");
+});
+
+test("me exposes signup full name from auth metadata", async () => {
+  const user = {
+    id: "00000000-0000-4000-8000-000000000010",
+    email: "king@example.com",
+    user_metadata: { full_name: "Sohaib Kazmi" }
+  };
+  const fake = createSupabaseFake({ user });
+
+  const response = await worker.fetch(new Request("https://example.com/api/me", {
+    headers: { Cookie: "session=1" }
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.auth_user.full_name, "Sohaib Kazmi");
+});
+
+test("google auth route redirects to Supabase OAuth with app callback", async () => {
+  const fake = createSupabaseFake({
+    oauthUrl: "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google"
+  });
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/google"), {
+    KV: createKV(),
+    SUPABASE_CLIENT: fake
+  });
+
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get("Location"), "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google");
+  const call = fake.calls.find(item => item.action === "signInWithOAuth");
+  assert.equal(call.payload.provider, "google");
+  assert.equal(call.payload.options.redirectTo, "https://livejobindex.com/auth/callback");
+});
+
+test("auth callback exchanges code, ensures account rows, records activity, and redirects home", async () => {
+  const user = {
+    id: "00000000-0000-4000-8000-000000000011",
+    email: "king@example.com",
+    user_metadata: { name: "Sohaib Kazmi" }
+  };
+  const fake = createSupabaseFake({ exchangeUser: user });
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback?code=oauth-code"), {
+    KV: createKV(),
+    SUPABASE_CLIENT: fake
+  });
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/");
+  assert.deepEqual(fake.calls.find(item => item.action === "exchangeCodeForSession").payload, "oauth-code");
+  assert.ok(fake.calls.some(item => item.table === "users" && item.action === "upsert" && item.payload.id === user.id));
+  assert.ok(fake.calls.some(item => item.table === "account_access" && item.action === "upsert" && item.payload.user_id === user.id));
+  assert.ok(fake.calls.some(item => item.table === "users" && item.action === "update" && item.payload.email === user.email));
+  assert.ok(fake.calls.some(item => item.table === "user_activity" && item.action === "insert" && item.payload.event_type === "login_google"));
+});
+
+test("auth callback missing code redirects with auth error", async () => {
+  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback"), {
+    KV: createKV(),
+    SUPABASE_CLIENT: createSupabaseFake()
+  });
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/?auth_error=missing_code");
+});
+
+test("auth callback exchange failure redirects with auth error", async () => {
+  const fake = createSupabaseFake({ exchangeError: { message: "invalid code" } });
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback?code=bad-code"), {
+    KV: createKV(),
+    SUPABASE_CLIENT: fake
+  });
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/?auth_error=oauth_exchange_failed");
 });
 
 test("complete onboarding requires an agency profile for agency accounts", async () => {

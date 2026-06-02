@@ -506,6 +506,25 @@ function errorResponse(status, message, supabaseContext = null) {
   return jsonResponse({ error: message }, { status }, supabaseContext);
 }
 
+function redirectResponse(location, status = 303, supabaseContext = null) {
+  const headers = new Headers({ Location: location });
+  for (const cookie of supabaseContext?.cookieHeaders || []) {
+    headers.append("Set-Cookie", cookie);
+  }
+  return new Response(null, { status, headers });
+}
+
+function appOrigin(env) {
+  return env.APP_ORIGIN || "https://livejobindex.com";
+}
+
+function assetRequest(request, pathname) {
+  const url = new URL(request.url);
+  url.pathname = pathname;
+  url.search = "";
+  return new Request(url.toString(), request);
+}
+
 async function readJSON(request) {
   try {
     return await request.json();
@@ -615,7 +634,8 @@ async function fetchMe(supabase, user) {
   return {
     auth_user: {
       id: user.id,
-      email: user.email || null
+      email: user.email || null,
+      full_name: cleanString(user.user_metadata?.full_name || user.user_metadata?.name) || null
     },
     user: appUser.data,
     individual_profile: individualProfile.data,
@@ -740,6 +760,50 @@ async function handleLogin(request, env) {
   await recordActivity(context.supabase, data.user.id, "login");
 
   return jsonResponse(await fetchMe(context.supabase, data.user), {}, context);
+}
+
+async function handleGoogleLogin(request, env) {
+  const context = createSupabaseContext(request, env);
+  const { data, error } = await context.supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${appOrigin(env)}/auth/callback`
+    }
+  });
+
+  if (error || !data?.url) {
+    return redirectResponse("/?auth_error=google_oauth_unavailable", 303, context);
+  }
+
+  return redirectResponse(data.url, 302, context);
+}
+
+async function handleAuthCallback(request, env) {
+  const url = new URL(request.url);
+  const code = cleanString(url.searchParams.get("code"));
+  if (!code) {
+    return redirectResponse("/?auth_error=missing_code");
+  }
+
+  const context = createSupabaseContext(request, env);
+  const { error } = await context.supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return redirectResponse("/?auth_error=oauth_exchange_failed", 303, context);
+  }
+
+  const { data, error: userError } = await context.supabase.auth.getUser();
+  if (userError || !data?.user) {
+    return redirectResponse("/?auth_error=oauth_user_missing", 303, context);
+  }
+
+  await ensureAccountRows(context.supabase, data.user);
+  await context.supabase
+    .from("users")
+    .update({ last_login_at: new Date().toISOString(), email: data.user.email || "" })
+    .eq("id", data.user.id);
+  await recordActivity(context.supabase, data.user.id, "login_google");
+
+  return redirectResponse("/", 303, context);
 }
 
 async function handleLogout(request, env) {
@@ -930,6 +994,14 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    if (url.pathname === "/privacy") {
+      return env.ASSETS.fetch(assetRequest(request, "/privacy.html"));
+    }
+
+    if (url.pathname === "/terms") {
+      return env.ASSETS.fetch(assetRequest(request, "/terms.html"));
+    }
+
     if (url.pathname === "/api/jobs") {
       const data = (await env.KV.get("jobs", "json")) || {
         last_scan: null,
@@ -951,6 +1023,14 @@ export default {
 
     if (url.pathname === "/api/login" && request.method === "POST") {
       return handleLogin(request, env);
+    }
+
+    if (url.pathname === "/api/auth/google" && request.method === "GET") {
+      return handleGoogleLogin(request, env);
+    }
+
+    if (url.pathname === "/auth/callback" && request.method === "GET") {
+      return handleAuthCallback(request, env);
     }
 
     if (url.pathname === "/api/logout" && request.method === "POST") {

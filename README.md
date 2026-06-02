@@ -202,6 +202,8 @@ Supabase-backed account routes are handled by the Worker with HttpOnly session c
 
 - `POST /api/signup`
 - `POST /api/login`
+- `GET /api/auth/google`
+- `GET /auth/callback`
 - `POST /api/logout`
 - `GET /api/me`
 - `PATCH /api/onboarding/account-type`
@@ -213,6 +215,8 @@ Supabase-backed account routes are handled by the Worker with HttpOnly session c
 - `POST /api/activity`
 
 These routes require `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the Worker environment. The public job feed remains in Cloudflare KV and does not require authentication.
+
+Google sign-in uses Supabase as the OAuth receiver. The Google OAuth client redirect URI should be the Supabase-provided callback URL, for example `https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/callback`. Supabase then redirects back to the app callback at `https://livejobindex.com/auth/callback`, where the Worker exchanges the code and sets the account session cookies.
 
 ### `GET /api/scan-now`
 
@@ -803,6 +807,20 @@ Set Supabase Worker secrets:
 npx wrangler secret put SUPABASE_URL
 npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
 ```
+
+For production OAuth redirects, keep the app origin as `https://livejobindex.com`. The Worker defaults to that value; set `APP_ORIGIN` only if deploying to a different canonical domain.
+
+Google Cloud Console branding URLs:
+
+- Application home page: `https://livejobindex.com`
+- Privacy policy: `https://livejobindex.com/privacy`
+- Terms of Service: `https://livejobindex.com/terms`
+
+Supabase Auth URL configuration:
+
+- Site URL: `https://livejobindex.com`
+- Redirect allow list: `https://livejobindex.com/auth/callback`
+- Optional if using `www`: `https://www.livejobindex.com/auth/callback`
 
 Deploy:
 
