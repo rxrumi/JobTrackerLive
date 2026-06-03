@@ -479,6 +479,38 @@ test("user job upsert stores status, star, and derived timestamps", async () => 
   assert.equal(payload.job.archived_at, null);
 });
 
+test("settings route stores per-user brand theme", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000004", email: "king@example.com" };
+  const fake = createSupabaseFake({
+    user,
+    rows: {
+      users: [{ id: user.id, email: user.email, account_type: "individual", onboarding_completed: true, brand_theme: "cobalt" }],
+      account_access: [{ user_id: user.id, account_type: "individual", plan: "free" }]
+    }
+  });
+
+  const response = await worker.fetch(new Request("https://example.com/api/settings", {
+    method: "PATCH",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ brand_theme: "aurora" })
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.user.brand_theme, "aurora");
+  assert.ok(fake.calls.some(item => item.table === "users" && item.action === "update" && item.payload.brand_theme === "aurora"));
+  assert.ok(fake.calls.some(item => item.table === "user_activity" && item.action === "insert" && item.payload.event_type === "settings_updated"));
+
+  const invalid = await worker.fetch(new Request("https://example.com/api/settings", {
+    method: "PATCH",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ brand_theme: "sepia" })
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).error, "brand_theme must be cobalt, graphite, or aurora");
+});
+
 test("runScan preserves previous postings from a failed active source", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     failedTokens: new Set(["hubspot"])

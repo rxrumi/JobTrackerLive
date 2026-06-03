@@ -480,6 +480,7 @@ export async function runScan(env) {
 }
 
 const ACCOUNT_TYPES = new Set(["individual", "agency"]);
+const BRAND_THEMES = new Set(["cobalt", "graphite", "aurora"]);
 const STATUSES = new Set([
   "Not started",
   "Saved",
@@ -589,6 +590,7 @@ function buildUserDefaults(user, accountType = "individual") {
   return {
     id: user.id,
     email: user.email || "",
+    brand_theme: "cobalt",
     account_type: accountType,
     onboarding_completed: false
   };
@@ -903,6 +905,28 @@ async function handleCompleteOnboarding(request, env) {
   return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
 }
 
+async function handleSettings(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+
+  const brandTheme = cleanString(payload.brand_theme);
+  if (!BRAND_THEMES.has(brandTheme)) {
+    return errorResponse(400, "brand_theme must be cobalt, graphite, or aurora", auth.context);
+  }
+
+  const { error } = await auth.context.supabase
+    .from("users")
+    .update({ brand_theme: brandTheme })
+    .eq("id", auth.user.id);
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  await recordActivity(auth.context.supabase, auth.user.id, "settings_updated", "account", auth.user.id, { brand_theme: brandTheme });
+  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+}
+
 async function handleGetUserJobs(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
@@ -1055,6 +1079,10 @@ export default {
 
     if (url.pathname === "/api/onboarding/complete" && request.method === "POST") {
       return handleCompleteOnboarding(request, env);
+    }
+
+    if (url.pathname === "/api/settings" && request.method === "PATCH") {
+      return handleSettings(request, env);
     }
 
     if (url.pathname === "/api/user-jobs" && request.method === "GET") {
