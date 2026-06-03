@@ -170,7 +170,7 @@ The page renders immediately with static curated targets, then fetches dynamic p
 
 ### `GET /api/jobs`
 
-Returns the latest public dynamic job payload from KV key `jobs`.
+Returns the first public page of the latest dynamic job payload from KV key `jobs`.
 
 Response shape:
 
@@ -185,16 +185,50 @@ Response shape:
     "okSources": ["greenhouse-hubspot"],
     "failedSources": []
   },
-  "postings": []
+  "postings": [],
+  "pagination": {
+    "page": 1,
+    "per_page": 15,
+    "total": 0,
+    "total_pages": 1,
+    "has_next": false,
+    "has_prev": false
+  }
 }
 ```
 
 Headers:
 
 - `Cache-Control: public, max-age=300`
-- `Access-Control-Allow-Origin: *`
 
 If KV has no `jobs` key yet, the route returns an empty fallback payload with `last_scan`, `last_scan_at`, and `scan_meta` set to `null`.
+
+### `POST /api/jobs/query`
+
+Returns paged dynamic jobs with `per_page` capped at 15. Page 1 is public. Page 2 and later require an authenticated Supabase session and either a valid short-lived `job_page_access` HttpOnly cookie or a fresh Cloudflare Turnstile token validated by the Worker.
+
+Accepted body fields:
+
+- `page`
+- `per_page`
+- `sort`
+- `dir`
+- `search`
+- `filters`
+- `ids`
+- `turnstile_token`
+
+Protected page responses do not set wildcard CORS headers. When Cloudflare Bot Management data is available, low-score non-verified-bot requests are rejected before job data is returned.
+
+### `GET /api/config`
+
+Returns public browser configuration:
+
+```json
+{
+  "turnstile_site_key": ""
+}
+```
 
 ### Account routes
 
@@ -806,6 +840,14 @@ Set Supabase Worker secrets:
 ```bash
 npx wrangler secret put SUPABASE_URL
 npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
+```
+
+Set pagination protection secrets:
+
+```bash
+npx wrangler secret put TURNSTILE_SECRET
+npx wrangler secret put TURNSTILE_SITE_KEY
+npx wrangler secret put PAGE_ACCESS_SECRET
 ```
 
 For production OAuth redirects, keep the app origin as `https://livejobindex.com`. The Worker defaults to that value; set `APP_ORIGIN` only if deploying to a different canonical domain.

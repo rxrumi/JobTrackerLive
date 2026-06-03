@@ -481,6 +481,10 @@ export async function runScan(env) {
 
 const ACCOUNT_TYPES = new Set(["individual", "agency"]);
 const BRAND_THEMES = new Set(["cobalt", "graphite", "aurora"]);
+const JOB_PAGE_SIZE = 15;
+const MAX_JOB_PAGE_SIZE = 15;
+const PAGE_ACCESS_COOKIE = "job_page_access";
+const PAGE_ACCESS_TTL_SECONDS = 30 * 60;
 const STATUSES = new Set([
   "Not started",
   "Saved",
@@ -513,6 +517,192 @@ function redirectResponse(location, status = 303, supabaseContext = null) {
     headers.append("Set-Cookie", cookie);
   }
   return new Response(null, { status, headers });
+}
+
+function clampInteger(value, fallback, min, max) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, min), max);
+}
+
+function normalizeJobQuery(payload = {}) {
+  const filters = payload.filters && typeof payload.filters === "object" ? payload.filters : {};
+  return {
+    page: clampInteger(payload.page, 1, 1, 10000),
+    per_page: clampInteger(payload.per_page, JOB_PAGE_SIZE, 1, MAX_JOB_PAGE_SIZE),
+    sort: ["score", "company", "title", "role", "country", "status"].includes(payload.sort) ? payload.sort : "score",
+    dir: payload.dir === "asc" ? "asc" : "desc",
+    search: cleanString(payload.search || filters.search).toLowerCase(),
+    filters: {
+      country: cleanStringArray(filters.country),
+      tier: cleanStringArray(filters.tier),
+      family: cleanStringArray(filters.family),
+      seniority: cleanStringArray(filters.seniority),
+      visa: cleanStringArray(filters.visa),
+      presets: cleanStringArray(filters.presets)
+    },
+    ids: cleanStringArray(payload.ids)
+  };
+}
+
+function postingIsNew(posting) {
+  if (posting.last_filled || !posting.first_seen) return false;
+  return daysBetween(posting.first_seen, todayUTC()) <= 7;
+}
+
+function postingMatchesQuery(posting, query) {
+  if (query.ids.length && !query.ids.includes(posting.id)) return false;
+  const filters = query.filters;
+  if (filters.country.length && !filters.country.includes(posting.country)) return false;
+  if (filters.tier.length && !filters.tier.includes(posting.tier)) return false;
+  if (filters.family.length && !filters.family.includes(posting.role_family)) return false;
+  if (filters.seniority.length && !filters.seniority.includes(posting.seniority)) return false;
+  if (filters.visa.length && !filters.visa.includes(posting.visa)) return false;
+  if (filters.presets.includes("senior") && !["Senior/Lead", "Manager", "Director/Head", "Executive"].includes(posting.seniority)) return false;
+  if (filters.presets.includes("strong-visa") && posting.visa !== "Strong") return false;
+  if (filters.presets.includes("new") && !postingIsNew(posting)) return false;
+  if (query.search) {
+    const blob = [
+      posting.company,
+      posting.title,
+      posting.city,
+      posting.location,
+      posting.country,
+      posting.tier,
+      posting.role_family,
+      posting.seniority,
+      posting.visa
+    ].join(" ").toLowerCase();
+    if (!blob.includes(query.search)) return false;
+  }
+  return true;
+}
+
+function sortPostings(postings, query) {
+  const dir = query.dir === "asc" ? 1 : -1;
+  const key = query.sort === "role" ? "title" : query.sort;
+  return [...postings].sort((a, b) => {
+    let va = key === "status" ? (a.last_filled ? "Filled" : "Not started") : a[key];
+    let vb = key === "status" ? (b.last_filled ? "Filled" : "Not started") : b[key];
+    if (typeof va === "string") {
+      va = va.toLowerCase();
+      vb = String(vb || "").toLowerCase();
+    }
+    if (va == null) va = "";
+    if (vb == null) vb = "";
+    return va < vb ? -dir : va > vb ? dir : 0;
+  });
+}
+
+function pagePostings(data, query) {
+  const all = Array.isArray(data.postings) ? data.postings : [];
+  const matching = sortPostings(all.filter(posting => postingMatchesQuery(posting, query)), query);
+  const total = matching.length;
+  const totalPages = Math.max(1, Math.ceil(total / query.per_page));
+  const page = Math.min(query.page, totalPages);
+  const start = (page - 1) * query.per_page;
+  return {
+    last_scan: data.last_scan || null,
+    last_scan_at: data.last_scan_at || null,
+    scan_meta: data.scan_meta || null,
+    postings: matching.slice(start, start + query.per_page),
+    pagination: {
+      page,
+      per_page: query.per_page,
+      total,
+      total_pages: totalPages,
+      has_next: page < totalPages,
+      has_prev: page > 1
+    }
+  };
+}
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, ch => ch.charCodeAt(0));
+}
+
+async function hmacSignature(secret, value) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return base64UrlEncode(new Uint8Array(signature));
+}
+
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function cookieValue(request, name) {
+  const cookies = parseCookieHeader(request.headers.get("Cookie") || "");
+  return cookies.find(cookie => cookie.name === name)?.value || "";
+}
+
+async function createPageAccessCookie(userId, env) {
+  if (!env.PAGE_ACCESS_SECRET) return "";
+  const expiresAt = Math.floor(Date.now() / 1000) + PAGE_ACCESS_TTL_SECONDS;
+  const payload = base64UrlEncode(new TextEncoder().encode(JSON.stringify({ sub: userId, exp: expiresAt })));
+  const signature = await hmacSignature(env.PAGE_ACCESS_SECRET, payload);
+  return serializeCookieHeader(PAGE_ACCESS_COOKIE, `${payload}.${signature}`, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: PAGE_ACCESS_TTL_SECONDS
+  });
+}
+
+async function hasValidPageAccessCookie(request, userId, env) {
+  if (!env.PAGE_ACCESS_SECRET) return false;
+  const value = cookieValue(request, PAGE_ACCESS_COOKIE);
+  const [payload, signature] = value.split(".");
+  if (!payload || !signature) return false;
+  const expected = await hmacSignature(env.PAGE_ACCESS_SECRET, payload);
+  if (!timingSafeEqual(signature, expected)) return false;
+  try {
+    const decoded = JSON.parse(new TextDecoder().decode(base64UrlDecode(payload)));
+    return decoded.sub === userId && Number(decoded.exp) > Math.floor(Date.now() / 1000);
+  } catch {
+    return false;
+  }
+}
+
+function isLowBotScore(request) {
+  const bot = request.cf?.botManagement;
+  if (!bot || bot.verifiedBot) return false;
+  const score = Number(bot.score);
+  return Number.isFinite(score) && score > 0 && score < 30;
+}
+
+async function validateTurnstile(request, env, token) {
+  if (!env.TURNSTILE_SECRET || !token) return false;
+  const result = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      secret: env.TURNSTILE_SECRET,
+      response: token,
+      remoteip: request.headers.get("CF-Connecting-IP") || undefined
+    })
+  });
+  if (!result.ok) return false;
+  const data = await result.json();
+  return Boolean(data.success);
 }
 
 function appOrigin(env) {
@@ -927,6 +1117,64 @@ async function handleSettings(request, env) {
   return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
 }
 
+async function readJobsPayload(env) {
+  return (await env.KV.get("jobs", "json")) || {
+    last_scan: null,
+    last_scan_at: null,
+    postings: [],
+    scan_meta: null
+  };
+}
+
+async function handlePublicJobs(env) {
+  const data = await readJobsPayload(env);
+  const payload = pagePostings(data, normalizeJobQuery({ page: 1, per_page: JOB_PAGE_SIZE }));
+  return jsonResponse(payload, {
+    headers: {
+      "Cache-Control": "public, max-age=300"
+    }
+  });
+}
+
+function handlePublicConfig(env) {
+  return jsonResponse({
+    turnstile_site_key: env.TURNSTILE_SITE_KEY || ""
+  }, {
+    headers: {
+      "Cache-Control": "public, max-age=300"
+    }
+  });
+}
+
+async function handleJobsQuery(request, env) {
+  if (isLowBotScore(request)) return errorResponse(403, "bot_check_failed");
+
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json");
+
+  const query = normalizeJobQuery(payload);
+  let auth = null;
+  let setPageCookie = null;
+
+  if (query.page > 1) {
+    auth = await requireUser(request, env);
+    if (auth.response) return auth.response;
+
+    const hasCookie = await hasValidPageAccessCookie(request, auth.user.id, env);
+    const turnstileToken = cleanString(payload.turnstile_token || payload["cf-turnstile-response"]);
+    if (!hasCookie) {
+      const verified = await validateTurnstile(request, env, turnstileToken);
+      if (!verified) return errorResponse(403, "human_verification_required", auth.context);
+      setPageCookie = await createPageAccessCookie(auth.user.id, env);
+    }
+  }
+
+  const data = await readJobsPayload(env);
+  const response = jsonResponse(pagePostings(data, query), {}, auth?.context || null);
+  if (setPageCookie) response.headers.append("Set-Cookie", setPageCookie);
+  return response;
+}
+
 async function handleGetUserJobs(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
@@ -1027,18 +1275,15 @@ export default {
     }
 
     if (url.pathname === "/api/jobs") {
-      const data = (await env.KV.get("jobs", "json")) || {
-        last_scan: null,
-        last_scan_at: null,
-        postings: [],
-        scan_meta: null
-      };
-      return Response.json(data, {
-        headers: {
-          "Cache-Control": "public, max-age=300",
-          "Access-Control-Allow-Origin": "*"
-        }
-      });
+      return handlePublicJobs(env);
+    }
+
+    if (url.pathname === "/api/config" && request.method === "GET") {
+      return handlePublicConfig(env);
+    }
+
+    if (url.pathname === "/api/jobs/query" && request.method === "POST") {
+      return handleJobsQuery(request, env);
     }
 
     if (url.pathname === "/api/signup" && request.method === "POST") {

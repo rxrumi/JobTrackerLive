@@ -52,6 +52,31 @@ function mockFetch({ failedTokens = new Set(), jobsByToken = {} } = {}) {
   };
 }
 
+function samplePostings(count) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `job-${i + 1}`,
+    company: i % 2 ? "hubspot" : "canva",
+    title: `Revenue Operations Manager ${i + 1}`,
+    country: i % 2 ? "IE" : "AU",
+    city: i % 2 ? "Dublin" : "Sydney",
+    location: i % 2 ? "Dublin, Ireland" : "Sydney, Australia",
+    tier: i % 2 ? "Ecosystem" : "Scaleup",
+    role_family: "Operations",
+    seniority: "Manager",
+    visa: i % 2 ? "Strong" : "Likely",
+    score: 100 - i,
+    first_seen: "2026-06-01",
+    last_seen: "2026-06-02",
+    url: `https://example.com/jobs/${i + 1}`
+  }));
+}
+
+function requestWithCf(url, init, cf) {
+  const request = new Request(url, init);
+  Object.defineProperty(request, "cf", { value: cf });
+  return request;
+}
+
 test("runScan matches lowercase/country-hint locations and classifies visa", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     jobsByToken: {
@@ -329,16 +354,135 @@ function createSupabaseFake({ user, exchangeUser, exchangeError = null, oauthUrl
 
 test("account routes require authentication without affecting public jobs", async () => {
   const KV = createKV();
-  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: [{ id: "job-1" }] }));
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
 
   const jobsResponse = await worker.fetch(new Request("https://example.com/api/jobs"), { KV });
   assert.equal(jobsResponse.status, 200);
   assert.equal(jobsResponse.headers.get("Cache-Control"), "public, max-age=300");
+  assert.equal(jobsResponse.headers.get("Access-Control-Allow-Origin"), null);
   const jobsPayload = await jobsResponse.json();
-  assert.equal(jobsPayload.postings.length, 1);
+  assert.equal(jobsPayload.postings.length, 15);
+  assert.equal(jobsPayload.pagination.page, 1);
+  assert.equal(jobsPayload.pagination.total, 20);
+  assert.equal(jobsPayload.pagination.total_pages, 2);
 
   const meResponse = await worker.fetch(new Request("https://example.com/api/me"), { KV });
   assert.equal(meResponse.status, 401);
+});
+
+test("jobs query allows anonymous page one and caps per_page at fifteen", async () => {
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    body: JSON.stringify({ page: 1, per_page: 50 })
+  }), { KV });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.postings.length, 15);
+  assert.equal(payload.pagination.per_page, 15);
+  assert.equal(payload.pagination.total_pages, 2);
+});
+
+test("jobs query rejects anonymous page two", async () => {
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    body: JSON.stringify({ page: 2 })
+  }), { KV });
+
+  assert.equal(response.status, 401);
+});
+
+test("jobs query requires human verification for authenticated page two", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000020", email: "king@example.com" };
+  const fake = createSupabaseFake({ user });
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ page: 2 })
+  }), {
+    KV,
+    SUPABASE_CLIENT: fake,
+    PAGE_ACCESS_SECRET: "page-secret",
+    TURNSTILE_SECRET: "turnstile-secret"
+  });
+
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "human_verification_required");
+});
+
+test("jobs query allows authenticated page two with valid Turnstile and sets clearance cookie", async t => {
+  t.mock.method(globalThis, "fetch", async url => {
+    assert.equal(String(url), "https://challenges.cloudflare.com/turnstile/v0/siteverify");
+    return Response.json({ success: true });
+  });
+  const user = { id: "00000000-0000-4000-8000-000000000021", email: "king@example.com" };
+  const fake = createSupabaseFake({ user });
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ page: 2, turnstile_token: "token" })
+  }), {
+    KV,
+    SUPABASE_CLIENT: fake,
+    PAGE_ACCESS_SECRET: "page-secret",
+    TURNSTILE_SECRET: "turnstile-secret"
+  });
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("Set-Cookie"), /job_page_access=/);
+  const payload = await response.json();
+  assert.equal(payload.pagination.page, 2);
+  assert.equal(payload.postings.length, 5);
+});
+
+test("jobs query clamps out-of-range pages", async t => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ success: true }));
+  const user = { id: "00000000-0000-4000-8000-000000000022", email: "king@example.com" };
+  const fake = createSupabaseFake({ user });
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ page: 99, turnstile_token: "token" })
+  }), {
+    KV,
+    SUPABASE_CLIENT: fake,
+    PAGE_ACCESS_SECRET: "page-secret",
+    TURNSTILE_SECRET: "turnstile-secret"
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.pagination.page, 2);
+  assert.equal(payload.postings.length, 5);
+});
+
+test("jobs query rejects low bot scores when Cloudflare bot data is present", async () => {
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
+  const request = requestWithCf("https://example.com/api/jobs/query", {
+    method: "POST",
+    body: JSON.stringify({ page: 1 })
+  }, { botManagement: { score: 10, verifiedBot: false } });
+
+  const response = await worker.fetch(request, { KV });
+
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "bot_check_failed");
 });
 
 test("complete onboarding requires an individual profile for individual accounts", async () => {

@@ -227,6 +227,21 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .reset { padding: 6px 12px; font-size: 12px; background: transparent; border: 0.5px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-family: inherit; }
 .reset:hover { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
 
+.pagination-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; color: var(--text-secondary); font-size: 12px; flex-wrap: wrap; }
+.pagination-bar[hidden] { display: none; }
+.pagination-summary { white-space: nowrap; }
+.pagination-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.page-btn { min-width: 32px; height: 30px; padding: 0 9px; border-radius: 7px; border: 0.5px solid var(--border); background: var(--panel); color: var(--text-secondary); cursor: pointer; font-size: 12px; font-family: inherit; }
+.page-btn:hover:not(:disabled) { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
+.page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.page-btn[aria-current="page"] { background: var(--accent); color: var(--button-primary-text); border-color: var(--accent); }
+.turnstile-gate { display: grid; gap: 10px; margin: 10px 0 14px; padding: 12px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
+.turnstile-gate[hidden] { display: none; }
+.turnstile-title { font-size: 13px; font-weight: 500; }
+.turnstile-copy { margin: 0; color: var(--text-secondary); font-size: 12px; }
+.turnstile-message { min-height: 16px; color: var(--text-secondary); font-size: 12px; }
+.turnstile-message.error { color: var(--danger); }
+
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-card); }
 thead th { background: var(--panel-2); padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 0.5px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
@@ -401,6 +416,8 @@ tbody tr.is-filled .role { font-style: italic; }
   </div>
   <div class="header-actions">
     <span class="account-pill" id="account-pill" hidden></span>
+    <button class="secondary-btn" id="header-login-btn" type="button">Login</button>
+    <button class="primary-btn" id="header-signup-btn" type="button">Sign up</button>
     <button class="secondary-btn" id="logout-btn" hidden>Log out</button>
     <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">☾</button>
   </div>
@@ -679,6 +696,15 @@ tbody tr.is-filled .role { font-style: italic; }
   <button class="reset" id="empty-reset">Reset filters</button>
 </div>
 
+<section class="turnstile-gate" id="turnstile-gate" hidden>
+  <div class="turnstile-title">Human check required</div>
+  <p class="turnstile-copy">Sign in and complete the check to view additional job pages.</p>
+  <div id="turnstile-widget"></div>
+  <div class="turnstile-message" id="turnstile-message"></div>
+</section>
+
+<nav class="pagination-bar" id="pagination-top" aria-label="Jobs pages" hidden></nav>
+
 <div class="table-wrap" id="table-wrap">
 <table id="job-table">
   <thead>
@@ -698,6 +724,8 @@ tbody tr.is-filled .role { font-style: italic; }
 </div>
 
 <div class="job-cards" id="job-cards"></div>
+
+<nav class="pagination-bar" id="pagination-bottom" aria-label="Jobs pages" hidden></nav>
 
 <details class="legend-details">
   <summary>Score &amp; badges</summary>
@@ -824,6 +852,7 @@ const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', Ecosystem: 'HubS
 const ROLE_FAMILIES = ['Engineering', 'Product', 'Design', 'Data/Analytics', 'Security/IT', 'Sales', 'Marketing', 'Finance', 'Operations', 'Customer Success/Support', 'People/HR', 'Legal/Compliance', 'Strategy/Program', 'Other'];
 const SENIORITIES = ['Executive', 'Director/Head', 'Senior/Lead', 'Manager', 'Associate/Analyst', 'Unknown'];
 const SENIOR_PLUS = new Set(['Executive', 'Director/Head', 'Senior/Lead', 'Manager']);
+const PAGE_SIZE = 15;
 const STATUSES = ['Not started', 'Saved', 'Applied', 'Recruiter screen', 'Interview', 'Final round', 'Offer', 'Rejected', 'On hold'];
 const STATUS_CLASS = { 'Not started': '', 'Saved': 'status-saved', 'Applied': 'status-applied', 'Recruiter screen': 'status-screen', 'Interview': 'status-interview', 'Final round': 'status-final', 'Offer': 'status-offer', 'Rejected': 'status-rejected', 'On hold': 'status-onhold' };
 const PIPELINE_STATUSES = new Set(['Saved', 'Applied', 'Recruiter screen', 'Interview', 'Final round', 'Offer']);
@@ -877,11 +906,50 @@ function inferSeniority(title) {
 }
 
 let JOBS = [];
+let DYNAMIC_POSTINGS = new Map();
+let DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
+let DYNAMIC_PAGINATION_QUERY_KEY = '';
 let LAST_SCAN = null;
 let ME = null;
 let USER_JOBS = new Map();
 let AUTH_MODE = 'login';
 let ONBOARDING_ACCOUNT_TYPE = 'individual';
+let TURNSTILE_SITE_KEY = '';
+let TURNSTILE_WIDGET_ID = null;
+let PENDING_PAGE = null;
+let PAGE_ACCESS_VERIFIED = false;
+let ACTIVE_REFRESH_TIMER = null;
+
+function mergeDynamicPostings(postings) {
+  (postings || []).forEach(p => {
+    if (p?.id) DYNAMIC_POSTINGS.set(String(p.id), p);
+  });
+}
+
+function rebuildJobsFromCache() {
+  buildJobs([...DYNAMIC_POSTINGS.values()]);
+}
+
+function serializedFilters() {
+  return {
+    country: [...state.country],
+    tier: [...state.tier],
+    family: [...state.family],
+    seniority: [...state.seniority],
+    visa: [...state.visa],
+    presets: [...state.presets]
+  };
+}
+
+function dynamicQueryKey(page = state.page) {
+  return JSON.stringify({
+    page,
+    sort: state.sort,
+    dir: state.dir,
+    search: state.search,
+    filters: serializedFilters()
+  });
+}
 
 function buildJobs(dynamicPostings) {
   const seenTargets = new Set();
@@ -944,6 +1012,145 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function loadPublicConfig() {
+  try {
+    const data = await api('/api/config');
+    TURNSTILE_SITE_KEY = data.turnstile_site_key || '';
+  } catch {
+    TURNSTILE_SITE_KEY = '';
+  }
+}
+
+async function loadTurnstileScript() {
+  if (window.turnstile) return;
+  await new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-turnstile]');
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', reject, { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.defer = true;
+    script.dataset.turnstile = 'true';
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+async function fetchJobsPage(page, turnstileToken = '') {
+  const queryKey = dynamicQueryKey(page);
+  const data = await api('/api/jobs/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      page,
+      per_page: PAGE_SIZE,
+      sort: state.sort,
+      dir: state.dir,
+      search: state.search,
+      filters: serializedFilters(),
+      turnstile_token: turnstileToken
+    })
+  });
+  DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
+  DYNAMIC_PAGINATION_QUERY_KEY = queryKey;
+  LAST_SCAN = data.last_scan_at || LAST_SCAN;
+  mergeDynamicPostings(data.postings || []);
+  rebuildJobsFromCache();
+  if (page > 1) PAGE_ACCESS_VERIFIED = true;
+  return data;
+}
+
+function scheduleActiveRefresh() {
+  if (ACTIVE_REFRESH_TIMER) clearTimeout(ACTIVE_REFRESH_TIMER);
+  if (state.tab !== 'active') return;
+  ACTIVE_REFRESH_TIMER = setTimeout(async () => {
+    ACTIVE_REFRESH_TIMER = null;
+    try {
+      await fetchJobsPage(1);
+      render();
+    } catch (e) {
+      document.getElementById('last-scan').textContent = 'Could not refresh jobs: ' + e.message;
+    }
+  }, 250);
+}
+
+function hideTurnstileGate() {
+  PENDING_PAGE = null;
+  document.getElementById('turnstile-gate').hidden = true;
+  setMessage('turnstile-message', '');
+}
+
+async function showTurnstileGate(page) {
+  PENDING_PAGE = page;
+  const gate = document.getElementById('turnstile-gate');
+  gate.hidden = false;
+  setMessage('turnstile-message', 'Preparing human check...');
+  if (!TURNSTILE_SITE_KEY) await loadPublicConfig();
+  if (!TURNSTILE_SITE_KEY) {
+    setMessage('turnstile-message', 'Human check is not configured yet. Add TURNSTILE_SITE_KEY and TURNSTILE_SECRET.', true);
+    return;
+  }
+  try {
+    await loadTurnstileScript();
+    const container = document.getElementById('turnstile-widget');
+    container.innerHTML = '';
+    TURNSTILE_WIDGET_ID = window.turnstile.render(container, {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: async token => {
+        setMessage('turnstile-message', 'Verifying...');
+        try {
+          await fetchJobsPage(PENDING_PAGE || page, token);
+          state.page = Math.min(PENDING_PAGE || page, DYNAMIC_PAGINATION.total_pages || PENDING_PAGE || page);
+          hideTurnstileGate();
+          render();
+        } catch (e) {
+          setMessage('turnstile-message', e.message, true);
+          if (TURNSTILE_WIDGET_ID != null) window.turnstile.reset(TURNSTILE_WIDGET_ID);
+        }
+      },
+      'error-callback': () => setMessage('turnstile-message', 'Human check failed. Try again.', true),
+      'expired-callback': () => setMessage('turnstile-message', 'Human check expired. Try again.', true)
+    });
+    setMessage('turnstile-message', '');
+  } catch {
+    setMessage('turnstile-message', 'Could not load the human check. Try again shortly.', true);
+  }
+}
+
+async function setPage(page) {
+  const target = Math.max(1, page);
+  if (target > 1 && !ME?.user) {
+    showAuth('Sign in to view additional job pages.');
+    return;
+  }
+  if (target > 1 && state.tab === 'active') {
+    try {
+      await fetchJobsPage(target);
+    } catch (e) {
+      if (e.message === 'human_verification_required') {
+        await showTurnstileGate(target);
+        return;
+      }
+      document.getElementById('last-scan').textContent = 'Could not load that jobs page: ' + e.message;
+      return;
+    }
+  } else if (target > 1 && !PAGE_ACCESS_VERIFIED) {
+    await showTurnstileGate(target);
+    return;
+  }
+  state.page = target;
+  render();
+}
+
+function resetPage() {
+  state.page = 1;
+  hideTurnstileGate();
+}
+
 function loadUserJob(id) {
   return USER_JOBS.get(String(id)) || null;
 }
@@ -981,7 +1188,8 @@ const state = {
   tab: 'active',
   country: new Set(), tier: new Set(), family: new Set(), seniority: new Set(), visa: new Set(),
   presets: new Set(),
-  search: '', sort: 'score', dir: 'desc'
+  search: '', sort: 'score', dir: 'desc',
+  page: 1
 };
 
 function tabBucket(j) {
@@ -1008,7 +1216,9 @@ function buildFilters() {
         if (state[cat].has(val)) { state[cat].delete(val); c.classList.remove('active'); }
         else { state[cat].add(val); c.classList.add('active'); }
         updateFilterBadges();
+        resetPage();
         render();
+        scheduleActiveRefresh();
       };
       el.appendChild(c);
     });
@@ -1060,6 +1270,18 @@ function filtered() {
   });
 }
 
+function hasActiveControls() {
+  return Boolean(
+    state.search.trim() ||
+    state.country.size ||
+    state.tier.size ||
+    state.family.size ||
+    state.seniority.size ||
+    state.visa.size ||
+    state.presets.size
+  );
+}
+
 function sorted(rows) {
   const key = state.sort, dir = state.dir === 'asc' ? 1 : -1;
   return [...rows].sort((a, b) => {
@@ -1069,6 +1291,38 @@ function sorted(rows) {
     let vb = key === 'status' ? loadStatus(b.id) : b[key];
     if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
     return va < vb ? -dir : va > vb ? dir : 0;
+  });
+}
+
+function pageWindow(totalPages) {
+  const pages = new Set([1, totalPages, state.page - 1, state.page, state.page + 1]);
+  return [...pages].filter(p => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+}
+
+function paginationHTML(totalRows, totalPages) {
+  if (totalRows <= PAGE_SIZE || totalPages <= 1) return '';
+  const start = (state.page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(totalRows, state.page * PAGE_SIZE);
+  const buttons = [];
+  buttons.push(`<button class="page-btn" data-page="1" ${state.page === 1 ? 'disabled' : ''}>First</button>`);
+  buttons.push(`<button class="page-btn" data-page="${state.page - 1}" ${state.page === 1 ? 'disabled' : ''}>Prev</button>`);
+  pageWindow(totalPages).forEach(page => {
+    buttons.push(`<button class="page-btn" data-page="${page}" ${page === state.page ? 'aria-current="page"' : ''}>${page}</button>`);
+  });
+  buttons.push(`<button class="page-btn" data-page="${state.page + 1}" ${state.page === totalPages ? 'disabled' : ''}>Next</button>`);
+  buttons.push(`<button class="page-btn" data-page="${totalPages}" ${state.page === totalPages ? 'disabled' : ''}>Last</button>`);
+  return `<span class="pagination-summary">Showing ${start}-${end} of ${totalRows}</span><span class="pagination-controls">${buttons.join('')}</span>`;
+}
+
+function renderPagination(totalRows, totalPages) {
+  const html = paginationHTML(totalRows, totalPages);
+  ['pagination-top', 'pagination-bottom'].forEach(id => {
+    const el = document.getElementById(id);
+    el.hidden = !html;
+    el.innerHTML = html;
+  });
+  document.querySelectorAll('.page-btn[data-page]').forEach(btn => {
+    btn.onclick = () => setPage(Number(btn.dataset.page));
   });
 }
 
@@ -1142,7 +1396,9 @@ function renderStats() {
       const chip = document.querySelector(`#filter-country .chip[data-val="${c}"]`);
       if (chip) chip.classList.toggle('active', state.country.has(c));
       updateFilterBadges();
+      resetPage();
       render();
+      scheduleActiveRefresh();
     };
   });
 }
@@ -1150,7 +1406,7 @@ function renderStats() {
 function renderTabs() {
   const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0 };
   JOBS.forEach(j => buckets[tabBucket(j)]++);
-  document.getElementById('count-active').textContent = buckets.active;
+  document.getElementById('count-active').textContent = Math.max(buckets.active, DYNAMIC_PAGINATION.total || 0);
   document.getElementById('count-targets').textContent = buckets.targets;
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
   document.getElementById('count-archive').textContent = buckets.archive;
@@ -1222,8 +1478,19 @@ function render() {
   const cards = document.getElementById('job-cards');
   const wrap = document.getElementById('table-wrap');
   const empty = document.getElementById('empty-state');
-  const total = JOBS.filter(j => tabBucket(j) === state.tab).length;
-  document.getElementById('results-count').textContent = `${rows.length} of ${total}`;
+  const loadedTabTotal = JOBS.filter(j => tabBucket(j) === state.tab).length;
+  const total = state.tab === 'active' ? Math.max(loadedTabTotal, DYNAMIC_PAGINATION.total || 0) : loadedTabTotal;
+  const serverBackedActive = state.tab === 'active' && DYNAMIC_PAGINATION_QUERY_KEY === dynamicQueryKey(state.page);
+  const paginationTotal = serverBackedActive ? Math.max(rows.length, DYNAMIC_PAGINATION.total || 0) : rows.length;
+  const totalPages = Math.max(1, Math.ceil(paginationTotal / PAGE_SIZE));
+  if (state.page > totalPages) state.page = totalPages;
+  const start = (state.page - 1) * PAGE_SIZE;
+  const pageRows = rows.slice(start, start + PAGE_SIZE);
+  const visibleStart = paginationTotal ? start + 1 : 0;
+  const visibleEnd = Math.min(paginationTotal, start + pageRows.length);
+  document.getElementById('results-count').textContent = rows.length
+    ? `${visibleStart}-${visibleEnd} of ${paginationTotal} filtered · ${total} total`
+    : `0 of ${total}`;
 
   if (!rows.length) {
     empty.style.display = 'block';
@@ -1231,13 +1498,15 @@ function render() {
     cards.style.display = 'none';
     tbody.innerHTML = '';
     cards.innerHTML = '';
+    renderPagination(0, 1);
     return;
   }
   empty.style.display = 'none';
   wrap.style.display = '';
   cards.style.display = '';
-  tbody.innerHTML = rows.map(rowHTML).join('');
-  cards.innerHTML = rows.map(cardHTML).join('');
+  tbody.innerHTML = pageRows.map(rowHTML).join('');
+  cards.innerHTML = pageRows.map(cardHTML).join('');
+  renderPagination(paginationTotal, totalPages);
   wireRowHandlers();
 
   document.querySelectorAll('thead th[data-sort]').forEach(th => {
@@ -1283,12 +1552,14 @@ function wireRowHandlers() {
 function resetAll() {
   state.country.clear(); state.tier.clear(); state.family.clear(); state.seniority.clear(); state.visa.clear(); state.presets.clear();
   state.search = '';
+  resetPage();
   document.getElementById('search').value = '';
   document.getElementById('search-wrap').classList.remove('has-text');
   document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
   document.querySelectorAll('.preset.chip').forEach(c => c.classList.remove('active'));
   updateFilterBadges();
   render();
+  scheduleActiveRefresh();
 }
 
 // Wire static handlers (called once at init)
@@ -1297,7 +1568,9 @@ function wireStaticHandlers() {
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => {
       state.tab = t.dataset.tab;
+      resetPage();
       render();
+      scheduleActiveRefresh();
     };
   });
 
@@ -1307,21 +1580,27 @@ function wireStaticHandlers() {
   searchEl.oninput = (e) => {
     state.search = e.target.value;
     searchWrap.classList.toggle('has-text', e.target.value.length > 0);
+    resetPage();
     render();
+    scheduleActiveRefresh();
   };
   document.getElementById('search-clear').onclick = () => {
     searchEl.value = '';
     state.search = '';
     searchWrap.classList.remove('has-text');
     searchEl.focus();
+    resetPage();
     render();
+    scheduleActiveRefresh();
   };
 
   // Sort dropdown
   document.getElementById('sort-select').onchange = (e) => {
     const [k, d] = e.target.value.split('|');
     state.sort = k; state.dir = d;
+    resetPage();
     render();
+    scheduleActiveRefresh();
   };
 
   // Reset buttons
@@ -1334,11 +1613,13 @@ function wireStaticHandlers() {
       const k = th.dataset.sort;
       if (state.sort === k) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
       else { state.sort = k; state.dir = (k === 'score') ? 'desc' : 'asc'; }
+      resetPage();
       // sync sort dropdown
       const sel = document.getElementById('sort-select');
       const v = `${state.sort}|${state.dir}`;
       if ([...sel.options].some(o => o.value === v)) sel.value = v;
       render();
+      scheduleActiveRefresh();
     };
   });
 
@@ -1348,7 +1629,9 @@ function wireStaticHandlers() {
       const p = c.dataset.preset;
       if (state.presets.has(p)) state.presets.delete(p); else state.presets.add(p);
       c.classList.toggle('active', state.presets.has(p));
+      resetPage();
       render();
+      scheduleActiveRefresh();
     };
   });
 
@@ -1411,20 +1694,37 @@ function setMessage(id, message, isError = false) {
 function updateAuthTabs() {
   document.getElementById('show-login').classList.toggle('active', AUTH_MODE === 'login');
   document.getElementById('show-signup').classList.toggle('active', AUTH_MODE === 'signup');
+  document.getElementById('header-login-btn').classList.toggle('active', AUTH_MODE === 'login' && !document.getElementById('auth-panel').hidden);
+  document.getElementById('header-signup-btn').classList.toggle('active', AUTH_MODE === 'signup' && !document.getElementById('auth-panel').hidden);
   document.getElementById('login-form').hidden = AUTH_MODE !== 'login';
   document.getElementById('signup-form').hidden = AUTH_MODE !== 'signup';
   document.querySelector('#auth-panel .auth-title').textContent = AUTH_MODE === 'login' ? 'Sign in' : 'Create account';
   setMessage('auth-message', '');
 }
 
+function showPublicDashboard() {
+  document.getElementById('auth-panel').hidden = true;
+  document.getElementById('onboarding-panel').hidden = true;
+  document.getElementById('dashboard').hidden = false;
+  document.getElementById('account-pill').hidden = true;
+  document.getElementById('logout-btn').hidden = true;
+  document.getElementById('header-login-btn').hidden = false;
+  document.getElementById('header-signup-btn').hidden = false;
+  document.querySelector('.subtitle').textContent = 'Live and curated visa-aware roles across target relocation markets.';
+  updateAuthTabs();
+}
+
 function showAuth(message = '') {
   document.getElementById('auth-panel').hidden = false;
   document.getElementById('onboarding-panel').hidden = true;
-  document.getElementById('dashboard').hidden = true;
+  document.getElementById('dashboard').hidden = false;
   document.getElementById('account-pill').hidden = true;
   document.getElementById('logout-btn').hidden = true;
+  document.getElementById('header-login-btn').hidden = false;
+  document.getElementById('header-signup-btn').hidden = false;
   updateAuthTabs();
   if (message) setMessage('auth-message', message, true);
+  document.getElementById('auth-panel').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 function showOnboarding() {
@@ -1432,6 +1732,8 @@ function showOnboarding() {
   document.getElementById('onboarding-panel').hidden = false;
   document.getElementById('dashboard').hidden = true;
   document.getElementById('logout-btn').hidden = false;
+  document.getElementById('header-login-btn').hidden = true;
+  document.getElementById('header-signup-btn').hidden = true;
   syncAccountHeader();
   syncIndividualNameField();
   selectAccountType(ME?.user?.account_type || 'individual', false);
@@ -1442,6 +1744,8 @@ function showDashboard() {
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
   document.getElementById('logout-btn').hidden = false;
+  document.getElementById('header-login-btn').hidden = true;
+  document.getElementById('header-signup-btn').hidden = true;
   syncAccountHeader();
   syncAccountSettings();
 }
@@ -1575,6 +1879,14 @@ function readAuthError() {
 }
 
 function wireAuthHandlers() {
+  document.getElementById('header-login-btn').onclick = () => {
+    AUTH_MODE = 'login';
+    showAuth();
+  };
+  document.getElementById('header-signup-btn').onclick = () => {
+    AUTH_MODE = 'signup';
+    showAuth();
+  };
   document.getElementById('show-login').onclick = () => {
     AUTH_MODE = 'login';
     updateAuthTabs();
@@ -1639,7 +1951,9 @@ function wireAuthHandlers() {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     ME = null;
     USER_JOBS = new Map();
-    showAuth();
+    PAGE_ACCESS_VERIFIED = false;
+    resetPage();
+    showPublicDashboard();
   };
 
   document.getElementById('choose-individual').onclick = () => selectAccountType('individual');
@@ -1706,18 +2020,23 @@ async function init() {
   buildOnboardingOptions();
   wireStaticHandlers();
   wireAuthHandlers();
+  showPublicDashboard();
   render();
 
   try {
+    await loadPublicConfig();
     const r = await fetch('/api/jobs');
     if (r.ok) {
       const data = await r.json();
       LAST_SCAN = data.last_scan_at;
-      buildJobs(data.postings || []);
+      DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
+      DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKey(1);
+      mergeDynamicPostings(data.postings || []);
+      rebuildJobsFromCache();
       const lastEl = document.getElementById('last-scan');
       if (LAST_SCAN) {
         const d = new Date(LAST_SCAN);
-        lastEl.textContent = `Last scan: ${d.toLocaleString()} · ${data.postings?.length || 0} dynamic postings tracked`;
+        lastEl.textContent = `Last scan: ${d.toLocaleString()} · ${DYNAMIC_PAGINATION.total || data.postings?.length || 0} dynamic postings tracked`;
       } else {
         lastEl.textContent = 'No scans yet — first run will populate dynamic postings.';
       }
@@ -1729,7 +2048,8 @@ async function init() {
 
   const me = await loadMe();
   if (!me) {
-    showAuth(authError);
+    if (authError) showAuth(authError);
+    else showPublicDashboard();
   } else if (!me.user?.onboarding_completed) {
     showOnboarding();
   } else {
