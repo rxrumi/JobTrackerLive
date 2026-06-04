@@ -601,7 +601,7 @@ function normalizeJobQuery(payload = {}) {
   return {
     page: clampInteger(payload.page, 1, 1, 10000),
     per_page: clampInteger(payload.per_page, JOB_PAGE_SIZE, 1, MAX_JOB_PAGE_SIZE),
-    sort: ["score", "company", "title", "role", "country", "status"].includes(payload.sort) ? payload.sort : "score",
+    sort: ["score", "company", "title", "role", "country", "status", "first_seen"].includes(payload.sort) ? payload.sort : "score",
     dir: payload.dir === "asc" ? "asc" : "desc",
     search: cleanString(payload.search || filters.search).toLowerCase(),
     filters: {
@@ -661,7 +661,10 @@ function sortPostings(postings, query) {
     }
     if (va == null) va = "";
     if (vb == null) vb = "";
-    return va < vb ? -dir : va > vb ? dir : 0;
+    if (va !== vb) return va < vb ? -dir : va > vb ? dir : 0;
+    const ca = (a.company || "").toLowerCase();
+    const cb = (b.company || "").toLowerCase();
+    return ca < cb ? -1 : ca > cb ? 1 : 0;
   });
 }
 
@@ -1425,7 +1428,7 @@ async function handleSeoPage(path, env) {
 
 async function handlePublicJobs(env) {
   const data = await readJobsPayload(env);
-  const payload = pagePostings(data, normalizeJobQuery({ page: 1, per_page: JOB_PAGE_SIZE }));
+  const payload = pagePostings(data, normalizeJobQuery({ page: 1, per_page: JOB_PAGE_SIZE, sort: "first_seen", dir: "desc" }));
   return jsonResponse(payload, {
     headers: {
       "Cache-Control": "public, max-age=300"

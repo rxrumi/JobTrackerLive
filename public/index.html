@@ -1255,6 +1255,7 @@ let TURNSTILE_WIDGET_ID = null;
 let PENDING_PAGE = null;
 let PAGE_ACCESS_VERIFIED = false;
 let ACTIVE_REFRESH_TIMER = null;
+let PROFILE_FILTERS_APPLIED = false;
 const APP_ROUTES = new Set(['/', '/profile', '/onboarding']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
@@ -1781,6 +1782,22 @@ function hasActiveControls() {
   );
 }
 
+function applyProfileFiltersOnce() {
+  if (PROFILE_FILTERS_APPLIED) return;
+  if (hasActiveControls()) return;
+  const profile = ME?.individual_profile || ME?.agency_profile;
+  if (!profile) return;
+  (profile.target_countries || []).forEach(c => state.country.add(c));
+  (profile.target_role_families || []).forEach(f => state.family.add(f));
+  const seniority = profile.target_seniority;
+  if (seniority) state.seniority.add(seniority);
+  if (profile.visa_needed) {
+    state.visa.add('Strong');
+    state.visa.add('Likely');
+  }
+  PROFILE_FILTERS_APPLIED = true;
+}
+
 function sorted(rows) {
   const key = state.sort, dir = state.dir === 'asc' ? 1 : -1;
   return [...rows].sort((a, b) => {
@@ -1789,7 +1806,10 @@ function sorted(rows) {
     let va = key === 'status' ? loadStatus(a.id) : a[key];
     let vb = key === 'status' ? loadStatus(b.id) : b[key];
     if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
-    return va < vb ? -dir : va > vb ? dir : 0;
+    if (va !== vb) return va < vb ? -dir : va > vb ? dir : 0;
+    const ca = (a.company || '').toLowerCase();
+    const cb = (b.company || '').toLowerCase();
+    return ca < cb ? -1 : ca > cb ? 1 : 0;
   });
 }
 
@@ -1892,7 +1912,10 @@ function renderTabs() {
   document.getElementById('count-targets').textContent = buckets.targets;
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
   document.getElementById('count-archive').textContent = buckets.archive;
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === state.tab));
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === state.tab);
+    if (t.dataset.tab === 'targets') t.style.display = ME?.user ? '' : 'none';
+  });
 }
 
 function rowHTML(j) {
@@ -2578,6 +2601,7 @@ async function applyRoute() {
   if (CURRENT_ROUTE === '/') {
     if (ME?.user?.onboarding_completed) {
       await loadUserJobs().catch(() => {});
+      applyProfileFiltersOnce();
       state.sort = 'first_seen'; state.dir = 'desc';
       document.getElementById('sort-select').value = 'first_seen|desc';
       showDashboard();
