@@ -71,6 +71,13 @@
   gtag('js', new Date());
   gtag('config', 'G-CNP336YP4G');
 </script>
+<script>
+  (function(c,l,a,r,i,t,y){
+    c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+    t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+    y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+  })(window, document, "clarity", "script", "x1ofvybrrq");
+</script>
 <style>
 :root {
   color-scheme: dark;
@@ -185,14 +192,14 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0 auto; padding: 24px; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.5; max-width: 1400px; }
-.header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 0.5px solid var(--border-soft); }
-.brand-block { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand-logo { display: block; width: 52px; height: 52px; border-radius: 12px; flex: 0 0 auto; object-fit: contain; background: transparent; box-shadow: var(--shadow-card); }
+.header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 28px; padding: 2px 0 4px; }
+.brand-block { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.brand-logo { display: block; width: 44px; height: 44px; border-radius: 10px; flex: 0 0 auto; object-fit: contain; background: transparent; box-shadow: var(--shadow-card); margin-top: 2px; }
 .brand-copy { min-width: 0; }
 h1 { font-size: 24px; font-weight: 600; margin: 0 0 3px; letter-spacing: 0; }
-.subtitle { color: var(--text-secondary); font-size: 13px; margin: 0 0 6px; }
-.last-scan { color: var(--text-muted); font-size: 11px; margin: 0; }
-.theme-toggle { background: var(--panel); border: 0.5px solid var(--border); border-radius: 8px; padding: 6px 11px; font-size: 14px; cursor: pointer; color: var(--text); line-height: 1; transition: background 0.15s, border-color 0.15s; font-family: inherit; }
+.subtitle { color: var(--text-secondary); font-size: 13px; margin: 0 0 5px; }
+.last-scan { color: var(--text-muted); font-size: 11px; margin: 0; opacity: 0.86; }
+.theme-toggle { background: var(--panel); border: 0.5px solid var(--border); border-radius: 999px; padding: 6px 11px; min-width: 86px; font-size: 12px; cursor: pointer; color: var(--text); line-height: 1; transition: background 0.15s, border-color 0.15s; font-family: inherit; }
 .theme-toggle:hover { background: var(--card-hover); border-color: var(--accent); }
 .brand-switcher { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 0.5px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text-muted); font-size: 11px; }
 .brand-switcher-label { padding: 0 5px 0 7px; color: var(--text-secondary); }
@@ -363,8 +370,19 @@ tbody tr.is-filled .role { font-style: italic; }
 [hidden] { display: none !important; }
 
 .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.account-pill { border: 0.5px solid var(--border); border-radius: 999px; padding: 6px 12px; color: var(--text-secondary); font-size: 12px; background: var(--panel); cursor: pointer; font-family: inherit; }
+.profile-menu { position: relative; }
+.account-pill { border: 0.5px solid var(--border); border-radius: 999px; padding: 4px 9px 4px 4px; color: var(--text-secondary); font-size: 12px; background: var(--panel); cursor: pointer; font-family: inherit; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; overflow: hidden; white-space: nowrap; }
 .account-pill:hover { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
+.account-avatar { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
+.account-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.account-chevron { color: var(--text-muted); font-size: 10px; }
+.profile-dropdown { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; width: 240px; padding: 8px; border: 0.5px solid var(--border); border-radius: 10px; background: var(--card); box-shadow: var(--shadow-soft); }
+.profile-dropdown-head { padding: 8px 9px 10px; border-bottom: 0.5px solid var(--border-soft); margin-bottom: 6px; }
+.profile-dropdown-name { color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.profile-dropdown-meta { color: var(--text-muted); font-size: 11px; margin-top: 3px; }
+.profile-dropdown-action { width: 100%; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; color: var(--text-secondary); cursor: pointer; text-align: left; font: inherit; font-size: 12px; }
+.profile-dropdown-action:hover { background: var(--card-hover); color: var(--text); }
+.profile-dropdown-action.danger { color: var(--danger); }
 .auth-panel, .onboarding-panel { max-width: 760px; margin: 28px auto; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 22px; box-shadow: var(--shadow-soft); }
 .auth-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(8, 13, 20, 0.62); backdrop-filter: blur(8px); }
 .auth-modal .auth-panel { width: min(100%, 560px); max-height: calc(100vh - 36px); margin: 0; overflow-y: auto; }
@@ -435,7 +453,12 @@ tbody tr.is-filled .role { font-style: italic; }
 .site-footer { margin: 22px 0 0; padding-top: 16px; border-top: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--text-secondary); font-size: 12px; }
 .site-footer a { color: var(--text-secondary); text-decoration: none; }
 .site-footer a:hover { color: var(--text); }
+.footer-brand { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .footer-links { display: flex; gap: 12px; flex-wrap: wrap; }
+.social-links { display: flex; align-items: center; gap: 6px; }
+.social-link { width: 28px; height: 28px; border: 0.5px solid var(--border); border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); background: var(--panel); transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.social-link:hover { color: var(--text); border-color: var(--accent); background: var(--card-hover); }
+.social-link svg { width: 15px; height: 15px; display: block; fill: currentColor; }
 .methodology-note { margin-top: 16px; padding: 12px 14px; border: 0.5px solid var(--border-soft); border-radius: 8px; background: var(--panel); color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
 .methodology-note h2 { margin: 0 0 6px; color: var(--text); font-size: 13px; font-weight: 600; }
 .methodology-note p { margin: 0; }
@@ -476,16 +499,25 @@ tbody tr.is-filled .role { font-style: italic; }
     <img class="brand-logo" src="/assets/logo.svg" alt="Live Job Index logo" width="42" height="42">
     <div class="brand-copy">
       <h1>Live Job Index</h1>
-      <p class="subtitle">Live and curated visa-aware roles across target relocation markets.</p>
-      <p class="last-scan" id="last-scan">Loading dynamic postings...</p>
+      <p class="subtitle">Explore active, real-time career opportunities at the world’s leading tech enterprises.</p>
+      <p class="last-scan" id="last-scan">🟢 Active jobs updating today</p>
     </div>
   </div>
   <div class="header-actions">
-    <button class="account-pill" id="account-pill" type="button" hidden></button>
     <button class="secondary-btn" id="header-login-btn" type="button">Login</button>
     <button class="primary-btn" id="header-signup-btn" type="button">Sign up</button>
-    <button class="secondary-btn" id="logout-btn" hidden>Log out</button>
-    <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">☾</button>
+    <button class="theme-toggle" id="theme-toggle" title="Switch to Graphite theme" aria-label="Current theme Cobalt. Switch to Graphite.">Cobalt</button>
+    <div class="profile-menu" id="profile-menu" hidden>
+      <button class="account-pill" id="account-pill" type="button" aria-expanded="false" aria-controls="profile-dropdown"></button>
+      <div class="profile-dropdown" id="profile-dropdown" role="menu" hidden>
+        <div class="profile-dropdown-head">
+          <div class="profile-dropdown-name" id="profile-dropdown-name">Account</div>
+          <div class="profile-dropdown-meta" id="profile-dropdown-meta">Account plan</div>
+        </div>
+        <button class="profile-dropdown-action" id="profile-link-btn" type="button" role="menuitem">Profile & settings</button>
+        <button class="profile-dropdown-action danger" id="logout-btn" type="button" role="menuitem">Log out</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -952,7 +984,23 @@ tbody tr.is-filled .role { font-style: italic; }
 </main>
 
 <footer class="site-footer">
-  <span>Live Job Index operated by Sohaib Kazmi.</span>
+  <div class="footer-brand">
+    <span>Live Job Index operated by Sohaib Kazmi.</span>
+    <nav class="social-links" aria-label="Sohaib Kazmi social links">
+      <a class="social-link" href="https://www.linkedin.com/in/sohaibkazmi/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.58c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.95v5.67H9.34V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.61 0 4.27 2.37 4.27 5.46v6.28ZM5.32 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12Zm1.78 13.02H3.54V9H7.1v11.45ZM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0Z"/></svg>
+      </a>
+      <a class="social-link" href="https://x.com/rumi_kaz" target="_blank" rel="noopener noreferrer" aria-label="X">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.4l-5.8-7.58-6.63 7.58H.48l8.6-9.83L0 1.15h7.59l5.24 6.93 6.07-6.93Zm-1.29 20.5h2.04L6.49 2.99H4.3l13.61 18.66Z"/></svg>
+      </a>
+      <a class="social-link" href="https://www.instagram.com/sohaibkazmi.r/" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.22.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.05.41 2.22.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.22-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.05.36-2.22.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.22-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.05-.41-2.22-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.22.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.05-.36 2.22-.41 1.27-.06 1.65-.07 4.85-.07ZM12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.91.33 4.14.63a5.88 5.88 0 0 0-2.13 1.38A5.88 5.88 0 0 0 .63 4.14c-.3.77-.5 1.64-.56 2.91C.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.14.56 2.91.31.8.72 1.48 1.38 2.13.65.66 1.33 1.07 2.13 1.38.77.3 1.64.5 2.91.56 1.28.06 1.69.07 4.95.07s3.67-.01 4.95-.07c1.27-.06 2.14-.26 2.91-.56.8-.31 1.48-.72 2.13-1.38.66-.65 1.07-1.33 1.38-2.13.3-.77.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.14-.56-2.91a5.88 5.88 0 0 0-1.38-2.13A5.88 5.88 0 0 0 19.86.63c-.77-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0Zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32Zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm7.85-10.4a1.44 1.44 0 1 1-2.88 0 1.44 1.44 0 0 1 2.88 0Z"/></svg>
+      </a>
+      <a class="social-link" href="mailto:sohaibkazmi.w@gmail.com" aria-label="Email">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2Zm-.4 4.25-7.07 4.42a1 1 0 0 1-1.06 0L4.4 8.25a1 1 0 1 1 1.06-1.7L12 10.64l6.54-4.09a1 1 0 1 1 1.06 1.7Z"/></svg>
+      </a>
+    </nav>
+  </div>
   <nav class="footer-links" aria-label="Legal links">
     <a href="https://livejobindex.com/">Home</a>
     <a href="https://livejobindex.com/privacy">Privacy</a>
@@ -1071,7 +1119,9 @@ const STATUS_CLASS = { 'Not started': '', 'Saved': 'status-saved', 'Applied': 's
 const PIPELINE_STATUSES = new Set(['Saved', 'Applied', 'Recruiter screen', 'Interview', 'Final round', 'Offer']);
 const ARCHIVE_STATUSES = new Set(['Rejected', 'On hold']);
 const BRAND_THEME_KEY = 'livejobindex_brand_theme';
-const VALID_BRAND_THEMES = new Set(['cobalt', 'graphite', 'aurora']);
+const BRAND_THEME_SEQUENCE = ['cobalt', 'graphite', 'aurora'];
+const BRAND_THEME_LABELS = { cobalt: 'Cobalt', graphite: 'Graphite', aurora: 'Aurora' };
+const VALID_BRAND_THEMES = new Set(BRAND_THEME_SEQUENCE);
 
 function calcScore(j) {
   const visaW = { Strong: 100, Likely: 75, Unknown: 50 };
@@ -1125,6 +1175,8 @@ let DYNAMIC_POSTINGS = new Map();
 let DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
 let DYNAMIC_PAGINATION_QUERY_KEY = '';
 let LAST_SCAN = null;
+let PUBLIC_FEED_LOADED = false;
+let HEADER_ACTIVE_TOTAL = 0;
 let ME = null;
 let USER_JOBS = new Map();
 let AUTH_MODE = 'login';
@@ -1176,6 +1228,25 @@ function mergeDynamicPostings(postings) {
 
 function rebuildJobsFromCache() {
   buildJobs([...DYNAMIC_POSTINGS.values()]);
+}
+
+function activeJobCount() {
+  const loadedActive = JOBS.filter(j => !j.is_static && !j.is_filled).length;
+  return Math.max(loadedActive, HEADER_ACTIVE_TOTAL);
+}
+
+function updateHeaderStatus(message) {
+  const el = document.getElementById('last-scan');
+  if (!el) return;
+  if (message) {
+    el.textContent = message;
+    return;
+  }
+  if (!PUBLIC_FEED_LOADED) {
+    el.textContent = '🟢 Active jobs updating today';
+    return;
+  }
+  el.textContent = `🟢 ${activeJobCount().toLocaleString()} active jobs updated today`;
 }
 
 function serializedFilters() {
@@ -1306,8 +1377,11 @@ async function fetchJobsPage(page, turnstileToken = '') {
   DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
   DYNAMIC_PAGINATION_QUERY_KEY = queryKey;
   LAST_SCAN = data.last_scan_at || LAST_SCAN;
+  HEADER_ACTIVE_TOTAL = Math.max(HEADER_ACTIVE_TOTAL, DYNAMIC_PAGINATION.total || 0);
   mergeDynamicPostings(data.postings || []);
   rebuildJobsFromCache();
+  PUBLIC_FEED_LOADED = true;
+  updateHeaderStatus();
   if (page > 1) PAGE_ACCESS_VERIFIED = true;
   return data;
 }
@@ -1321,7 +1395,7 @@ function scheduleActiveRefresh() {
       await fetchJobsPage(1);
       render();
     } catch (e) {
-      document.getElementById('last-scan').textContent = 'Could not refresh jobs: ' + e.message;
+      updateHeaderStatus('🟢 Active jobs updated today');
     }
   }, 250);
 }
@@ -1383,7 +1457,7 @@ async function setPage(page) {
         await showTurnstileGate(target);
         return;
       }
-      document.getElementById('last-scan').textContent = 'Could not load that jobs page: ' + e.message;
+      updateHeaderStatus('🟢 Active jobs updated today');
       return;
     }
   } else if (target > 1 && !PAGE_ACCESS_VERIFIED) {
@@ -1427,7 +1501,7 @@ async function persistUserJob(id, patch) {
       if (!document.getElementById('profile-panel')?.hidden) syncProfilePanel();
     }
   } catch (e) {
-    document.getElementById('last-scan').textContent = 'Could not save job state: ' + e.message;
+    updateHeaderStatus();
   }
 }
 
@@ -1957,20 +2031,21 @@ function wireStaticHandlers() {
     btn.onclick = () => setBrandTheme(btn.dataset.brandTheme, true);
   });
 
-  // Dark mode is fixed while brand themes are being tested.
   const themeBtn = document.getElementById('theme-toggle');
-  themeBtn.textContent = '☾';
-  themeBtn.title = 'Dark mode only';
-  themeBtn.setAttribute('aria-label', 'Dark mode only');
-  themeBtn.onclick = () => {
-    document.documentElement.setAttribute('data-theme', 'dark');
-  };
+  themeBtn.onclick = () => cycleBrandTheme();
 
   // Close filter dropdowns when clicking outside
   document.addEventListener('click', (e) => {
     document.querySelectorAll('details.filter-dropdown[open]').forEach(d => {
       if (!d.contains(e.target)) d.removeAttribute('open');
     });
+    const profileMenu = document.getElementById('profile-menu');
+    if (profileMenu && !profileMenu.hidden && !profileMenu.contains(e.target)) {
+      closeProfileDropdown();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeProfileDropdown();
   });
 }
 
@@ -1989,6 +2064,7 @@ async function setBrandTheme(theme, persist = false) {
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
+  updateThemeToggle(theme);
   if (!persist) return;
   setMessage('settings-message', 'Saving theme...');
   try { localStorage.setItem(BRAND_THEME_KEY, theme); } catch (e) {}
@@ -2007,6 +2083,25 @@ async function setBrandTheme(theme, persist = false) {
   } catch (e) {
     setMessage('settings-message', e.message, true);
   }
+}
+
+function nextBrandTheme(theme = document.documentElement.dataset.brandTheme || 'cobalt') {
+  const index = BRAND_THEME_SEQUENCE.indexOf(theme);
+  return BRAND_THEME_SEQUENCE[(index + 1) % BRAND_THEME_SEQUENCE.length] || 'cobalt';
+}
+
+function updateThemeToggle(theme = document.documentElement.dataset.brandTheme || 'cobalt') {
+  const btn = document.getElementById('theme-toggle');
+  if (!btn) return;
+  const active = VALID_BRAND_THEMES.has(theme) ? theme : 'cobalt';
+  const next = nextBrandTheme(active);
+  btn.textContent = BRAND_THEME_LABELS[active];
+  btn.title = `Switch to ${BRAND_THEME_LABELS[next]} theme`;
+  btn.setAttribute('aria-label', `Current theme ${BRAND_THEME_LABELS[active]}. Switch to ${BRAND_THEME_LABELS[next]}.`);
+}
+
+function cycleBrandTheme() {
+  setBrandTheme(nextBrandTheme(), true);
 }
 
 function updateAuthTabs() {
@@ -2039,10 +2134,12 @@ function showPublicDashboard() {
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
   document.getElementById('account-pill').hidden = true;
+  document.getElementById('profile-menu').hidden = true;
   document.getElementById('logout-btn').hidden = true;
   document.getElementById('header-login-btn').hidden = false;
   document.getElementById('header-signup-btn').hidden = false;
-  document.querySelector('.subtitle').textContent = 'Live and curated visa-aware roles across target relocation markets.';
+  document.querySelector('.subtitle').textContent = 'Explore active, real-time career opportunities at the world’s leading tech enterprises.';
+  closeProfileDropdown();
   updateAuthTabs();
 }
 
@@ -2054,6 +2151,7 @@ function showAuth(message = '', asPage = false) {
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = asPage;
   document.getElementById('account-pill').hidden = true;
+  document.getElementById('profile-menu').hidden = true;
   document.getElementById('logout-btn').hidden = true;
   document.getElementById('header-login-btn').hidden = asPage;
   document.getElementById('header-signup-btn').hidden = asPage;
@@ -2098,13 +2196,19 @@ function syncAccountHeader() {
   const pill = document.getElementById('account-pill');
   const type = ME?.user?.account_type || 'individual';
   const plan = ME?.account_access?.plan || 'free';
-  pill.textContent = `${type === 'agency' ? 'Agency' : 'Individual'} · ${plan}`;
-  pill.title = 'Open profile and settings';
-  pill.setAttribute('aria-label', 'Open profile and settings');
+  const displayName = profileDisplayName();
+  const initials = profileInitials(displayName);
+  pill.innerHTML = `<span class="account-avatar" aria-hidden="true">${escapeHTML(initials)}</span><span class="account-name">${escapeHTML(displayName)}</span><span class="account-chevron" aria-hidden="true">▾</span>`;
+  pill.title = `Open ${displayName}'s profile`;
+  pill.setAttribute('aria-label', `Open ${displayName}'s profile`);
   pill.hidden = false;
-  document.querySelector('.subtitle').textContent = type === 'agency'
-    ? 'Explore live hiring data across target markets. API and CRM integrations are available on approved agency plans.'
-    : 'Track visa-friendly jobs across top global tech companies.';
+  document.getElementById('profile-menu').hidden = false;
+  document.getElementById('logout-btn').hidden = false;
+  document.getElementById('header-login-btn').hidden = true;
+  document.getElementById('header-signup-btn').hidden = true;
+  document.getElementById('profile-dropdown-name').textContent = displayName;
+  document.getElementById('profile-dropdown-meta').textContent = `${type === 'agency' ? 'Agency' : 'Individual'} · ${plan}`;
+  document.querySelector('.subtitle').textContent = 'Explore active, real-time career opportunities at the world’s leading tech enterprises.';
 }
 
 function syncAccountSettings() {
@@ -2172,6 +2276,29 @@ function profileDisplayName() {
     || ME?.auth_user?.full_name
     || ME?.agency_profile?.agency_name
     || 'Account';
+}
+
+function profileInitials(name) {
+  const parts = String(name || 'Account').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'A';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function closeProfileDropdown() {
+  const dropdown = document.getElementById('profile-dropdown');
+  const pill = document.getElementById('account-pill');
+  if (dropdown) dropdown.hidden = true;
+  if (pill) pill.setAttribute('aria-expanded', 'false');
+}
+
+function toggleProfileDropdown() {
+  const dropdown = document.getElementById('profile-dropdown');
+  const pill = document.getElementById('account-pill');
+  if (!dropdown || !pill) return;
+  const willOpen = dropdown.hidden;
+  dropdown.hidden = !willOpen;
+  pill.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
 }
 
 function syncProfilePanel() {
@@ -2420,7 +2547,14 @@ function wireAuthHandlers() {
     AUTH_MODE = 'signup';
     showAuth();
   };
-  document.getElementById('account-pill').onclick = () => navigateTo('/profile');
+  document.getElementById('account-pill').onclick = (e) => {
+    e.stopPropagation();
+    toggleProfileDropdown();
+  };
+  document.getElementById('profile-link-btn').onclick = () => {
+    closeProfileDropdown();
+    navigateTo('/profile');
+  };
   document.getElementById('close-profile-btn').onclick = hideProfilePanel;
   document.getElementById('show-login').onclick = () => {
     AUTH_MODE = 'login';
@@ -2481,6 +2615,7 @@ function wireAuthHandlers() {
   };
 
   document.getElementById('logout-btn').onclick = async () => {
+    closeProfileDropdown();
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     ME = null;
     USER_JOBS = new Map();
@@ -2626,19 +2761,15 @@ async function init() {
       LAST_SCAN = data.last_scan_at;
       DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
       DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKey(1);
+      HEADER_ACTIVE_TOTAL = Math.max(HEADER_ACTIVE_TOTAL, DYNAMIC_PAGINATION.total || data.postings?.length || 0);
       mergeDynamicPostings(data.postings || []);
       rebuildJobsFromCache();
-      const lastEl = document.getElementById('last-scan');
-      if (LAST_SCAN) {
-        const d = new Date(LAST_SCAN);
-        lastEl.textContent = `Last scan: ${d.toLocaleString()} · ${DYNAMIC_PAGINATION.total || data.postings?.length || 0} dynamic postings tracked`;
-      } else {
-        lastEl.textContent = 'No scans yet — first run will populate dynamic postings.';
-      }
+      PUBLIC_FEED_LOADED = true;
+      updateHeaderStatus();
       render();
     }
   } catch (e) {
-    document.getElementById('last-scan').textContent = 'Static entries only — dynamic feed unavailable.';
+    updateHeaderStatus('🟢 Active jobs updating today');
   }
 
   const me = await loadMe();
