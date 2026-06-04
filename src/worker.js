@@ -497,6 +497,67 @@ const STATUSES = new Set([
   "On hold"
 ]);
 const ARCHIVE_STATUSES = new Set(["Rejected", "On hold"]);
+const SITE_ORIGIN = "https://livejobindex.com";
+const HOME_META_DESCRIPTION = "Find real-time openings at the world's leading tech companies. Filter instantly by location, seniority, and visa-aware hiring signals. Updated daily.";
+const COUNTRY_NAMES = {
+  GB: "UK",
+  IE: "Ireland",
+  CA: "Canada",
+  AU: "Australia",
+  SG: "Singapore",
+  DE: "Germany",
+  NL: "Netherlands",
+  CH: "Switzerland",
+  SE: "Sweden",
+  DK: "Denmark",
+  NO: "Norway",
+  ES: "Spain",
+  PT: "Portugal",
+  EE: "Estonia",
+  NZ: "New Zealand"
+};
+const SEO_PAGES = {
+  "/jobs": {
+    title: "Explore Live Jobs at Top Global Tech Companies",
+    description: "Browse real-time openings at leading tech companies. Filter active roles by market, seniority, role family, and visa-aware hiring signals.",
+    heading: "Explore Live Jobs",
+    eyebrow: "Live jobs",
+    intro: "Browse active roles from public company career feeds, organized by market, company tier, seniority, and role family.",
+    cta: "Open Live Jobs",
+    appHref: "/",
+    schemaType: "CollectionPage"
+  },
+  "/visa-roles": {
+    title: "Visa-Aware Tech Roles with Strong Hiring Signals",
+    description: "Find global tech openings at companies with strong visa support signals. Review active roles by location, seniority, and company tier.",
+    heading: "Visa-Aware Roles",
+    eyebrow: "Sponsorship signals",
+    intro: "Focus your search on companies with strong or likely sponsorship history while keeping the current signal heuristic clear.",
+    cta: "View Visa-Aware Roles",
+    appHref: "/",
+    schemaType: "CollectionPage"
+  },
+  "/pipeline": {
+    title: "My Pipeline: Save Targets and Track Applications",
+    description: "Save job targets, organize application status, and manage your search pipeline inside Live Job Index.",
+    heading: "My Pipeline",
+    eyebrow: "Application tracking",
+    intro: "Keep saved targets, application status, notes, and account preferences together once you sign in.",
+    cta: "Sign In to Track Pipeline",
+    appHref: "/profile",
+    schemaType: "WebPage"
+  },
+  "/insights": {
+    title: "Market Insights for Global Tech Hiring",
+    description: "Track lightweight hiring trends across leading markets, top tech companies, role families, and visa-aware opportunity signals.",
+    heading: "Market Insights",
+    eyebrow: "Hiring trends",
+    intro: "Review lightweight trends from the current job feed, including strongest markets, role families, and visa-aware hiring signals.",
+    cta: "Explore Hiring Trends",
+    appHref: "/",
+    schemaType: "CollectionPage"
+  }
+};
 
 function jsonResponse(data, init = {}, supabaseContext = null) {
   const headers = new Headers(init.headers || {});
@@ -517,6 +578,16 @@ function redirectResponse(location, status = 303, supabaseContext = null) {
     headers.append("Set-Cookie", cookie);
   }
   return new Response(null, { status, headers });
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  }[ch]));
 }
 
 function clampInteger(value, fallback, min, max) {
@@ -808,7 +879,7 @@ function buildUserDefaults(user, accountType = "individual") {
   return {
     id: user.id,
     email: user.email || "",
-    brand_theme: "cobalt",
+    brand_theme: "graphite",
     account_type: accountType,
     onboarding_completed: false
   };
@@ -1160,6 +1231,198 @@ async function readJobsPayload(env) {
   };
 }
 
+async function readJobsPayloadSafe(env) {
+  if (!env.KV) {
+    return { last_scan: null, last_scan_at: null, postings: [], scan_meta: null };
+  }
+  try {
+    return await readJobsPayload(env);
+  } catch {
+    return { last_scan: null, last_scan_at: null, postings: [], scan_meta: null };
+  }
+}
+
+function countBy(postings, field) {
+  const counts = new Map();
+  for (const posting of postings) {
+    const value = posting?.[field];
+    if (!value) continue;
+    counts.set(value, (counts.get(value) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en").format(value);
+}
+
+function summarizeJobsPayload(data) {
+  const postings = Array.isArray(data.postings) ? data.postings.filter(posting => !posting.last_filled) : [];
+  const strongVisa = postings.filter(posting => posting.visa === "Strong").length;
+  const likelyVisa = postings.filter(posting => posting.visa === "Likely").length;
+  const topMarkets = countBy(postings, "country").slice(0, 3).map(([country, count]) => `${COUNTRY_NAMES[country] || country} (${formatNumber(count)})`);
+  const topFamilies = countBy(postings, "role_family").slice(0, 3).map(([family, count]) => `${family} (${formatNumber(count)})`);
+  const topCompanies = countBy(postings, "company").slice(0, 3).map(([company, count]) => `${company} (${formatNumber(count)})`);
+
+  return {
+    activeTotal: postings.length,
+    strongVisa,
+    visaAwareTotal: strongVisa + likelyVisa,
+    topMarkets,
+    topFamilies,
+    topCompanies,
+    lastScan: data.last_scan || data.last_scan_at || null
+  };
+}
+
+function statCard(label, value) {
+  return `<article class="stat-card"><span>${escapeHTML(label)}</span><strong>${escapeHTML(value)}</strong></article>`;
+}
+
+function listItems(items, fallback) {
+  const values = items.length ? items : [fallback];
+  return values.map(item => `<li>${escapeHTML(item)}</li>`).join("");
+}
+
+function renderSeoPage(path, summary) {
+  const page = SEO_PAGES[path];
+  const url = `${SITE_ORIGIN}${path}`;
+  const activeCopy = summary.activeTotal ? `${formatNumber(summary.activeTotal)} active roles` : "Active roles updated daily";
+  const visaCopy = summary.visaAwareTotal ? `${formatNumber(summary.visaAwareTotal)} visa-aware roles` : "Visa-aware hiring signals";
+  const lastScanCopy = summary.lastScan ? `Last scan: ${summary.lastScan}` : "Updated daily";
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": page.schemaType,
+        "@id": `${url}#page`,
+        url,
+        name: page.heading,
+        description: page.description,
+        isPartOf: { "@id": `${SITE_ORIGIN}/#website` }
+      },
+      {
+        "@type": "WebSite",
+        "@id": `${SITE_ORIGIN}/#website`,
+        url: `${SITE_ORIGIN}/`,
+        name: "Live Job Index",
+        description: HOME_META_DESCRIPTION
+      },
+      {
+        "@type": "WebApplication",
+        "@id": `${SITE_ORIGIN}/#app`,
+        name: "Live Job Index",
+        url: `${SITE_ORIGIN}/`,
+        applicationCategory: "BusinessApplication",
+        operatingSystem: "Web",
+        description: HOME_META_DESCRIPTION
+      }
+    ]
+  };
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHTML(page.title)}</title>
+<meta name="description" content="${escapeHTML(page.description)}">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#0d4dff">
+<link rel="canonical" href="${escapeHTML(url)}">
+<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="${escapeHTML(url)}">
+<meta property="og:title" content="${escapeHTML(page.title)}">
+<meta property="og:description" content="${escapeHTML(page.description)}">
+<meta property="og:image" content="${SITE_ORIGIN}/assets/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHTML(page.title)}">
+<meta name="twitter:description" content="${escapeHTML(page.description)}">
+<meta name="twitter:image" content="${SITE_ORIGIN}/assets/og-image.png">
+<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
+<style>
+:root { color-scheme: dark; --bg: #071016; --panel: #101923; --card: #151f2b; --text: #f6f8fb; --muted: #9ca8b8; --accent: #7dd3fc; --border: rgba(255,255,255,0.14); }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+.page { max-width: 1120px; margin: 0 auto; padding: 28px 22px 42px; }
+.top-nav, .footer-nav { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.top-nav { justify-content: space-between; margin-bottom: 64px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 650; }
+.brand img { width: 36px; height: 36px; border-radius: 8px; }
+.links { display: flex; flex-wrap: wrap; gap: 14px; }
+a { color: var(--accent); }
+.links a, .footer-nav a { color: var(--muted); text-decoration: none; }
+.links a[aria-current="page"] { color: var(--accent); }
+.eyebrow { color: var(--accent); font-size: 13px; font-weight: 650; margin: 0 0 10px; }
+h1 { max-width: 760px; font-size: clamp(36px, 7vw, 68px); line-height: 0.98; letter-spacing: 0; margin: 0; }
+.intro { max-width: 680px; color: var(--muted); font-size: 18px; margin: 18px 0 28px; }
+.cta { display: inline-block; background: var(--accent); color: #071016; text-decoration: none; font-weight: 650; padding: 11px 15px; border-radius: 8px; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 42px 0 28px; }
+.stat-card, .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.stat-card span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-card strong { display: block; font-size: 24px; margin-top: 4px; }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.panel h2 { font-size: 16px; margin: 0 0 10px; }
+.panel ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.note { color: var(--muted); font-size: 13px; margin-top: 20px; }
+footer { border-top: 1px solid var(--border); margin-top: 44px; padding-top: 18px; color: var(--muted); }
+@media (max-width: 760px) { .top-nav { margin-bottom: 44px; } .stats, .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="page">
+<nav class="top-nav" aria-label="Primary">
+  <a class="brand" href="/"><img src="/assets/logo.svg" alt="Live Job Index logo" width="36" height="36"><span>Live Job Index</span></a>
+  <div class="links">
+    <a href="/jobs"${path === "/jobs" ? ' aria-current="page"' : ""}>Live Jobs</a>
+    <a href="/visa-roles"${path === "/visa-roles" ? ' aria-current="page"' : ""}>Visa Roles</a>
+    <a href="/pipeline"${path === "/pipeline" ? ' aria-current="page"' : ""}>My Pipeline</a>
+    <a href="/insights"${path === "/insights" ? ' aria-current="page"' : ""}>Market Insights</a>
+  </div>
+</nav>
+<main>
+  <p class="eyebrow">${escapeHTML(page.eyebrow)}</p>
+  <h1>${escapeHTML(page.heading)}</h1>
+  <p class="intro">${escapeHTML(page.intro)}</p>
+  <a class="cta" href="${escapeHTML(page.appHref)}">${escapeHTML(page.cta)}</a>
+  <section class="stats" aria-label="Current job index summary">
+    ${statCard("Live index", activeCopy)}
+    ${statCard("Visa-aware", visaCopy)}
+    ${statCard("Freshness", lastScanCopy)}
+  </section>
+  <section class="grid" aria-label="Hiring signal summaries">
+    <article class="panel"><h2>Top Markets</h2><ul>${listItems(summary.topMarkets, "Market data appears after the next successful scan.")}</ul></article>
+    <article class="panel"><h2>Role Families</h2><ul>${listItems(summary.topFamilies, "Role-family trends appear after the next successful scan.")}</ul></article>
+    <article class="panel"><h2>Company Signals</h2><ul>${listItems(summary.topCompanies, "Company trends appear after the next successful scan.")}</ul></article>
+  </section>
+  <p class="note">Visa-aware labels reflect company-level sponsorship history and hiring signals. They are prioritization heuristics, not sponsorship guarantees.</p>
+</main>
+<footer>
+  <nav class="footer-nav" aria-label="Footer">
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </nav>
+</footer>
+</div>
+</body>
+</html>`;
+}
+
+async function handleSeoPage(path, env) {
+  const data = await readJobsPayloadSafe(env);
+  const html = renderSeoPage(path, summarizeJobsPayload(data));
+  return withTrustHeaders(new Response(html, {
+    headers: {
+      "Content-Type": "text/html; charset=UTF-8",
+      "Cache-Control": "public, max-age=300"
+    }
+  }));
+}
+
 async function handlePublicJobs(env) {
   const data = await readJobsPayload(env);
   const payload = pagePostings(data, normalizeJobQuery({ page: 1, per_page: JOB_PAGE_SIZE }));
@@ -1316,6 +1579,10 @@ export default {
 
     if (url.pathname === "/terms") {
       return fetchAsset(request, env, "/terms.html");
+    }
+
+    if (SEO_PAGES[url.pathname]) {
+      return handleSeoPage(url.pathname, env);
     }
 
     if (url.pathname === "/api/jobs") {

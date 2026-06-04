@@ -3,8 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import worker, { runScan } from "../src/worker.js";
 
-function createKV(initialState = { postings: {} }) {
+function createKV(initialState = { postings: {} }, initialJobs = null) {
   const store = new Map([["state", JSON.stringify(initialState)]]);
+  if (initialJobs) store.set("jobs", JSON.stringify(initialJobs));
   const puts = [];
   return {
     puts,
@@ -169,14 +170,59 @@ test("profile and onboarding routes resolve through static asset fallback with t
   assert.deepEqual(ASSETS.requests, ["/profile", "/onboarding"]);
 });
 
+test("public SEO pillar routes render crawlable metadata from Worker", async () => {
+  const KV = createKV({ postings: {} }, {
+    last_scan: "2026-06-04",
+    postings: samplePostings(4)
+  });
+
+  const cases = [
+    ["/jobs", "Explore Live Jobs at Top Global Tech Companies", "https://livejobindex.com/jobs"],
+    ["/visa-roles", "Visa-Aware Tech Roles with Strong Hiring Signals", "https://livejobindex.com/visa-roles"],
+    ["/pipeline", "My Pipeline: Save Targets and Track Applications", "https://livejobindex.com/pipeline"],
+    ["/insights", "Market Insights for Global Tech Hiring", "https://livejobindex.com/insights"]
+  ];
+
+  for (const [path, title, canonical] of cases) {
+    const response = await worker.fetch(new Request(`https://livejobindex.com${path}`), { KV });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /text\/html/);
+    assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+    assert.match(html, new RegExp(`<title>${title}</title>`));
+    assert.match(html, new RegExp(`<link rel="canonical" href="${canonical}">`));
+    assert.match(html, /<script type="application\/ld\+json">/);
+    assert.match(html, /visa-aware/i);
+    assert.doesNotMatch(html, /verified visa sponsorship/i);
+  }
+});
+
 test("homepage source exposes legal discovery links and structured data", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
+  assert.match(html, /Live Job Index: Find Active Openings at Top Global Tech Companies/);
+  assert.match(html, /Find real-time openings at the world's leading tech companies/);
+  assert.match(html, /<nav class="public-nav" aria-label="Product pages">/);
+  assert.match(html, /href="\/jobs"/);
+  assert.match(html, /href="\/visa-roles"/);
+  assert.match(html, /href="\/pipeline"/);
+  assert.match(html, /href="\/insights"/);
+  assert.doesNotMatch(html, /verified visa sponsorship/i);
   assert.match(html, /rel="privacy-policy" href="https:\/\/livejobindex\.com\/privacy"/);
   assert.match(html, /rel="terms-of-service" href="https:\/\/livejobindex\.com\/terms"/);
   assert.match(html, /<script type="application\/ld\+json">/);
   assert.match(html, /"@type": "WebApplication"/);
   assert.match(html, /Tracking Methodology/);
+});
+
+test("sitemap source includes public SEO pillar routes", () => {
+  const sitemap = readFileSync(new URL("../public/sitemap.xml", import.meta.url), "utf8");
+
+  assert.match(sitemap, /<loc>https:\/\/livejobindex\.com\/jobs<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/livejobindex\.com\/visa-roles<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/livejobindex\.com\/pipeline<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/livejobindex\.com\/insights<\/loc>/);
 });
 
 test("homepage source includes routed profile and onboarding handling", () => {
@@ -186,6 +232,19 @@ test("homepage source includes routed profile and onboarding handling", () => {
   assert.match(html, /function applyRoute\(\)/);
   assert.match(html, /navigateTo\('\/profile'\)/);
   assert.doesNotMatch(html, /account-pill'\)\.onclick = showProfilePanel/);
+});
+
+test("homepage defaults signed-out theme to graphite and uses icon-only header toggle", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /<html lang="en" data-theme="dark" data-brand-theme="graphite">/);
+  assert.match(html, /var brandTheme = 'graphite'/);
+  assert.match(html, /const DEFAULT_BRAND_THEME = 'graphite'/);
+  assert.match(html, /<button class="theme-toggle" id="theme-toggle"[^>]*>◐<\/button>/);
+  assert.match(html, /btn\.textContent = '◐'/);
+  assert.doesNotMatch(html, /theme-toggle"[^>]*>Cobalt<\/button>/);
+  assert.doesNotMatch(html, /theme-toggle"[^>]*>Graphite<\/button>/);
+  assert.doesNotMatch(html, /theme-toggle"[^>]*>Aurora<\/button>/);
 });
 
 test("runScan matches lowercase/country-hint locations and classifies visa", async t => {
@@ -693,6 +752,7 @@ test("auth callback exchanges code, ensures account rows, records activity, and 
   assert.equal(response.headers.get("Location"), "/");
   assert.deepEqual(fake.calls.find(item => item.action === "exchangeCodeForSession").payload, "oauth-code");
   assert.ok(fake.calls.some(item => item.table === "users" && item.action === "upsert" && item.payload.id === user.id));
+  assert.ok(fake.calls.some(item => item.table === "users" && item.action === "upsert" && item.payload.brand_theme === "graphite"));
   assert.ok(fake.calls.some(item => item.table === "account_access" && item.action === "upsert" && item.payload.user_id === user.id));
   assert.ok(fake.calls.some(item => item.table === "users" && item.action === "update" && item.payload.email === user.email));
   assert.ok(fake.calls.some(item => item.table === "user_activity" && item.action === "insert" && item.payload.event_type === "login_google"));
