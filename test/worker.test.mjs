@@ -426,6 +426,9 @@ function createSupabaseFake({ user, exchangeUser, exchangeError = null, oauthUrl
     user_jobs: [],
     user_activity: [],
     user_job_history: [],
+    job_postings: [],
+    job_snapshots: [],
+    daily_scan_stats: [],
     ...rows
   };
 
@@ -968,4 +971,58 @@ test("manual scan accepts X-Scan-Key and rejects missing auth", async t => {
   const payload = await authorized.json();
   assert.equal(payload.error, undefined);
   assert.ok(KV.puts.some(p => p.key === "jobs"));
+});
+
+test("session endpoint creates anonymous session cookie", async () => {
+  const response = await worker.fetch(new Request("https://example.com/api/session", {
+    method: "POST"
+  }), {});
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.ok(data.session_token);
+  assert.match(response.headers.get("Set-Cookie") || "", /lji_session=/);
+});
+
+test("session endpoint returns existing token when cookie present", async () => {
+  const response = await worker.fetch(new Request("https://example.com/api/session", {
+    method: "POST",
+    headers: { Cookie: "lji_session=existing-token" }
+  }), {});
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.session_token, "existing-token");
+});
+
+test("track endpoint accepts job_view, search, and page_view events", async () => {
+  const cases = [
+    { type: "job_view", job_id: "greenstone-hubspot-123", source: "live_feed" },
+    { type: "search", query_text: "revenue operations", filters: { country: ["IE"] }, result_count: 5 },
+    { type: "page_view", page_path: "/visa-roles", referrer: "https://google.com" }
+  ];
+  for (const payload of cases) {
+    const response = await worker.fetch(new Request("https://example.com/api/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }), {});
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.ok, true);
+  }
+});
+
+test("track endpoint rejects invalid event types", async () => {
+  const response = await worker.fetch(new Request("https://example.com/api/track", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "invalid_event" })
+  }), {});
+  assert.equal(response.status, 400);
+});
+
+test("analytics endpoints require authentication", async () => {
+  for (const path of ["/api/analytics/jobs", "/api/analytics/searches", "/api/analytics/views"]) {
+    const response = await worker.fetch(new Request(`https://example.com${path}`), {});
+    assert.equal(response.status, 401, `${path} should require auth`);
+  }
 });

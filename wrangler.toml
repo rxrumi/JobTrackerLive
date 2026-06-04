@@ -18,6 +18,15 @@ not_found_handling = "single-page-application"
 [observability]
 enabled = true
 
+# Required secrets (set via `npx wrangler secret put <name>`):
+# - SUPABASE_URL              (e.g. https://<ref>.supabase.co)
+# - SUPABASE_PUBLISHABLE_KEY  (public anon key for auth / user-facing queries)
+# - SUPABASE_SERVICE_ROLE_KEY (service role key for scan persistence & tracking writes)
+# - SCAN_KEY                  (secret for manual scan trigger via /api/scan-now)
+# - TURNSTILE_SECRET          (Cloudflare Turnstile server-side secret)
+# - TURNSTILE_SITE_KEY        (Cloudflare Turnstile site key, exposed to frontend)
+# - PAGE_ACCESS_SECRET        (HMAC secret for page-access clearance cookies)
+
 [[routes]]
 pattern = "livejobindex.com"
 custom_domain = true

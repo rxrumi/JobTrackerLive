@@ -3,6 +3,7 @@ import { createServerClient, parseCookieHeader, serializeCookieHeader } from "@s
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
 // Cron handler (0 3 * * * UTC = 7 AM Dubai) scans supported ATS APIs daily.
+// After each scan, results are persisted to Supabase for trend analysis.
 
 const GREENHOUSE_TOKENS = [
   "gongio", "klaviyo", "datadog", "cloudflare", "hubspot",
@@ -217,6 +218,125 @@ function classifyVisa(token) {
 
 function canonicalCompany(token) {
   return COMPANY_ALIASES[token] || token;
+}
+
+// ------------------------------------------------------------------
+// Supabase service-role client (lightweight REST wrapper)
+// Used by the scheduled handler to write scan results to the DB.
+// ------------------------------------------------------------------
+
+function createServiceClient(env) {
+  const url = env.SUPABASE_URL;
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  const base = url.replace(/\/$/, "");
+  return {
+    async insert(table, rows) {
+      const res = await fetch(`${base}/rest/v1/${table}`, {
+        method: "POST",
+        headers: {
+          "apikey": key,
+          "Authorization": `Bearer ${key}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify(rows)
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "unknown");
+        throw new Error(`Supabase insert error [${table}]: ${res.status} ${text}`);
+      }
+    },
+    async upsert(table, rows, onConflict) {
+      const res = await fetch(`${base}/rest/v1/${table}`, {
+        method: "POST",
+        headers: {
+          "apikey": key,
+          "Authorization": `Bearer ${key}`,
+          "Content-Type": "application/json",
+          "Prefer": `resolution=merge-duplicates,return=minimal${onConflict ? `,on_conflict=${onConflict}` : ""}`
+        },
+        body: JSON.stringify(rows)
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "unknown");
+        throw new Error(`Supabase upsert error [${table}]: ${res.status} ${text}`);
+      }
+    }
+  };
+}
+
+async function persistScanToSupabase(env, scanResult, today) {
+  const client = createServiceClient(env);
+  if (!client) return;
+
+  const postings = Object.values(scanResult.postings);
+  if (!postings.length) return;
+
+  // 1. Upsert master job_postings rows
+  const jobRows = postings.map(p => ({
+    id: p.id,
+    source: p.source,
+    source_token: p.source_token || p.company,
+    company: p.company,
+    title: p.title,
+    url: p.url,
+    first_seen_date: p.first_seen,
+    last_seen_date: p.last_seen,
+    last_filled_date: p.last_filled || null,
+    is_active: !p.last_filled
+  }));
+
+  await client.upsert("job_postings", jobRows, "id");
+
+  // 2. Insert snapshot rows for today
+  const snapshotRows = postings.map(p => ({
+    job_id: p.id,
+    scan_date: today,
+    title: p.title,
+    location: p.location || null,
+    city: p.city || null,
+    country: p.country,
+    role_family: p.role_family,
+    seniority: p.seniority,
+    visa: p.visa,
+    score: p.score,
+    tier: p.tier,
+    is_new: p.first_seen === today,
+    is_filled: Boolean(p.last_filled)
+  }));
+
+  await client.insert("job_snapshots", snapshotRows);
+
+  // 3. Compute and upsert daily_scan_stats
+  const perSource = {};
+  const perCountry = {};
+  const perFamily = {};
+  const perTier = {};
+  let newJobs = 0;
+  let filledJobs = 0;
+
+  for (const p of postings) {
+    perSource[p.source] = (perSource[p.source] || 0) + 1;
+    perCountry[p.country] = (perCountry[p.country] || 0) + 1;
+    perFamily[p.role_family] = (perFamily[p.role_family] || 0) + 1;
+    perTier[p.tier] = (perTier[p.tier] || 0) + 1;
+    if (p.first_seen === today) newJobs++;
+    if (p.last_filled) filledJobs++;
+  }
+
+  await client.upsert("daily_scan_stats", [{
+    scan_date: today,
+    total_jobs: postings.length,
+    new_jobs: newJobs,
+    filled_jobs: filledJobs,
+    per_source: perSource,
+    per_country: perCountry,
+    per_family: perFamily,
+    per_tier: perTier,
+    ok_count: scanResult.scan_meta?.okCount || 0,
+    fail_count: scanResult.scan_meta?.failCount || 0
+  }], "scan_date");
 }
 
 function calcScore({ visa, seniority, firstSeen, lastFilled, today }) {
@@ -476,7 +596,7 @@ export async function runScan(env) {
     postings: Object.values(merged)
   }));
 
-  return { okCount, failCount, total: Object.keys(merged).length };
+  return { okCount, failCount, total: Object.keys(merged).length, next };
 }
 
 const ACCOUNT_TYPES = new Set(["individual", "agency"]);
@@ -558,6 +678,10 @@ const SEO_PAGES = {
     schemaType: "CollectionPage"
   }
 };
+
+const ANON_SESSION_COOKIE = "lji_session";
+const ANON_SESSION_TTL_DAYS = 365;
+const TRACKABLE_EVENTS = new Set(["job_view", "search", "page_view"]);
 
 function jsonResponse(data, init = {}, supabaseContext = null) {
   const headers = new Headers(init.headers || {});
@@ -1710,19 +1834,244 @@ export default {
       return handleActivity(request, env);
     }
 
+    if (url.pathname === "/api/session" && request.method === "POST") {
+      return handleSession(request, env);
+    }
+
+    if (url.pathname === "/api/track" && request.method === "POST") {
+      return handleTrack(request, env);
+    }
+
+    if (url.pathname === "/api/analytics/jobs" && request.method === "GET") {
+      return handleAnalyticsJobs(request, env);
+    }
+
+    if (url.pathname === "/api/analytics/searches" && request.method === "GET") {
+      return handleAnalyticsSearches(request, env);
+    }
+
+    if (url.pathname === "/api/analytics/views" && request.method === "GET") {
+      return handleAnalyticsViews(request, env);
+    }
+
     if (url.pathname === "/api/scan-now") {
       const auth = request.headers.get("X-Scan-Key");
       if (auth !== env.SCAN_KEY) {
         return new Response("unauthorized", { status: 401 });
       }
       const result = await runScan(env);
-      return Response.json(result);
+      if (result.next && ctx?.waitUntil) {
+        ctx.waitUntil(persistScanToSupabase(env, result.next, result.next.last_scan));
+      }
+      return Response.json({ okCount: result.okCount, failCount: result.failCount, total: result.total });
     }
 
     return fetchAsset(request, env);
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runScan(env));
+    const today = todayUTC();
+    const scanPromise = runScan(env).then(result => {
+      if (result.next) {
+        return persistScanToSupabase(env, result.next, today);
+      }
+    });
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(scanPromise);
+    } else {
+      await scanPromise;
+    }
   }
 };
+
+// ------------------------------------------------------------------
+// Session & tracking handlers
+// ------------------------------------------------------------------
+
+function getAnonSessionCookie(request) {
+  const cookies = parseCookieHeader(request.headers.get("Cookie") || "");
+  return cookies.find(c => c.name === ANON_SESSION_COOKIE)?.value || "";
+}
+
+async function handleSession(request, env) {
+  const existing = getAnonSessionCookie(request);
+  if (existing) {
+    return jsonResponse({ session_token: existing });
+  }
+  const token = crypto.randomUUID();
+  const cookie = serializeCookieHeader(ANON_SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: ANON_SESSION_TTL_DAYS * 24 * 60 * 60
+  });
+
+  // Persist to Supabase asynchronously if service role key is available
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    const client = createServiceClient(env);
+    if (client) {
+      client.insert("anonymous_sessions", [{
+        session_token: token,
+        ip_hash: null,
+        user_agent_fingerprint: null
+      }]).catch(() => {});
+    }
+  }
+
+  return jsonResponse({ session_token: token }, {
+    headers: { "Set-Cookie": cookie }
+  });
+}
+
+async function handleTrack(request, env) {
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json");
+
+  const eventType = cleanString(payload.type);
+  if (!TRACKABLE_EVENTS.has(eventType)) {
+    return errorResponse(400, "invalid event type");
+  }
+
+  const sessionToken = getAnonSessionCookie(request);
+  const hasAuth = hasAuthMaterial(request);
+
+  // Try to resolve user_id for authenticated requests
+  let userId = null;
+  if (hasAuth && env.SUPABASE_URL && env.SUPABASE_PUBLISHABLE_KEY) {
+    try {
+      const context = createSupabaseContext(request, env);
+      const { data } = await context.supabase.auth.getUser();
+      if (data?.user) userId = data.user.id;
+    } catch {
+      // ignore auth errors, track as anonymous
+    }
+  }
+
+  // Resolve session_id from token
+  let sessionId = null;
+  if (sessionToken && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const client = createServiceClient(env);
+      if (client) {
+        // We can't easily query via REST POST, so we'll just use the token as-is
+        // and let the frontend include session_id if it has it.
+        // For now, we track by session_token in metadata.
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Build insert row based on event type
+  const client = createServiceClient(env);
+  if (!client) return jsonResponse({ ok: true });
+
+  const baseRow = {
+    user_id: userId,
+    session_id: payload.session_id || null
+  };
+
+  try {
+    if (eventType === "job_view") {
+      await client.insert("job_views", [{
+        ...baseRow,
+        job_id: cleanString(payload.job_id) || "",
+        source: cleanString(payload.source) || "direct"
+      }]);
+    } else if (eventType === "search") {
+      await client.insert("search_queries", [{
+        ...baseRow,
+        query_text: cleanString(payload.query_text) || null,
+        filters: payload.filters && typeof payload.filters === "object" ? payload.filters : {},
+        result_count: Number.isFinite(payload.result_count) ? payload.result_count : null
+      }]);
+    } else if (eventType === "page_view") {
+      await client.insert("page_views", [{
+        ...baseRow,
+        page_path: cleanString(payload.page_path) || "/",
+        referrer: cleanString(payload.referrer) || null
+      }]);
+    }
+  } catch {
+    // Silently ignore tracking errors so they never break the UX
+  }
+
+  return jsonResponse({ ok: true });
+}
+
+// ------------------------------------------------------------------
+// Analytics API handlers (authenticated)
+// ------------------------------------------------------------------
+
+async function handleAnalyticsJobs(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const client = createServiceClient(env);
+  if (!client) return errorResponse(503, "analytics unavailable");
+
+  const url = new URL(request.url);
+  const days = clampInteger(url.searchParams.get("days"), 30, 1, 365);
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+
+  try {
+    const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/daily_scan_stats?scan_date=gte.${since}&order=scan_date.desc`, {
+      headers: {
+        "apikey": env.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+      }
+    });
+    if (!res.ok) throw new Error("fetch failed");
+    const data = await res.json();
+    return jsonResponse({ stats: data || [] }, {}, auth.context);
+  } catch (err) {
+    return errorResponse(500, err.message, auth.context);
+  }
+}
+
+async function handleAnalyticsSearches(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const url = new URL(request.url);
+  const days = clampInteger(url.searchParams.get("days"), 7, 1, 90);
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+
+  try {
+    const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/search_queries?created_at=gte.${encodeURIComponent(since)}&order=created_at.desc`, {
+      headers: {
+        "apikey": env.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+      }
+    });
+    if (!res.ok) throw new Error("fetch failed");
+    const data = await res.json();
+    return jsonResponse({ searches: data || [] }, {}, auth.context);
+  } catch (err) {
+    return errorResponse(500, err.message, auth.context);
+  }
+}
+
+async function handleAnalyticsViews(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const url = new URL(request.url);
+  const days = clampInteger(url.searchParams.get("days"), 7, 1, 90);
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+
+  try {
+    const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/job_views?viewed_at=gte.${encodeURIComponent(since)}&order=viewed_at.desc`, {
+      headers: {
+        "apikey": env.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+      }
+    });
+    if (!res.ok) throw new Error("fetch failed");
+    const data = await res.json();
+    return jsonResponse({ views: data || [] }, {}, auth.context);
+  } catch (err) {
+    return errorResponse(500, err.message, auth.context);
+  }
+}

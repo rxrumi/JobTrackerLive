@@ -1270,6 +1270,59 @@ const APP_ROUTES = new Set(['/', '/profile', '/onboarding']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
 
+// ------------------------------------------------------------------
+// Lightweight anonymous session & event tracking
+// ------------------------------------------------------------------
+
+let ANON_SESSION_TOKEN = null;
+
+async function ensureSession() {
+  if (ANON_SESSION_TOKEN) return ANON_SESSION_TOKEN;
+  try {
+    const res = await api('/api/session', { method: 'POST' });
+    ANON_SESSION_TOKEN = res.session_token;
+    return ANON_SESSION_TOKEN;
+  } catch {
+    return null;
+  }
+}
+
+function trackEvent(type, payload = {}) {
+  ensureSession().then(token => {
+    api('/api/track', {
+      method: 'POST',
+      body: JSON.stringify({ type, session_id: token || null, ...payload })
+    }).catch(() => {});
+  });
+}
+
+let LAST_SEARCH_PAYLOAD = null;
+function debouncedTrackSearch() {
+  const payload = {
+    query_text: state.search || null,
+    filters: {
+      country: [...state.country],
+      tier: [...state.tier],
+      family: [...state.family],
+      seniority: [...state.seniority],
+      visa: [...state.visa],
+      presets: [...state.presets]
+    },
+    result_count: filtered().length
+  };
+  const key = JSON.stringify(payload);
+  if (key !== LAST_SEARCH_PAYLOAD) {
+    LAST_SEARCH_PAYLOAD = key;
+    trackEvent('search', payload);
+  }
+}
+
+function trackPageView(path) {
+  trackEvent('page_view', { page_path: path, referrer: document.referrer || null });
+}
+
+// ------------------------------------------------------------------
+
 function safeRoute(path) {
   return APP_ROUTES.has(path) ? path : '/';
 }
@@ -1298,6 +1351,7 @@ function navigateTo(path, replace = false) {
     window.history[replace ? 'replaceState' : 'pushState']({}, '', route);
   }
   CURRENT_ROUTE = route;
+  trackPageView(route);
   applyRoute();
 }
 
@@ -1620,6 +1674,7 @@ function filterChanged() {
   resetPage();
   render();
   scheduleActiveRefresh();
+  debouncedTrackSearch();
 }
 
 function toggleFilterValue(cat, val) {
@@ -2152,6 +2207,10 @@ function wireRowHandlers() {
       const id = a.dataset.id;
       const job = JOBS.find(j => String(j.id) === String(id));
       recordViewed(id);
+      trackEvent('job_view', {
+        job_id: id,
+        source: job?.is_static ? 'static_target' : 'live_feed'
+      });
       api('/api/activity', {
         method: 'POST',
         body: JSON.stringify({
@@ -2203,6 +2262,7 @@ function wireStaticHandlers() {
     resetPage();
     render();
     scheduleActiveRefresh();
+    debouncedTrackSearch();
   };
   document.getElementById('search-clear').onclick = () => {
     searchEl.value = '';
@@ -2212,6 +2272,7 @@ function wireStaticHandlers() {
     resetPage();
     render();
     scheduleActiveRefresh();
+    debouncedTrackSearch();
   };
 
   // Sort dropdown
@@ -3003,6 +3064,7 @@ async function init() {
   } else {
     await applyRoute();
   }
+  trackPageView(CURRENT_ROUTE);
 }
 
 init();
