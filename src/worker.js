@@ -691,6 +691,22 @@ const SEO_PAGES = {
 const ANON_SESSION_COOKIE = "lji_session";
 const ANON_SESSION_TTL_DAYS = 365;
 const TRACKABLE_EVENTS = new Set(["job_view", "search", "page_view"]);
+const MAX_JSON_BODY_BYTES = 32 * 1024;
+const SAFE_SERVER_ERRORS = new Set(["account_setup_failed", "analytics unavailable"]);
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const CSP_DIRECTIVES = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "upgrade-insecure-requests",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://challenges.cloudflare.com",
+  "connect-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://challenges.cloudflare.com",
+  "frame-src https://challenges.cloudflare.com",
+  "img-src 'self' data: https:",
+  "style-src 'self' 'unsafe-inline'"
+].join("; ");
 
 function applySupabaseHeaders(headers, supabaseContext) {
   for (const [key, value] of supabaseContext?.responseHeaders || []) {
@@ -705,17 +721,18 @@ function jsonResponse(data, init = {}, supabaseContext = null) {
   const headers = new Headers(init.headers || {});
   headers.set("Content-Type", "application/json");
   applySupabaseHeaders(headers, supabaseContext);
-  return new Response(JSON.stringify(data), { ...init, headers });
+  return withTrustHeaders(new Response(JSON.stringify(data), { ...init, headers }));
 }
 
 function errorResponse(status, message, supabaseContext = null) {
-  return jsonResponse({ error: message }, { status }, supabaseContext);
+  const safeMessage = status >= 500 && !SAFE_SERVER_ERRORS.has(message) ? "internal_error" : message;
+  return jsonResponse({ error: safeMessage }, { status }, supabaseContext);
 }
 
 function redirectResponse(location, status = 303, supabaseContext = null) {
   const headers = new Headers({ Location: location });
   applySupabaseHeaders(headers, supabaseContext);
-  return new Response(null, { status, headers });
+  return withTrustHeaders(new Response(null, { status, headers }));
 }
 
 function escapeHTML(value) {
@@ -854,6 +871,20 @@ async function hmacSignature(secret, value) {
   return base64UrlEncode(new Uint8Array(signature));
 }
 
+async function sha256Base64Url(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(value || "")));
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+async function timingSafeSecretEqual(candidate, expected) {
+  if (!candidate || !expected) return false;
+  const [candidateHash, expectedHash] = await Promise.all([
+    sha256Base64Url(candidate),
+    sha256Base64Url(expected)
+  ]);
+  return timingSafeEqual(candidateHash, expectedHash);
+}
+
 function timingSafeEqual(a, b) {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -915,7 +946,31 @@ async function validateTurnstile(request, env, token) {
   });
   if (!result.ok) return false;
   const data = await result.json();
-  return Boolean(data.success);
+  if (!data.success) return false;
+  const expectedHostname = new URL(env.APP_ORIGIN || SITE_ORIGIN).hostname;
+  if (data.hostname && data.hostname !== expectedHostname) return false;
+  if (data.action && data.action !== "jobs_page_access") return false;
+  return true;
+}
+
+function allowedOrigins(request, env) {
+  const requestUrl = new URL(request.url);
+  return new Set([
+    requestUrl.origin,
+    SITE_ORIGIN,
+    env.APP_ORIGIN || "",
+    "https://www.livejobindex.com"
+  ].filter(Boolean));
+}
+
+function hasValidOrigin(request, env) {
+  const origin = request.headers.get("Origin");
+  if (!origin) return true;
+  return allowedOrigins(request, env).has(origin);
+}
+
+function requireSameOrigin(request, env) {
+  return hasValidOrigin(request, env) ? null : errorResponse(403, "invalid_origin");
 }
 
 function assetRequest(request, pathname) {
@@ -929,7 +984,8 @@ const TRUST_HEADERS = {
   "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Permissions-Policy": "geolocation=(), microphone=(), camera=()"
+  "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+  "Content-Security-Policy": CSP_DIRECTIVES
 };
 
 function withTrustHeaders(response) {
@@ -951,7 +1007,11 @@ async function fetchAsset(request, env, pathname) {
 
 async function readJSON(request) {
   try {
-    return await request.json();
+    const length = Number(request.headers.get("Content-Length") || "0");
+    if (Number.isFinite(length) && length > MAX_JSON_BODY_BYTES) return null;
+    const text = await request.text();
+    if (text.length > MAX_JSON_BODY_BYTES) return null;
+    return JSON.parse(text);
   } catch {
     return null;
   }
@@ -1003,14 +1063,42 @@ async function requireUser(request, env) {
   return { context, user: data.user };
 }
 
-function cleanString(value) {
-  return typeof value === "string" ? value.trim() : "";
+function cleanString(value, maxLength = 500) {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, maxLength);
 }
 
-function cleanStringArray(value) {
+function cleanStringArray(value, maxItems = 50, maxItemLength = 100) {
   return Array.isArray(value)
-    ? value.map(cleanString).filter(Boolean)
+    ? value.slice(0, maxItems).map(item => cleanString(item, maxItemLength)).filter(Boolean)
     : [];
+}
+
+function metadataObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const entries = Object.entries(value).slice(0, 25).map(([key, entryValue]) => {
+    const cleanKey = cleanString(key, 80);
+    if (!cleanKey) return null;
+    if (entryValue == null || typeof entryValue === "boolean" || typeof entryValue === "number") {
+      return [cleanKey, entryValue];
+    }
+    if (typeof entryValue === "string") return [cleanKey, cleanString(entryValue, 500)];
+    return [cleanKey, cleanString(JSON.stringify(entryValue), 1000)];
+  }).filter(Boolean);
+  return Object.fromEntries(entries);
+}
+
+function analyticsAllowedEmails(env) {
+  return new Set(String(env.ANALYTICS_ALLOWED_EMAILS || "")
+    .split(",")
+    .map(email => email.trim().toLowerCase())
+    .filter(Boolean));
+}
+
+function requireAnalyticsOwner(auth, env) {
+  const allowed = analyticsAllowedEmails(env);
+  const email = cleanString(auth.user?.email, 320).toLowerCase();
+  return allowed.size > 0 && email && allowed.has(email) ? null : errorResponse(403, "forbidden", auth.context);
 }
 
 function buildUserDefaults(user, accountType = "individual") {
@@ -1087,19 +1175,19 @@ async function recordActivity(supabase, userId, eventType, entityType = null, en
 
 function validateIndividualProfile(payload) {
   const profile = {
-    full_name: cleanString(payload.full_name),
-    current_title: cleanString(payload.current_title),
+    full_name: cleanString(payload.full_name, 160),
+    current_title: cleanString(payload.current_title, 160),
     years_experience: Number(payload.years_experience),
-    target_role_families: cleanStringArray(payload.target_role_families),
-    target_seniority: cleanString(payload.target_seniority),
-    target_countries: cleanStringArray(payload.target_countries),
+    target_role_families: cleanStringArray(payload.target_role_families, 20, 80),
+    target_seniority: cleanString(payload.target_seniority, 80),
+    target_countries: cleanStringArray(payload.target_countries, 30, 8),
     visa_needed: Boolean(payload.visa_needed),
-    preferred_work_mode: cleanString(payload.preferred_work_mode) || null,
+    preferred_work_mode: cleanString(payload.preferred_work_mode, 80) || null,
     salary_min_usd: payload.salary_min_usd === "" || payload.salary_min_usd == null
       ? null
       : Number(payload.salary_min_usd),
-    linkedin_url: cleanString(payload.linkedin_url) || null,
-    resume_url: cleanString(payload.resume_url) || null
+    linkedin_url: cleanString(payload.linkedin_url, 500) || null,
+    resume_url: cleanString(payload.resume_url, 500) || null
   };
 
   if (!profile.full_name) return { error: "full_name is required" };
@@ -1119,14 +1207,14 @@ function validateIndividualProfile(payload) {
 
 function validateAgencyProfile(payload) {
   const profile = {
-    agency_name: cleanString(payload.agency_name),
-    agency_type: cleanString(payload.agency_type),
-    target_markets: cleanStringArray(payload.target_markets),
-    target_role_families: cleanStringArray(payload.target_role_families),
-    target_countries: cleanStringArray(payload.target_countries),
-    use_case: cleanString(payload.use_case),
-    integration_interest: cleanString(payload.integration_interest) || "none",
-    monthly_data_volume: cleanString(payload.monthly_data_volume) || null
+    agency_name: cleanString(payload.agency_name, 180),
+    agency_type: cleanString(payload.agency_type, 80),
+    target_markets: cleanStringArray(payload.target_markets, 30, 120),
+    target_role_families: cleanStringArray(payload.target_role_families, 20, 80),
+    target_countries: cleanStringArray(payload.target_countries, 30, 8),
+    use_case: cleanString(payload.use_case, 80),
+    integration_interest: cleanString(payload.integration_interest, 80) || "none",
+    monthly_data_volume: cleanString(payload.monthly_data_volume, 80) || null
   };
 
   if (!profile.agency_name) return { error: "agency_name is required" };
@@ -1142,9 +1230,9 @@ async function handleSignup(request, env) {
   const payload = await readJSON(request);
   if (!payload) return errorResponse(400, "invalid_json");
 
-  const email = cleanString(payload.email).toLowerCase();
+  const email = cleanString(payload.email, 320).toLowerCase();
   const password = typeof payload.password === "string" ? payload.password : "";
-  const fullName = cleanString(payload.full_name || payload.name);
+  const fullName = cleanString(payload.full_name || payload.name, 160);
   if (!email || !password || !fullName) {
     return errorResponse(400, "email, password, and full_name are required");
   }
@@ -1175,7 +1263,7 @@ async function handleLogin(request, env) {
   const payload = await readJSON(request);
   if (!payload) return errorResponse(400, "invalid_json");
 
-  const email = cleanString(payload.email).toLowerCase();
+  const email = cleanString(payload.email, 320).toLowerCase();
   const password = typeof payload.password === "string" ? payload.password : "";
   if (!email || !password) return errorResponse(400, "email and password are required");
 
@@ -1205,8 +1293,8 @@ async function handleAuthSession(request, env) {
   const payload = await readJSON(request);
   if (!payload) return errorResponse(400, "invalid_json");
 
-  const accessToken = cleanString(payload.access_token);
-  const refreshToken = cleanString(payload.refresh_token);
+  const accessToken = cleanString(payload.access_token, 4096);
+  const refreshToken = cleanString(payload.refresh_token, 4096);
   if (!accessToken || !refreshToken) {
     return errorResponse(400, "access_token and refresh_token are required");
   }
@@ -1360,7 +1448,7 @@ async function handleAgencyFeedback(request, env) {
   const payload = await readJSON(request);
   if (!payload) return errorResponse(400, "invalid_json", auth.context);
 
-  const message = cleanString(payload.message);
+  const message = typeof payload.message === "string" ? payload.message.trim() : "";
   if (!message) return errorResponse(400, "message is required", auth.context);
   if (message.length > 2000) return errorResponse(400, "message must be 2000 characters or fewer", auth.context);
 
@@ -1674,7 +1762,7 @@ async function handlePutUserJob(request, env, jobId) {
   const payload = await readJSON(request);
   if (!payload) return errorResponse(400, "invalid_json", auth.context);
 
-  const normalizedJobId = cleanString(jobId);
+  const normalizedJobId = cleanString(jobId, 300);
   if (!normalizedJobId) return errorResponse(400, "job_id is required", auth.context);
 
   const { data: existing, error: existingError } = await auth.context.supabase
@@ -1695,7 +1783,7 @@ async function handlePutUserJob(request, env, jobId) {
     job_id: normalizedJobId,
     status,
     starred: payload.starred == null ? Boolean(existing?.starred) : Boolean(payload.starred),
-    notes: payload.notes == null ? existing?.notes || null : cleanString(payload.notes) || null,
+    notes: payload.notes == null ? existing?.notes || null : cleanString(payload.notes, 2000) || null,
     saved_at: existing?.saved_at || null,
     applied_at: existing?.applied_at || null,
     archived_at: existing?.archived_at || null,
@@ -1752,7 +1840,7 @@ async function handleGetUserJobHistory(request, env, jobId) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
 
-  const normalizedJobId = cleanString(jobId);
+  const normalizedJobId = cleanString(jobId, 300);
   if (!normalizedJobId) return errorResponse(400, "job_id is required", auth.context);
 
   const { data, error } = await auth.context.supabase
@@ -1773,15 +1861,15 @@ async function handleActivity(request, env) {
   const payload = await readJSON(request);
   if (!payload) return errorResponse(400, "invalid_json", auth.context);
 
-  const eventType = cleanString(payload.event_type);
+  const eventType = cleanString(payload.event_type, 120);
   if (!eventType) return errorResponse(400, "event_type is required", auth.context);
 
   const { error } = await auth.context.supabase.from("user_activity").insert({
     user_id: auth.user.id,
     event_type: eventType,
-    entity_type: cleanString(payload.entity_type) || null,
-    entity_id: cleanString(payload.entity_id) || null,
-    metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {}
+    entity_type: cleanString(payload.entity_type, 120) || null,
+    entity_id: cleanString(payload.entity_id, 300) || null,
+    metadata: metadataObject(payload.metadata)
   });
   if (error) return errorResponse(500, error.message, auth.context);
 
@@ -1794,12 +1882,17 @@ export default {
 
     if (url.protocol === "http:") {
       url.protocol = "https:";
-      return Response.redirect(url.toString(), 301);
+      return withTrustHeaders(Response.redirect(url.toString(), 301));
     }
 
     if (url.hostname === "www.livejobindex.com") {
       url.hostname = "livejobindex.com";
-      return Response.redirect(url.toString(), 301);
+      return withTrustHeaders(Response.redirect(url.toString(), 301));
+    }
+
+    if (url.pathname.startsWith("/api/") && MUTATING_METHODS.has(request.method)) {
+      const originError = requireSameOrigin(request, env);
+      if (originError) return originError;
     }
 
     if (url.pathname === "/privacy") {
@@ -1918,14 +2011,14 @@ export default {
 
     if (url.pathname === "/api/scan-now") {
       const auth = request.headers.get("X-Scan-Key");
-      if (auth !== env.SCAN_KEY) {
-        return new Response("unauthorized", { status: 401 });
+      if (!await timingSafeSecretEqual(auth, env.SCAN_KEY)) {
+        return errorResponse(401, "unauthorized");
       }
       const result = await runScan(env);
       if (result.next && ctx?.waitUntil) {
         ctx.waitUntil(persistScanToSupabase(env, result.next, result.next.last_scan));
       }
-      return Response.json({ okCount: result.okCount, failCount: result.failCount, total: result.total });
+      return jsonResponse({ okCount: result.okCount, failCount: result.failCount, total: result.total });
     }
 
     return fetchAsset(request, env);
@@ -1990,7 +2083,7 @@ async function handleTrack(request, env) {
   const payload = await readJSON(request);
   if (!payload) return errorResponse(400, "invalid_json");
 
-  const eventType = cleanString(payload.type);
+  const eventType = cleanString(payload.type, 80);
   if (!TRACKABLE_EVENTS.has(eventType)) {
     return errorResponse(400, "invalid event type");
   }
@@ -2031,28 +2124,28 @@ async function handleTrack(request, env) {
 
   const baseRow = {
     user_id: userId,
-    session_id: payload.session_id || null
+    session_id: cleanString(payload.session_id, 120) || null
   };
 
   try {
     if (eventType === "job_view") {
       await client.insert("job_views", [{
         ...baseRow,
-        job_id: cleanString(payload.job_id) || "",
-        source: cleanString(payload.source) || "direct"
+        job_id: cleanString(payload.job_id, 300) || "",
+        source: cleanString(payload.source, 80) || "direct"
       }]);
     } else if (eventType === "search") {
       await client.insert("search_queries", [{
         ...baseRow,
-        query_text: cleanString(payload.query_text) || null,
-        filters: payload.filters && typeof payload.filters === "object" ? payload.filters : {},
+        query_text: cleanString(payload.query_text, 500) || null,
+        filters: metadataObject(payload.filters),
         result_count: Number.isFinite(payload.result_count) ? payload.result_count : null
       }]);
     } else if (eventType === "page_view") {
       await client.insert("page_views", [{
         ...baseRow,
-        page_path: cleanString(payload.page_path) || "/",
-        referrer: cleanString(payload.referrer) || null
+        page_path: cleanString(payload.page_path, 300) || "/",
+        referrer: cleanString(payload.referrer, 500) || null
       }]);
     }
   } catch {
@@ -2069,6 +2162,8 @@ async function handleTrack(request, env) {
 async function handleAnalyticsJobs(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
+  const ownerError = requireAnalyticsOwner(auth, env);
+  if (ownerError) return ownerError;
 
   const client = createServiceClient(env);
   if (!client) return errorResponse(503, "analytics unavailable");
@@ -2088,13 +2183,15 @@ async function handleAnalyticsJobs(request, env) {
     const data = await res.json();
     return jsonResponse({ stats: data || [] }, {}, auth.context);
   } catch (err) {
-    return errorResponse(500, err.message, auth.context);
+    return errorResponse(500, "internal_error", auth.context);
   }
 }
 
 async function handleAnalyticsSearches(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
+  const ownerError = requireAnalyticsOwner(auth, env);
+  if (ownerError) return ownerError;
 
   const url = new URL(request.url);
   const days = clampInteger(url.searchParams.get("days"), 7, 1, 90);
@@ -2111,13 +2208,15 @@ async function handleAnalyticsSearches(request, env) {
     const data = await res.json();
     return jsonResponse({ searches: data || [] }, {}, auth.context);
   } catch (err) {
-    return errorResponse(500, err.message, auth.context);
+    return errorResponse(500, "internal_error", auth.context);
   }
 }
 
 async function handleAnalyticsViews(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
+  const ownerError = requireAnalyticsOwner(auth, env);
+  if (ownerError) return ownerError;
 
   const url = new URL(request.url);
   const days = clampInteger(url.searchParams.get("days"), 7, 1, 90);
@@ -2134,6 +2233,6 @@ async function handleAnalyticsViews(request, env) {
     const data = await res.json();
     return jsonResponse({ views: data || [] }, {}, auth.context);
   } catch (err) {
-    return errorResponse(500, err.message, auth.context);
+    return errorResponse(500, "internal_error", auth.context);
   }
 }

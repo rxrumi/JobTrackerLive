@@ -11,7 +11,7 @@ The project is cloud-only.
 | Repo | `https://github.com/rxrumi/JobTrackerLive` |
 | Live primary | `https://livejobindex.com` |
 | Live alt | `https://www.livejobindex.com` |
-| Worker direct | `https://job-tracker.sohaibkazmi-r.workers.dev` |
+| Worker direct | Disabled in production (`workers_dev = false`) |
 | Local working copy | `/Users/kazmi/Desktop/GitRepositories/JobTrackerLive` |
 
 ## Architecture
@@ -122,7 +122,7 @@ npx wrangler tail
 Manual scan:
 
 ```bash
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://job-tracker.sohaibkazmi-r.workers.dev/api/scan-now"
+curl -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now"
 ```
 
 Inspect KV:
@@ -136,7 +136,7 @@ Force a clean re-scan:
 
 ```bash
 npx wrangler kv:key delete state --binding KV
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://job-tracker.sohaibkazmi-r.workers.dev/api/scan-now"
+curl -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now"
 ```
 
 ## Common Changes

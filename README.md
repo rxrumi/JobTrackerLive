@@ -7,7 +7,7 @@ Built for **Sohaib "King" Kazmi** — Dubai-based BizOps Manager / RevOps consul
 Live URLs:
 
 - Primary: `https://livejobindex.com`
-- Worker direct: `https://job-tracker.sohaibkazmi-r.workers.dev`
+- Worker direct: disabled in production (`workers_dev = false`)
 
 ## Purpose
 
@@ -43,8 +43,9 @@ Cloudflare Worker: job-tracker
 │   ├── POST /api/track        -> event tracking (job_view, search, page_view)
 │   ├── POST /api/signup       -> email/password registration
 │   ├── POST /api/login        -> email/password login
-│   ├── GET /api/auth/google   -> redirect to Supabase Google OAuth
-│   ├── GET /auth/callback     -> OAuth callback: exchange code, set session cookies
+│   ├── GET /api/auth/google   -> legacy route, redirects to frontend auth error
+│   ├── GET /auth/callback     -> serves app shell for browser-side Supabase OAuth completion
+│   ├── POST /api/auth/session -> validates browser OAuth tokens and sets HttpOnly session cookies
 │   ├── POST /api/logout       -> sign out
 │   ├── GET /api/me            -> authenticated user + profile + access
 │   ├── PATCH /api/onboarding/account-type     -> set individual or agency
@@ -57,9 +58,9 @@ Cloudflare Worker: job-tracker
 │   ├── PUT /api/user-jobs/:id -> upsert job status, star, notes
 │   ├── GET /api/user-jobs/:id/history -> job timeline history
 │   ├── POST /api/activity     -> log user activity event
-│   ├── GET /api/analytics/jobs       -> daily scan stats (auth required)
-│   ├── GET /api/analytics/searches   -> search query history (auth required)
-│   ├── GET /api/analytics/views      -> job view history (auth required)
+│   ├── GET /api/analytics/jobs       -> daily scan stats (owner allowlist required)
+│   ├── GET /api/analytics/searches   -> search query history (owner allowlist required)
+│   ├── GET /api/analytics/views      -> job view history (owner allowlist required)
 │   └── GET /api/scan-now      -> manual scan, requires X-Scan-Key
 │
 ├── HTTP redirects
@@ -96,10 +97,9 @@ Configured Cloudflare resources live in `wrangler.toml`:
 
 - Worker name: `job-tracker`
 - Main file: `src/worker.js`
-- Compatibility date: `2025-04-01`
+- Compatibility date: `2026-06-05`
 - Static assets directory: `./public` (with SPA fallback for `/profile`, `/onboarding`)
 - KV binding: `KV` (namespace ID `8cf95c7c04054745bff09d88ea57d707`)
-- Email binding: `SEND_EMAIL`
 - Cron: `0 3 * * *`
 - Custom domains: `livejobindex.com` and `www.livejobindex.com`
 - Observability: enabled
@@ -230,8 +230,9 @@ Supabase-backed account routes use `@supabase/ssr` with HttpOnly session cookies
 |--------|------|-------------|
 | POST | `/api/signup` | Email/password registration. Returns 201 or `confirmation_required` if email confirmation is enabled. |
 | POST | `/api/login` | Email/password login. Updates `last_login_at`, records activity, returns `fetchMe()` payload. |
-| GET | `/api/auth/google` | Redirects to Supabase Google OAuth with optional `?next=` for post-login redirect. |
-| GET | `/auth/callback` | Exchanges OAuth code for session, ensures account rows, updates `last_login_at`, records activity. |
+| GET | `/api/auth/google` | Legacy route. Redirects to `/?auth_error=google_frontend_required`; Google OAuth is initiated by the browser Supabase client. |
+| GET | `/auth/callback` | Serves the frontend app shell so the browser can complete Supabase OAuth. |
+| POST | `/api/auth/session` | Accepts browser Supabase `access_token` and `refresh_token`, validates them server-side, sets HttpOnly session cookies, ensures account rows, updates `last_login_at`, and records activity. |
 | POST | `/api/logout` | Signs out, clears session cookies. |
 | GET | `/api/me` | Returns auth_user, user, profiles, account_access. Auto-creates account rows if missing. |
 | PATCH | `/api/onboarding/account-type` | Sets `individual` or `agency`, resets onboarding. |
@@ -247,11 +248,11 @@ Supabase-backed account routes use `@supabase/ssr` with HttpOnly session cookies
 
 These routes require `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the Worker environment.
 
-Google sign-in uses Supabase as the OAuth receiver. The Google OAuth client redirect URI should be the Supabase-provided callback URL (e.g. `https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/callback`). Supabase then redirects to the app callback at `https://livejobindex.com/auth/callback`, where the Worker exchanges the code and sets session cookies. The `?next=` parameter survives the OAuth round-trip for redirecting to `/profile` or `/onboarding`.
+Google sign-in uses the browser Supabase client loaded from jsDelivr. Supabase redirects back to `https://livejobindex.com/auth/callback`; the frontend exchanges the OAuth code with Supabase, then posts the resulting tokens to `/api/auth/session` so the Worker can set HttpOnly session cookies.
 
 ### Analytics endpoints
 
-Authenticated GET endpoints:
+Owner-only authenticated GET endpoints. The signed-in user's email must be present in `ANALYTICS_ALLOWED_EMAILS`.
 | Path | Description |
 |------|-------------|
 | `GET /api/analytics/jobs?days=30` | Returns `daily_scan_stats` (total, new, filled, per-source, per-country, per-family, per-tier). |
@@ -453,17 +454,12 @@ npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npx wrangler secret put TURNSTILE_SECRET
 npx wrangler secret put TURNSTILE_SITE_KEY
 npx wrangler secret put PAGE_ACCESS_SECRET
+npx wrangler secret put ANALYTICS_ALLOWED_EMAILS
 ```
 
 3. Trigger the first scan:
 ```bash
-curl -H "X-Scan-Key: <your-secret>" "https://job-tracker.sohaibkazmi-r.workers.dev/api/scan-now"
-```
-
-4. (Optional) Enable Cloudflare Email Sending if using the email binding:
-```bash
-npx wrangler email sending enable livejobindex.com
-npx wrangler email sending dns get livejobindex.com
+curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
 ```
 
 For Supabase schema migrations (if changing tables):
@@ -478,7 +474,7 @@ npx wrangler tail                          # Tail live logs
 npx wrangler kv:key get jobs --binding KV  # Read public jobs payload
 npx wrangler kv:key get state --binding KV # Read full scan state
 npx wrangler kv:key delete state --binding KV  # Force clean re-scan
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://job-tracker.sohaibkazmi-r.workers.dev/api/scan-now"
+curl -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now"
 ```
 
 Debug a Greenhouse board:

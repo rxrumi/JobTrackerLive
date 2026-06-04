@@ -1643,6 +1643,7 @@ async function showTurnstileGate(page) {
     container.innerHTML = '';
     TURNSTILE_WIDGET_ID = window.turnstile.render(container, {
       sitekey: TURNSTILE_SITE_KEY,
+      action: 'jobs_page_access',
       callback: async token => {
         setMessage('turnstile-message', 'Verifying...');
         try {
@@ -2006,32 +2007,35 @@ function scoreBarHTML(score) {
 
 function compositeBadgesHTML(j) {
   const familyTitle = j.is_static ? (j.role_families || []).join(', ') : j.familyLabel;
+  const tier = classToken(j.tier);
+  const visa = classToken(j.visa);
   const badges = [
-    `<span class="tier-badge tier-${j.tier.toLowerCase()}">${j.tierLabel}</span>`,
-    `<span class="family-badge" title="${familyTitle}">${j.familyLabel}</span>`
+    `<span class="tier-badge tier-${tier}">${escapeHTML(j.tierLabel)}</span>`,
+    `<span class="family-badge" title="${escapeHTML(familyTitle)}">${escapeHTML(j.familyLabel)}</span>`
   ];
   if (j.seniorityLabel !== 'Unknown') {
-    badges.push(`<span class="seniority-badge">${j.seniorityLabel}</span>`);
+    badges.push(`<span class="seniority-badge">${escapeHTML(j.seniorityLabel)}</span>`);
   }
   if (j.visa !== 'Unknown') {
-    badges.push(`<span class="visa-badge visa-${j.visa.toLowerCase()}">${j.visa}</span>`);
+    badges.push(`<span class="visa-badge visa-${visa}">${escapeHTML(j.visa)}</span>`);
   }
   return `<span class="composite-cell">${badges.join('')}</span>`;
 }
 
 function statusSelectHTML(id) {
   const status = loadStatus(id);
-  return `<select class="status-select ${STATUS_CLASS[status]}" data-id="${id}">${STATUSES.map(s => `<option ${s===status?'selected':''} value="${s}">${s}</option>`).join('')}</select>`;
+  const safeId = escapeHTML(id);
+  return `<select class="status-select ${classToken(STATUS_CLASS[status] || '')}" data-id="${safeId}">${STATUSES.map(s => `<option ${s===status?'selected':''} value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join('')}</select>`;
 }
 
 function applyButtonHTML(j) {
   const label = j.is_static ? 'Search' : 'Apply';
-  return `<a class="apply-btn" href="${j.apply}" target="_blank" rel="noopener" data-id="${j.id}">${label}</a>`;
+  return `<a class="apply-btn" href="${escapeHTML(safeExternalURL(j.apply))}" target="_blank" rel="noopener noreferrer" data-id="${escapeHTML(j.id)}">${escapeHTML(label)}</a>`;
 }
 
 function starHTML(id) {
   const on = loadStar(id);
-  return `<button class="star-btn ${on ? 'active' : ''}" data-id="${id}" title="${on ? 'Unstar' : 'Pin to top'}" aria-label="Star">${on ? '★' : '☆'}</button>`;
+  return `<button class="star-btn ${on ? 'active' : ''}" data-id="${escapeHTML(id)}" title="${on ? 'Unstar' : 'Pin to top'}" aria-label="Star">${on ? '★' : '☆'}</button>`;
 }
 
 function compactNote(note) {
@@ -2054,7 +2058,7 @@ function renderStats() {
   html += `<div class="stat"><div class="stat-label">Live roles</div><div class="stat-value">${liveCount}</div></div>`;
   html += `<div class="stat"><div class="stat-label">New this week</div><div class="stat-value">${newCount}</div></div>`;
   html += `<div class="stat"><div class="stat-label">Strong visa</div><div class="stat-value">${strong}</div></div>`;
-  html += `<div class="stat"><div class="stat-label">Top markets</div><div class="stat-value text" title="${topMarkets}">${topMarkets}</div></div>`;
+  html += `<div class="stat"><div class="stat-label">Top markets</div><div class="stat-value text" title="${escapeHTML(topMarkets)}">${escapeHTML(topMarkets)}</div></div>`;
   html += `<div class="stat"><div class="stat-label">In pipeline</div><div class="stat-value">${pipeline}</div></div>`;
   document.getElementById('stats').innerHTML = html;
   renderFilterOptions(byCountry);
@@ -2084,22 +2088,22 @@ function rowHTML(j) {
   const rowCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
   const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   const note = compactNote(j.notes || '');
-  const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${loadViewedAt(j.id)}">Opened ${formatTimeAgo(loadViewedAt(j.id))}</span>` : '';
+  const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
   return `<tr class="${rowCls.trim()}">
     <td>
       <div class="company-cell">
         ${starHTML(j.id)}
         <div class="company-main">
-          <div class="company-name">${j.company}</div>
+          <div class="company-name">${escapeHTML(j.company)}</div>
           <div class="company-meta">${sourceBadge}${newBadge}${filledBadge}${viewedTime}</div>
         </div>
       </div>
     </td>
-    <td class="role">${j.role}</td>
-    <td>${j.location}</td>
+    <td class="role">${escapeHTML(j.role)}</td>
+    <td>${escapeHTML(j.location)}</td>
     <td>${compositeBadgesHTML(j)}</td>
     <td>${applyButtonHTML(j)}</td>
-    <td class="notes-cell" title="${j.notes || ''}">${note}</td>
+    <td class="notes-cell" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</td>
     <td>${statusSelectHTML(j.id)}</td>
   </tr>`;
 }
@@ -2112,22 +2116,22 @@ function cardHTML(j) {
   const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
   const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   const note = compactNote(j.notes || '');
-  const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${loadViewedAt(j.id)}">Opened ${formatTimeAgo(loadViewedAt(j.id))}</span>` : '';
+  const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
   return `<article class="job-card ${cardCls.trim()}">
     <div class="card-line-1">
       ${starHTML(j.id)}
       <span class="company">
-        <span class="company-name">${j.company}</span>
+        <span class="company-name">${escapeHTML(j.company)}</span>
         <span class="company-meta">${sourceBadge}${newBadge}${filledBadge}${viewedTime}</span>
       </span>
       <span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>
     </div>
-    <div class="card-line-2">${j.role}</div>
+    <div class="card-line-2">${escapeHTML(j.role)}</div>
     <div class="card-line-3">
-      <span style="color:var(--text-secondary);font-size:12px">${j.location}</span>
+      <span style="color:var(--text-secondary);font-size:12px">${escapeHTML(j.location)}</span>
       ${compositeBadgesHTML(j)}
     </div>
-    ${note ? `<div class="notes-mobile" title="${j.notes || ''}">${note}</div>` : ''}
+    ${note ? `<div class="notes-mobile" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</div>` : ''}
     <div class="card-actions">
       ${applyButtonHTML(j)}
       ${statusSelectHTML(j.id)}
@@ -2138,37 +2142,37 @@ function cardHTML(j) {
 function pipelineItemHTML(j, history) {
   const isViewed = !!loadViewedAt(j.id);
   const status = loadStatus(j.id);
-  const statusCls = STATUS_CLASS[status] || '';
+  const statusCls = classToken(STATUS_CLASS[status] || '');
   const lastAction = history?.[0];
-  const lastEventText = lastAction ? `${lastAction.event_type.replace('_', ' ')} ${formatTimeAgo(lastAction.created_at)}` : `Saved ${formatTimeAgo(loadUserJob(j.id)?.saved_at)}`;
+  const lastEventText = lastAction ? `${String(lastAction.event_type || '').replace('_', ' ')} ${formatTimeAgo(lastAction.created_at)}` : `Saved ${formatTimeAgo(loadUserJob(j.id)?.saved_at)}`;
   const starOn = loadStar(j.id);
   const historyHtml = history && history.length
     ? `<div class="pipeline-history"><div class="pipeline-history-list">${history.map(h => {
-        let eventLabel = h.event_type.replace('_', ' ');
+        let eventLabel = String(h.event_type || '').replace('_', ' ');
         if (h.event_type === 'status_changed') eventLabel = `Status: ${h.from_status} → ${h.to_status}`;
-        return `<div class="pipeline-history-item"><span class="timeline-dot ${h.event_type}"></span><div class="timeline-body"><span class="timeline-event">${eventLabel}</span><span class="timeline-time">${formatTimeAgo(h.created_at)}</span></div></div>`;
+        return `<div class="pipeline-history-item"><span class="timeline-dot ${classToken(h.event_type)}"></span><div class="timeline-body"><span class="timeline-event">${escapeHTML(eventLabel)}</span><span class="timeline-time">${escapeHTML(formatTimeAgo(h.created_at))}</span></div></div>`;
       }).join('')}</div></div>`
     : '';
-  return `<article class="pipeline-item ${isViewed ? 'is-viewed' : ''}" data-id="${j.id}">
+  return `<article class="pipeline-item ${isViewed ? 'is-viewed' : ''}" data-id="${escapeHTML(j.id)}">
     <div class="pipeline-header">
       <div style="min-width:0">
-        <div class="pipeline-title">${j.company}</div>
-        <div class="pipeline-company">${j.role}</div>
+        <div class="pipeline-title">${escapeHTML(j.company)}</div>
+        <div class="pipeline-company">${escapeHTML(j.role)}</div>
       </div>
-      <span class="pipeline-status ${statusCls}">${status}</span>
+      <span class="pipeline-status ${statusCls}">${escapeHTML(status)}</span>
     </div>
     <div class="pipeline-meta">
-      <span>${j.location}</span>
-      <span>${j.tierLabel}</span>
-      <span>${j.familyLabel}</span>
-      <span>${j.seniorityLabel}</span>
-      <span>${lastEventText}</span>
+      <span>${escapeHTML(j.location)}</span>
+      <span>${escapeHTML(j.tierLabel)}</span>
+      <span>${escapeHTML(j.familyLabel)}</span>
+      <span>${escapeHTML(j.seniorityLabel)}</span>
+      <span>${escapeHTML(lastEventText)}</span>
     </div>
     <div class="pipeline-actions">
       ${applyButtonHTML(j)}
       ${statusSelectHTML(j.id)}
       ${starHTML(j.id)}
-      <button class="secondary-btn toggle-history" data-id="${j.id}" type="button">History</button>
+      <button class="secondary-btn toggle-history" data-id="${escapeHTML(j.id)}" type="button">History</button>
     </div>
     ${historyHtml}
   </article>`;
@@ -2209,9 +2213,9 @@ function renderPipeline() {
       }
       const historyHtml = history.length
         ? `<div class="pipeline-history"><div class="pipeline-history-list">${history.map(h => {
-            let eventLabel = h.event_type.replace('_', ' ');
+            let eventLabel = String(h.event_type || '').replace('_', ' ');
             if (h.event_type === 'status_changed') eventLabel = `Status: ${h.from_status} → ${h.to_status}`;
-            return `<div class="pipeline-history-item"><span class="timeline-dot ${h.event_type}"></span><div class="timeline-body"><span class="timeline-event">${eventLabel}</span><span class="timeline-time">${formatTimeAgo(h.created_at)}</span></div></div>`;
+            return `<div class="pipeline-history-item"><span class="timeline-dot ${classToken(h.event_type)}"></span><div class="timeline-body"><span class="timeline-event">${escapeHTML(eventLabel)}</span><span class="timeline-time">${escapeHTML(formatTimeAgo(h.created_at))}</span></div></div>`;
           }).join('')}</div></div>`
         : '<div class="pipeline-history" style="color:var(--text-muted);font-size:12px">No history yet.</div>';
       item.insertAdjacentHTML('beforeend', historyHtml);
@@ -2650,6 +2654,18 @@ function escapeHTML(value) {
   }[ch]));
 }
 
+function classToken(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'unknown';
+}
+
+function safeExternalURL(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.origin);
+    if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
+  } catch {}
+  return '#';
+}
+
 function setFieldValue(id, value) {
   const el = document.getElementById(id);
   if (el) el.value = value ?? '';
@@ -2866,7 +2882,7 @@ function syncIndividualNameField() {
 function buildCheckGrid(containerId, entries) {
   const el = document.getElementById(containerId);
   el.innerHTML = entries.map(([value, label]) => (
-    `<label><input type="checkbox" value="${value}"> ${label}</label>`
+    `<label><input type="checkbox" value="${escapeHTML(value)}"> ${escapeHTML(label)}</label>`
   )).join('');
 }
 
@@ -2881,7 +2897,7 @@ function buildOnboardingOptions() {
   buildCheckGrid('profile-agency-countries', countryEntries);
   buildCheckGrid('profile-individual-role-families', familyEntries);
   buildCheckGrid('profile-agency-role-families', familyEntries);
-  const seniorityOptions = SENIORITIES.map(s => `<option value="${s}">${s}</option>`).join('');
+  const seniorityOptions = SENIORITIES.map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join('');
   document.getElementById('target-seniority').innerHTML = seniorityOptions;
   document.getElementById('profile-target-seniority').innerHTML = seniorityOptions;
 }

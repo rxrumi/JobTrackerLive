@@ -568,6 +568,29 @@ test("account routes require authentication without affecting public jobs", asyn
   assert.equal(meResponse.status, 401);
 });
 
+test("json responses include production security headers", async () => {
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(1) }));
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/jobs"), { KV });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.match(response.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.match(response.headers.get("content-security-policy"), /cdn\.jsdelivr\.net/);
+});
+
+test("mutating api routes reject mismatched browser origins", async () => {
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/session", {
+    method: "POST",
+    headers: { Origin: "https://evil.example" }
+  }), {});
+
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "invalid_origin");
+});
+
 test("jobs query allows anonymous page one and caps per_page at fifteen", async () => {
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
@@ -659,6 +682,32 @@ test("jobs query allows authenticated page two with valid Turnstile and sets cle
   const payload = await response.json();
   assert.equal(payload.pagination.page, 2);
   assert.equal(payload.postings.length, 5);
+});
+
+test("jobs query rejects Turnstile tokens for the wrong hostname or action", async t => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({
+    success: true,
+    hostname: "evil.example",
+    action: "jobs_page_access"
+  }));
+  const user = { id: "00000000-0000-4000-8000-000000000023", email: "king@example.com" };
+  const fake = createSupabaseFake({ user });
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/jobs/query", {
+    method: "POST",
+    headers: { Cookie: "session=1", Origin: "https://livejobindex.com" },
+    body: JSON.stringify({ page: 2, turnstile_token: "token" })
+  }), {
+    KV,
+    SUPABASE_CLIENT: fake,
+    PAGE_ACCESS_SECRET: "page-secret",
+    TURNSTILE_SECRET: "turnstile-secret"
+  });
+
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "human_verification_required");
 });
 
 test("jobs query clamps out-of-range pages", async t => {
@@ -1149,6 +1198,21 @@ test("manual scan accepts X-Scan-Key and rejects missing auth", async t => {
   assert.ok(KV.puts.some(p => p.key === "jobs"));
 });
 
+test("manual scan uses json security responses for wrong keys", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch());
+
+  const response = await worker.fetch(new Request("https://example.com/api/scan-now", {
+    headers: { "X-Scan-Key": "wrong" }
+  }), {
+    KV: createKV(),
+    SCAN_KEY: "secret"
+  });
+
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal((await response.json()).error, "unauthorized");
+});
+
 test("manual scan persists Supabase analytics with REST upserts", async t => {
   const supabaseCalls = [];
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
@@ -1262,4 +1326,46 @@ test("analytics endpoints require authentication", async () => {
     const response = await worker.fetch(new Request(`https://example.com${path}`), {});
     assert.equal(response.status, 401, `${path} should require auth`);
   }
+});
+
+test("analytics endpoints require owner allowlist", async t => {
+  t.mock.method(globalThis, "fetch", async url => {
+    assert.match(String(url), /\/rest\/v1\/daily_scan_stats/);
+    return Response.json([{ scan_date: "2026-06-05", total_jobs: 3 }]);
+  });
+
+  const nonOwner = createSupabaseFake({ user: { id: "00000000-0000-4000-8000-000000000040", email: "user@example.com" } });
+  const denied = await worker.fetch(new Request("https://livejobindex.com/api/analytics/jobs", {
+    headers: { Cookie: "session=1" }
+  }), {
+    SUPABASE_CLIENT: nonOwner,
+    SUPABASE_URL: "https://supabase.example",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    ANALYTICS_ALLOWED_EMAILS: "owner@example.com"
+  });
+  assert.equal(denied.status, 403);
+
+  const owner = createSupabaseFake({ user: { id: "00000000-0000-4000-8000-000000000041", email: "owner@example.com" } });
+  const allowed = await worker.fetch(new Request("https://livejobindex.com/api/analytics/jobs", {
+    headers: { Cookie: "session=1" }
+  }), {
+    SUPABASE_CLIENT: owner,
+    SUPABASE_URL: "https://supabase.example",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    ANALYTICS_ALLOWED_EMAILS: "owner@example.com"
+  });
+  assert.equal(allowed.status, 200);
+  assert.deepEqual(await allowed.json(), { stats: [{ scan_date: "2026-06-05", total_jobs: 3 }] });
+});
+
+test("homepage render helpers escape dynamic job HTML and constrain apply URLs", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /function safeExternalURL/);
+  assert.match(html, /function classToken/);
+  assert.match(html, /href="\$\{escapeHTML\(safeExternalURL\(j\.apply\)\)\}"/);
+  assert.match(html, /<div class="company-name">\$\{escapeHTML\(j\.company\)\}<\/div>/);
+  assert.match(html, /<td class="role">\$\{escapeHTML\(j\.role\)\}<\/td>/);
+  assert.match(html, /title="\$\{escapeHTML\(j\.notes \|\| ''\)\}"/);
+  assert.match(html, /action: 'jobs_page_access'/);
 });

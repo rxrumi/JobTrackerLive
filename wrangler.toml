@@ -1,14 +1,11 @@
 name = "job-tracker"
 main = "src/worker.js"
-compatibility_date = "2025-04-01"
-workers_dev = true
+compatibility_date = "2026-06-05"
+workers_dev = false
 
 [[kv_namespaces]]
 binding = "KV"
 id = "8cf95c7c04054745bff09d88ea57d707"
-
-[[send_email]]
-name = "SEND_EMAIL"
 
 [triggers]
 crons = ["0 3 * * *"]
@@ -29,6 +26,7 @@ enabled = true
 # - TURNSTILE_SECRET          (Cloudflare Turnstile server-side secret)
 # - TURNSTILE_SITE_KEY        (Cloudflare Turnstile site key, exposed to frontend)
 # - PAGE_ACCESS_SECRET        (HMAC secret for page-access clearance cookies)
+# - ANALYTICS_ALLOWED_EMAILS  (comma-separated owner emails allowed to read global analytics)
 
 [[routes]]
 pattern = "livejobindex.com"

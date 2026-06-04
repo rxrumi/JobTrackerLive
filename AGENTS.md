@@ -101,7 +101,7 @@ Then provision the manual-scan secret and trigger the first scan:
 
 ```bash
 npx wrangler secret put SCAN_KEY
-curl -H "X-Scan-Key: <your-secret>" "https://job-tracker.sohaibkazmi-r.workers.dev/api/scan-now"
+curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
 ```
 
 ## Common follow-ups
@@ -118,7 +118,7 @@ curl -H "X-Scan-Key: <your-secret>" "https://job-tracker.sohaibkazmi-r.workers.d
 
 ## Known limits
 
-- `node_modules/` and `package-lock.json` are gitignored — run `npm install` after cloning.
+- `node_modules/` is gitignored; `package-lock.json` is committed for repeatable installs.
 - Proprietary, JS-rendered, login-gated, or bot-protected ATSs are not scanned.
 - Static target entries are not live postings.
 - Role matching is title-based; job descriptions are not fetched.
