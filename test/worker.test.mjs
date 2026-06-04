@@ -425,6 +425,7 @@ function createSupabaseFake({ user, exchangeUser, exchangeError = null, oauthUrl
     account_access: [],
     user_jobs: [],
     user_activity: [],
+    user_job_history: [],
     ...rows
   };
 

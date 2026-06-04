@@ -306,6 +306,10 @@ tbody tr:hover { background: var(--card-hover); box-shadow: inset 3px 0 0 var(--
 tbody tr.is-new { border-left-color: var(--new); }
 tbody tr.is-filled { border-left-color: var(--filled); color: var(--text-secondary); }
 tbody tr.is-filled .role { font-style: italic; }
+tbody tr.is-viewed { background: var(--bg-soft); opacity: 0.72; }
+tbody tr.is-viewed:hover { opacity: 0.85; }
+.job-card.is-viewed { background: var(--bg-soft); opacity: 0.72; }
+.job-card.is-viewed:hover { opacity: 0.85; }
 
 .star-btn { background: transparent; border: 0; cursor: pointer; font-size: 15px; padding: 0 4px 0 0; color: var(--text-muted); line-height: 1; transition: color 0.15s; vertical-align: middle; }
 .star-btn:hover { color: var(--accent); }
@@ -469,6 +473,29 @@ tbody tr.is-filled .role { font-style: italic; }
 .methodology-note { margin-top: 16px; padding: 12px 14px; border: 0.5px solid var(--border-soft); border-radius: 8px; background: var(--panel); color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
 .methodology-note h2 { margin: 0 0 6px; color: var(--text); font-size: 13px; font-weight: 600; }
 .methodology-note p { margin: 0; }
+
+.pipeline-list { display: flex; flex-direction: column; gap: 8px; }
+.pipeline-item { background: var(--card); border: 0.5px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow-card); transition: background 0.15s; }
+.pipeline-item:hover { background: var(--card-hover); }
+.pipeline-item.is-viewed { background: var(--bg-soft); opacity: 0.72; border-left-color: var(--border); }
+.pipeline-item.is-viewed:hover { opacity: 0.85; }
+.pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.pipeline-title { font-weight: 600; font-size: 14px; line-height: 1.35; }
+.pipeline-company { color: var(--text-secondary); font-size: 13px; }
+.pipeline-status { padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.pipeline-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-muted); font-size: 12px; margin-bottom: 10px; }
+.pipeline-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pipeline-history { margin-top: 10px; padding-top: 10px; border-top: 0.5px solid var(--border-soft); }
+.pipeline-history-list { display: flex; flex-direction: column; gap: 8px; }
+.pipeline-history-item { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+.timeline-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 4px; flex-shrink: 0; }
+.timeline-dot.viewed { background: var(--text-muted); }
+.timeline-dot.status_changed { background: var(--warning); }
+.timeline-dot.starred { background: var(--live); }
+.timeline-dot.note_added { background: var(--violet); }
+.timeline-body { min-width: 0; }
+.timeline-event { font-weight: 500; color: var(--text); }
+.timeline-time { color: var(--text-muted); font-size: 11px; }
 
 @media (max-width: 800px) {
   body { padding: 16px; }
@@ -985,6 +1012,8 @@ tbody tr.is-filled .role { font-style: italic; }
 
 <div class="job-cards" id="job-cards"></div>
 
+<div class="pipeline-list" id="pipeline-view" hidden></div>
+
 <nav class="pagination-bar" id="pagination-bottom" aria-label="Jobs pages" hidden></nav>
 
 <details class="legend-details">
@@ -1160,6 +1189,21 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (1000*60*60*24));
 }
 
+function formatTimeAgo(iso) {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diffSec = Math.floor((now - then) / 1000);
+  if (diffSec < 60) return 'just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  const diffDays = Math.floor(diffSec / 86400);
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function prettyCompany(token) {
   const map = { gongio:'Gong', factorialhr:'Factorial', kahoot:'Kahoot!' };
   if (map[token]) return map[token];
@@ -1213,6 +1257,7 @@ let PAGE_ACCESS_VERIFIED = false;
 let ACTIVE_REFRESH_TIMER = null;
 const APP_ROUTES = new Set(['/', '/profile', '/onboarding']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
+const JOB_HISTORY_CACHE = new Map();
 
 function safeRoute(path) {
   return APP_ROUTES.has(path) ? path : '/';
@@ -1513,6 +1558,7 @@ function setUserJob(id, patch) {
 
 function loadStatus(id) { return loadUserJob(id)?.status || 'Not started'; }
 function loadStar(id) { return Boolean(loadUserJob(id)?.starred); }
+function loadViewedAt(id) { return loadUserJob(id)?.viewed_at || null; }
 
 async function persistUserJob(id, patch) {
   setUserJob(id, patch);
@@ -1524,6 +1570,7 @@ async function persistUserJob(id, patch) {
     });
     if (data?.job) {
       USER_JOBS.set(String(id), data.job);
+      JOB_HISTORY_CACHE.delete(String(id));
       render();
       if (!document.getElementById('profile-panel')?.hidden) syncProfilePanel();
     }
@@ -1534,6 +1581,7 @@ async function persistUserJob(id, patch) {
 
 function saveStatus(id, v) { persistUserJob(id, { status: v }); }
 function saveStar(id, v) { persistUserJob(id, { starred: v }); }
+function recordViewed(id) { persistUserJob(id, { viewed: true }); }
 
 const state = {
   tab: 'active',
@@ -1851,16 +1899,18 @@ function rowHTML(j) {
   const newBadge = j.is_new ? `<span class="new-badge">NEW</span>` : '';
   const filledBadge = j.is_filled ? `<span class="filled-badge">FILLED</span>` : '';
   const sourceBadge = `<span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
-  const rowCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled' : '');
+  const isViewed = !!loadViewedAt(j.id);
+  const rowCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
   const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   const note = compactNote(j.notes || '');
+  const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${loadViewedAt(j.id)}">Opened ${formatTimeAgo(loadViewedAt(j.id))}</span>` : '';
   return `<tr class="${rowCls.trim()}">
     <td>
       <div class="company-cell">
         ${starHTML(j.id)}
         <div class="company-main">
           <div class="company-name">${j.company}</div>
-          <div class="company-meta">${sourceBadge}${newBadge}${filledBadge}</div>
+          <div class="company-meta">${sourceBadge}${newBadge}${filledBadge}${viewedTime}</div>
         </div>
       </div>
     </td>
@@ -1877,15 +1927,17 @@ function cardHTML(j) {
   const newBadge = j.is_new ? `<span class="new-badge">NEW</span>` : '';
   const filledBadge = j.is_filled ? `<span class="filled-badge">FILLED</span>` : '';
   const sourceBadge = `<span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
-  const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled' : '');
+  const isViewed = !!loadViewedAt(j.id);
+  const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
   const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   const note = compactNote(j.notes || '');
+  const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${loadViewedAt(j.id)}">Opened ${formatTimeAgo(loadViewedAt(j.id))}</span>` : '';
   return `<article class="job-card ${cardCls.trim()}">
     <div class="card-line-1">
       ${starHTML(j.id)}
       <span class="company">
         <span class="company-name">${j.company}</span>
-        <span class="company-meta">${sourceBadge}${newBadge}${filledBadge}</span>
+        <span class="company-meta">${sourceBadge}${newBadge}${filledBadge}${viewedTime}</span>
       </span>
       <span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>
     </div>
@@ -1902,6 +1954,93 @@ function cardHTML(j) {
   </article>`;
 }
 
+function pipelineItemHTML(j, history) {
+  const isViewed = !!loadViewedAt(j.id);
+  const status = loadStatus(j.id);
+  const statusCls = STATUS_CLASS[status] || '';
+  const lastAction = history?.[0];
+  const lastEventText = lastAction ? `${lastAction.event_type.replace('_', ' ')} ${formatTimeAgo(lastAction.created_at)}` : `Saved ${formatTimeAgo(loadUserJob(j.id)?.saved_at)}`;
+  const starOn = loadStar(j.id);
+  const historyHtml = history && history.length
+    ? `<div class="pipeline-history"><div class="pipeline-history-list">${history.map(h => {
+        let eventLabel = h.event_type.replace('_', ' ');
+        if (h.event_type === 'status_changed') eventLabel = `Status: ${h.from_status} → ${h.to_status}`;
+        return `<div class="pipeline-history-item"><span class="timeline-dot ${h.event_type}"></span><div class="timeline-body"><span class="timeline-event">${eventLabel}</span><span class="timeline-time">${formatTimeAgo(h.created_at)}</span></div></div>`;
+      }).join('')}</div></div>`
+    : '';
+  return `<article class="pipeline-item ${isViewed ? 'is-viewed' : ''}" data-id="${j.id}">
+    <div class="pipeline-header">
+      <div style="min-width:0">
+        <div class="pipeline-title">${j.company}</div>
+        <div class="pipeline-company">${j.role}</div>
+      </div>
+      <span class="pipeline-status ${statusCls}">${status}</span>
+    </div>
+    <div class="pipeline-meta">
+      <span>${j.location}</span>
+      <span>${j.tierLabel}</span>
+      <span>${j.familyLabel}</span>
+      <span>${j.seniorityLabel}</span>
+      <span>${lastEventText}</span>
+    </div>
+    <div class="pipeline-actions">
+      ${applyButtonHTML(j)}
+      ${statusSelectHTML(j.id)}
+      ${starHTML(j.id)}
+      <button class="secondary-btn toggle-history" data-id="${j.id}" type="button">History</button>
+    </div>
+    ${historyHtml}
+  </article>`;
+}
+
+function renderPipeline() {
+  const container = document.getElementById('pipeline-view');
+  const rows = sorted(filtered());
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  if (state.page > totalPages) state.page = totalPages;
+  const start = (state.page - 1) * PAGE_SIZE;
+  const pageRows = rows.slice(start, start + PAGE_SIZE);
+
+  const html = pageRows.map(j => {
+    const cached = JOB_HISTORY_CACHE.get(String(j.id));
+    return pipelineItemHTML(j, cached || null);
+  });
+  container.innerHTML = html.join('');
+
+  container.querySelectorAll('.toggle-history').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id;
+      const item = btn.closest('.pipeline-item');
+      const existing = item.querySelector('.pipeline-history');
+      if (existing) {
+        existing.remove();
+        return;
+      }
+      let history = JOB_HISTORY_CACHE.get(String(id));
+      if (!history) {
+        try {
+          const data = await api('/api/user-jobs/' + encodeURIComponent(id) + '/history');
+          history = data.history || [];
+          JOB_HISTORY_CACHE.set(String(id), history);
+        } catch {
+          history = [];
+        }
+      }
+      const historyHtml = history.length
+        ? `<div class="pipeline-history"><div class="pipeline-history-list">${history.map(h => {
+            let eventLabel = h.event_type.replace('_', ' ');
+            if (h.event_type === 'status_changed') eventLabel = `Status: ${h.from_status} → ${h.to_status}`;
+            return `<div class="pipeline-history-item"><span class="timeline-dot ${h.event_type}"></span><div class="timeline-body"><span class="timeline-event">${eventLabel}</span><span class="timeline-time">${formatTimeAgo(h.created_at)}</span></div></div>`;
+          }).join('')}</div></div>`
+        : '<div class="pipeline-history" style="color:var(--text-muted);font-size:12px">No history yet.</div>';
+      item.insertAdjacentHTML('beforeend', historyHtml);
+    };
+  });
+
+  wireRowHandlers();
+  renderPagination(rows.length, totalPages);
+}
+
 function render() {
   renderTabs();
   renderStats();
@@ -1910,6 +2049,7 @@ function render() {
   const tbody = document.getElementById('job-tbody');
   const cards = document.getElementById('job-cards');
   const wrap = document.getElementById('table-wrap');
+  const pipelineView = document.getElementById('pipeline-view');
   const empty = document.getElementById('empty-state');
   const loadedTabTotal = JOBS.filter(j => tabBucket(j) === state.tab).length;
   const total = state.tab === 'active' ? Math.max(loadedTabTotal, DYNAMIC_PAGINATION.total || 0) : loadedTabTotal;
@@ -1929,14 +2069,28 @@ function render() {
     empty.style.display = 'block';
     wrap.style.display = 'none';
     cards.style.display = 'none';
+    pipelineView.hidden = true;
     tbody.innerHTML = '';
     cards.innerHTML = '';
     renderPagination(0, 1);
     return;
   }
   empty.style.display = 'none';
+
+  if (state.tab === 'pipeline') {
+    wrap.style.display = 'none';
+    cards.style.display = 'none';
+    pipelineView.hidden = false;
+    tbody.innerHTML = '';
+    cards.innerHTML = '';
+    renderPipeline();
+    document.querySelectorAll('thead th[data-sort]').forEach(th => th.classList.remove('sorted', 'asc'));
+    return;
+  }
+
   wrap.style.display = '';
   cards.style.display = '';
+  pipelineView.hidden = true;
   tbody.innerHTML = pageRows.map(rowHTML).join('');
   cards.innerHTML = pageRows.map(cardHTML).join('');
   renderPagination(paginationTotal, totalPages);
@@ -1964,6 +2118,7 @@ function wireRowHandlers() {
     a.onclick = () => {
       const id = a.dataset.id;
       const job = JOBS.find(j => String(j.id) === String(id));
+      recordViewed(id);
       api('/api/activity', {
         method: 'POST',
         body: JSON.stringify({

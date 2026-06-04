@@ -1478,7 +1478,7 @@ async function handleGetUserJobs(request, env) {
 
   const { data, error } = await auth.context.supabase
     .from("user_jobs")
-    .select("*")
+    .select("*, viewed_at")
     .eq("user_id", auth.user.id)
     .order("updated_at", { ascending: false });
   if (error) return errorResponse(500, error.message, auth.context);
@@ -1508,6 +1508,7 @@ async function handlePutUserJob(request, env, jobId) {
   if (!STATUSES.has(status)) return errorResponse(400, "invalid status", auth.context);
 
   const now = new Date().toISOString();
+  const prevStatus = existing?.status || "Not started";
   const row = {
     user_id: auth.user.id,
     job_id: normalizedJobId,
@@ -1516,7 +1517,8 @@ async function handlePutUserJob(request, env, jobId) {
     notes: payload.notes == null ? existing?.notes || null : cleanString(payload.notes) || null,
     saved_at: existing?.saved_at || null,
     applied_at: existing?.applied_at || null,
-    archived_at: existing?.archived_at || null
+    archived_at: existing?.archived_at || null,
+    viewed_at: payload.viewed === true ? (existing?.viewed_at || now) : (existing?.viewed_at || null)
   };
 
   if ((status === "Saved" || row.starred) && !row.saved_at) row.saved_at = now;
@@ -1530,11 +1532,57 @@ async function handlePutUserJob(request, env, jobId) {
     .single();
   if (error) return errorResponse(500, error.message, auth.context);
 
+  if (payload.viewed === true && !existing?.viewed_at) {
+    await auth.context.supabase.from("user_job_history").insert({
+      user_id: auth.user.id,
+      job_id: normalizedJobId,
+      event_type: "viewed",
+      to_status: status
+    });
+  }
+
+  if (status !== prevStatus) {
+    await auth.context.supabase.from("user_job_history").insert({
+      user_id: auth.user.id,
+      job_id: normalizedJobId,
+      event_type: "status_changed",
+      from_status: prevStatus,
+      to_status: status
+    });
+  }
+
+  if (payload.starred != null && Boolean(payload.starred) !== Boolean(existing?.starred)) {
+    await auth.context.supabase.from("user_job_history").insert({
+      user_id: auth.user.id,
+      job_id: normalizedJobId,
+      event_type: "starred",
+      to_status: status
+    });
+  }
+
   await recordActivity(auth.context.supabase, auth.user.id, "job_state_updated", "job", normalizedJobId, {
     status,
     starred: row.starred
   });
   return jsonResponse({ job: data }, {}, auth.context);
+}
+
+async function handleGetUserJobHistory(request, env, jobId) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const normalizedJobId = cleanString(jobId);
+  if (!normalizedJobId) return errorResponse(400, "job_id is required", auth.context);
+
+  const { data, error } = await auth.context.supabase
+    .from("user_job_history")
+    .select("*")
+    .eq("user_id", auth.user.id)
+    .eq("job_id", normalizedJobId)
+    .order("created_at", { ascending: false });
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  return jsonResponse({ history: data || [] }, {}, auth.context);
 }
 
 async function handleActivity(request, env) {
@@ -1648,6 +1696,11 @@ export default {
     const userJobMatch = url.pathname.match(/^\/api\/user-jobs\/(.+)$/);
     if (userJobMatch && request.method === "PUT") {
       return handlePutUserJob(request, env, decodeURIComponent(userJobMatch[1]));
+    }
+
+    const userJobHistoryMatch = url.pathname.match(/^\/api\/user-jobs\/(.+)\/history$/);
+    if (userJobHistoryMatch && request.method === "GET") {
+      return handleGetUserJobHistory(request, env, decodeURIComponent(userJobHistoryMatch[1]));
     }
 
     if (url.pathname === "/api/activity" && request.method === "POST") {
