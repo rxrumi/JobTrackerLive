@@ -309,10 +309,10 @@ thead th.sorted.asc::after { content: ' ↑'; }
 .header-help { display: inline-flex; align-items: center; justify-content: center; margin-left: 4px; color: var(--text-secondary); font-size: 10px; text-transform: none; letter-spacing: 0; cursor: help; }
 .header-help:hover { color: var(--accent); }
 tbody td { padding: 10px 12px; border-bottom: 0.5px solid var(--border-soft); font-size: 13px; vertical-align: middle; }
-tbody tr { border-left: 3px solid transparent; background: var(--card); transition: background 0.15s, box-shadow 0.15s; }
+tbody tr { background: var(--card); transition: background 0.15s, box-shadow 0.15s; }
 tbody tr:hover { background: var(--card-hover); box-shadow: inset 3px 0 0 var(--accent); }
-tbody tr.is-new { border-left-color: var(--new); }
-tbody tr.is-filled { border-left-color: var(--filled); color: var(--text-secondary); }
+tbody tr.is-new { box-shadow: inset 3px 0 0 var(--new); }
+tbody tr.is-filled { box-shadow: inset 3px 0 0 var(--filled); color: var(--text-secondary); }
 tbody tr.is-filled .role { font-style: italic; }
 tbody tr.is-viewed { background: var(--bg-soft); opacity: 0.72; }
 tbody tr.is-viewed:hover { opacity: 0.85; }
