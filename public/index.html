@@ -185,11 +185,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .stat-value { font-size: 20px; font-weight: 500; }
 .stat-value.text { font-size: 14px; line-height: 1.3; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.country-counts { display: flex; gap: 6px; margin-bottom: 16px; font-size: 12px; overflow-x: auto; padding-bottom: 2px; }
-.country-pill { background: var(--card); border: 0.5px solid var(--border); border-radius: 999px; padding: 5px 10px; cursor: pointer; user-select: none; transition: all 0.15s; white-space: nowrap; }
-.country-pill:hover { background: var(--card-hover); border-color: var(--accent); }
-.country-pill.active { background: var(--accent); color: var(--button-primary-text); border-color: var(--accent); }
-
 .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; padding: 10px 12px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
 .filter-bar > details { position: relative; }
 .filter-bar > details > summary { list-style: none; cursor: pointer; padding: 5px 12px; border: 0.5px solid var(--border); border-radius: 999px; font-size: 12px; user-select: none; background: var(--bg-soft); white-space: nowrap; transition: all 0.15s; color: var(--text); }
@@ -200,14 +195,23 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .filter-bar > details[open] > summary .badge-count { display: inline-block; }
 .filter-bar > details > summary.has-active { background: var(--accent); color: var(--button-primary-text); border-color: var(--accent); }
 .filter-bar > details > summary.has-active .badge-count { display: inline-block; }
-.filter-popup { position: absolute; top: calc(100% + 4px); left: 0; min-width: 180px; max-width: 280px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; padding: 8px; z-index: 100; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
+.filter-popup { position: absolute; top: calc(100% + 4px); left: 0; min-width: 220px; max-width: 320px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; padding: 8px; z-index: 100; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
+.filter-bar > details:last-child .filter-popup { left: auto; right: 0; }
+.filter-popup.wide { min-width: 280px; }
+.filter-section { display: grid; gap: 4px; padding: 2px 0 7px; border-bottom: 0.5px solid var(--border-soft); }
+.filter-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.filter-section-title { padding: 4px 4px 2px; color: var(--text-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.filter-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 8px; border: 0.5px solid transparent; border-radius: 7px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: 12px; text-align: left; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+.filter-option:hover { background: var(--card-hover); border-color: var(--border); }
+.filter-option.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.filter-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-option-count { flex: 0 0 auto; color: var(--text-muted); font-size: 11px; }
+.filter-option.active .filter-option-count { color: var(--accent); }
 
 .chip { padding: 5px 11px; border-radius: 999px; border: 0.5px solid var(--border); background: var(--bg-soft); cursor: pointer; font-size: 12px; user-select: none; transition: all 0.15s; color: var(--text); font-family: inherit; }
 .chip:hover { background: var(--card-hover); border-color: var(--accent); }
 .chip.active { background: var(--accent); color: var(--button-primary-text); border-color: var(--accent); }
 .filter-popup .chip { text-align: left; width: 100%; }
-.preset-divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
-.preset.chip { font-weight: 500; }
 
 .search-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
 .search-wrap { position: relative; flex: 1; min-width: 200px; }
@@ -401,6 +405,7 @@ tbody tr.is-filled .role { font-style: italic; }
   .table-wrap { display: none; }
   .job-cards { display: block; }
   .filter-bar { padding: 8px; }
+  .filter-popup, .filter-popup.wide { min-width: min(280px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .form-grid, .choice-row { grid-template-columns: 1fr; }
   .profile-head { flex-direction: column; }
@@ -813,34 +818,24 @@ tbody tr.is-filled .role { font-style: italic; }
 </nav>
 
 <div class="stats" id="stats"></div>
-<div class="country-counts" id="country-counts"></div>
 
 <div class="filter-bar">
-  <details class="filter-dropdown" data-cat="country">
-    <summary>Country <span class="badge-count" id="bc-country">0</span></summary>
+  <details class="filter-dropdown" data-group="location">
+    <summary>Location <span class="badge-count" id="bc-location">0</span></summary>
     <div class="filter-popup" id="filter-country"></div>
   </details>
-  <details class="filter-dropdown" data-cat="family">
-    <summary>Role family <span class="badge-count" id="bc-family">0</span></summary>
-    <div class="filter-popup" id="filter-family"></div>
+  <details class="filter-dropdown" data-group="role-experience">
+    <summary>Role &amp; Experience <span class="badge-count" id="bc-role-experience">0</span></summary>
+    <div class="filter-popup wide" id="filter-role-experience"></div>
   </details>
-  <details class="filter-dropdown" data-cat="visa">
-    <summary>Visa <span class="badge-count" id="bc-visa">0</span></summary>
-    <div class="filter-popup" id="filter-visa"></div>
+  <details class="filter-dropdown" data-group="eligibility">
+    <summary>Eligibility <span class="badge-count" id="bc-eligibility">0</span></summary>
+    <div class="filter-popup" id="filter-eligibility"></div>
   </details>
-  <details class="filter-dropdown" data-cat="seniority">
-    <summary>Seniority <span class="badge-count" id="bc-seniority">0</span></summary>
-    <div class="filter-popup" id="filter-seniority"></div>
+  <details class="filter-dropdown" data-group="quick">
+    <summary>Quick Filters <span class="badge-count" id="bc-quick">0</span></summary>
+    <div class="filter-popup" id="filter-quick"></div>
   </details>
-  <details class="filter-dropdown" data-cat="tier">
-    <summary>Company tier <span class="badge-count" id="bc-tier">0</span></summary>
-    <div class="filter-popup" id="filter-tier"></div>
-  </details>
-  <span class="preset-divider"></span>
-  <button class="chip preset" data-preset="senior">Senior+</button>
-  <button class="chip preset" data-preset="strong-visa">Strong visa</button>
-  <button class="chip preset" data-preset="new">New</button>
-  <button class="chip preset" data-preset="starred">Starred</button>
 </div>
 
 <div class="search-row">
@@ -1376,39 +1371,135 @@ function tabBucket(j) {
 }
 
 function buildFilters() {
-  const make = (cat, items) => {
-    const el = document.getElementById('filter-' + cat);
-    el.innerHTML = '';
-    items.forEach(([val, label]) => {
-      const c = document.createElement('button');
-      c.className = 'chip';
-      c.type = 'button';
-      c.textContent = label;
-      c.dataset.val = val;
-      c.onclick = (e) => {
-        e.stopPropagation();
-        if (state[cat].has(val)) { state[cat].delete(val); c.classList.remove('active'); }
-        else { state[cat].add(val); c.classList.add('active'); }
-        updateFilterBadges();
-        resetPage();
-        render();
-        scheduleActiveRefresh();
-      };
-      el.appendChild(c);
-    });
+  renderFilterOptions();
+}
+
+function filterChanged() {
+  updateFilterBadges();
+  resetPage();
+  render();
+  scheduleActiveRefresh();
+}
+
+function toggleFilterValue(cat, val) {
+  if (state[cat].has(val)) state[cat].delete(val);
+  else state[cat].add(val);
+  filterChanged();
+}
+
+function togglePreset(val) {
+  if (state.presets.has(val)) state.presets.delete(val);
+  else state.presets.add(val);
+  filterChanged();
+}
+
+function filterOption(cat, val, label, count) {
+  const c = document.createElement('button');
+  const active = state[cat].has(val);
+  c.className = 'filter-option' + (active ? ' active' : '');
+  c.type = 'button';
+  c.dataset.cat = cat;
+  c.dataset.val = val;
+  c.setAttribute('aria-pressed', active ? 'true' : 'false');
+  const labelEl = document.createElement('span');
+  labelEl.className = 'filter-option-label';
+  labelEl.textContent = label;
+  c.appendChild(labelEl);
+  if (count !== undefined) {
+    const countEl = document.createElement('span');
+    countEl.className = 'filter-option-count';
+    countEl.textContent = String(count);
+    c.appendChild(countEl);
+  }
+  c.onclick = (e) => {
+    e.stopPropagation();
+    toggleFilterValue(cat, val);
   };
-  make('country', Object.entries(COUNTRY_NAMES).map(([k,v]) => [k, COUNTRY_FLAGS[k] + ' ' + v]));
-  make('tier', [['BigTech', 'Big Tech'], ['Scaleup', 'Scale-up'], ['Ecosystem', 'HubSpot/Clay ecosystem']]);
-  make('family', ROLE_FAMILIES.map(f => [f, f]));
-  make('seniority', SENIORITIES.map(s => [s, s]));
-  make('visa', [['Strong', 'Strong'], ['Likely', 'Likely'], ['Unknown', 'Unknown']]);
+  return c;
+}
+
+function presetOption(val, label) {
+  const c = document.createElement('button');
+  const active = state.presets.has(val);
+  c.className = 'filter-option' + (active ? ' active' : '');
+  c.type = 'button';
+  c.dataset.preset = val;
+  c.setAttribute('aria-pressed', active ? 'true' : 'false');
+  const labelEl = document.createElement('span');
+  labelEl.className = 'filter-option-label';
+  labelEl.textContent = label;
+  c.appendChild(labelEl);
+  c.onclick = (e) => {
+    e.stopPropagation();
+    togglePreset(val);
+  };
+  return c;
+}
+
+function filterSection(title, items) {
+  const section = document.createElement('div');
+  section.className = 'filter-section';
+  if (title) {
+    const h = document.createElement('div');
+    h.className = 'filter-section-title';
+    h.textContent = title;
+    section.appendChild(h);
+  }
+  items.forEach(item => section.appendChild(item));
+  return section;
+}
+
+function renderFilterOptions(countryCounts = {}) {
+  const countryEl = document.getElementById('filter-country');
+  const roleEl = document.getElementById('filter-role-experience');
+  const eligibilityEl = document.getElementById('filter-eligibility');
+  const quickEl = document.getElementById('filter-quick');
+  if (!countryEl || !roleEl || !eligibilityEl || !quickEl) return;
+
+  countryEl.innerHTML = '';
+  Object.entries(COUNTRY_NAMES).sort((a, b) => {
+    const countDiff = (countryCounts[b[0]] || 0) - (countryCounts[a[0]] || 0);
+    return countDiff || a[1].localeCompare(b[1]);
+  }).forEach(([code, name]) => {
+    countryEl.appendChild(filterOption('country', code, `${COUNTRY_FLAGS[code]} ${name}`, countryCounts[code] || 0));
+  });
+
+  roleEl.innerHTML = '';
+  roleEl.appendChild(filterSection('Role family', ROLE_FAMILIES.map(f => filterOption('family', f, f))));
+  roleEl.appendChild(filterSection('Experience', SENIORITIES.map(s => filterOption('seniority', s, s))));
+  roleEl.appendChild(filterSection('Preference', [presetOption('senior', 'Senior+ only')]));
+
+  eligibilityEl.innerHTML = '';
+  eligibilityEl.appendChild(filterSection('Visa level', [
+    filterOption('visa', 'Strong', 'Strong'),
+    filterOption('visa', 'Likely', 'Likely'),
+    filterOption('visa', 'Unknown', 'Unknown')
+  ]));
+  eligibilityEl.appendChild(filterSection('Preference', [presetOption('strong-visa', 'Strong visa only')]));
+
+  quickEl.innerHTML = '';
+  quickEl.appendChild(filterSection('Company tier', [
+    filterOption('tier', 'BigTech', 'Big Tech'),
+    filterOption('tier', 'Scaleup', 'Scale-up'),
+    filterOption('tier', 'Ecosystem', 'HubSpot/Clay ecosystem')
+  ]));
+  quickEl.appendChild(filterSection('Tags', [
+    presetOption('new', 'New'),
+    presetOption('starred', 'Starred')
+  ]));
+  updateFilterBadges();
 }
 
 function updateFilterBadges() {
-  ['country','tier','family','seniority','visa'].forEach(cat => {
-    const n = state[cat].size;
-    const summary = document.querySelector(`details[data-cat="${cat}"] > summary`);
-    const badge = document.getElementById('bc-' + cat);
+  const counts = {
+    location: state.country.size,
+    'role-experience': state.family.size + state.seniority.size + (state.presets.has('senior') ? 1 : 0),
+    eligibility: state.visa.size + (state.presets.has('strong-visa') ? 1 : 0),
+    quick: state.tier.size + (state.presets.has('new') ? 1 : 0) + (state.presets.has('starred') ? 1 : 0)
+  };
+  Object.entries(counts).forEach(([group, n]) => {
+    const summary = document.querySelector(`details[data-group="${group}"] > summary`);
+    const badge = document.getElementById('bc-' + group);
     if (badge) badge.textContent = n;
     if (summary) summary.classList.toggle('has-active', n > 0);
   });
@@ -1557,24 +1648,7 @@ function renderStats() {
   html += `<div class="stat"><div class="stat-label">Top markets</div><div class="stat-value text" title="${topMarkets}">${topMarkets}</div></div>`;
   html += `<div class="stat"><div class="stat-label">In pipeline</div><div class="stat-value">${pipeline}</div></div>`;
   document.getElementById('stats').innerHTML = html;
-
-  document.getElementById('country-counts').innerHTML = counts.map(([c,n]) => {
-    const active = state.country.has(c) ? ' active' : '';
-    return `<span class="country-pill${active}" data-cc="${c}" title="Filter to ${COUNTRY_NAMES[c]}">${COUNTRY_FLAGS[c]} ${COUNTRY_NAMES[c]} <strong>${n}</strong></span>`;
-  }).join('');
-  document.querySelectorAll('.country-pill[data-cc]').forEach(p => {
-    p.onclick = () => {
-      const c = p.dataset.cc;
-      if (state.country.has(c)) state.country.delete(c); else state.country.add(c);
-      // sync popup chip state
-      const chip = document.querySelector(`#filter-country .chip[data-val="${c}"]`);
-      if (chip) chip.classList.toggle('active', state.country.has(c));
-      updateFilterBadges();
-      resetPage();
-      render();
-      scheduleActiveRefresh();
-    };
-  });
+  renderFilterOptions(byCountry);
 }
 
 function renderTabs() {
@@ -1729,8 +1803,7 @@ function resetAll() {
   resetPage();
   document.getElementById('search').value = '';
   document.getElementById('search-wrap').classList.remove('has-text');
-  document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
-  document.querySelectorAll('.preset.chip').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.chip.active, .filter-option.active').forEach(c => c.classList.remove('active'));
   updateFilterBadges();
   render();
   scheduleActiveRefresh();
@@ -1792,18 +1865,6 @@ function wireStaticHandlers() {
       const sel = document.getElementById('sort-select');
       const v = `${state.sort}|${state.dir}`;
       if ([...sel.options].some(o => o.value === v)) sel.value = v;
-      render();
-      scheduleActiveRefresh();
-    };
-  });
-
-  // Quick presets
-  document.querySelectorAll('.preset.chip').forEach(c => {
-    c.onclick = () => {
-      const p = c.dataset.preset;
-      if (state.presets.has(p)) state.presets.delete(p); else state.presets.add(p);
-      c.classList.toggle('active', state.presets.has(p));
-      resetPage();
       render();
       scheduleActiveRefresh();
     };
