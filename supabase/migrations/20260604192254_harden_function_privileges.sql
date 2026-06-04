@@ -23,17 +23,6 @@ revoke all on function private.sync_account_access_type() from authenticated;
 
 do $$
 begin
-  if to_regclass('public.user_sessions') is not null then
-    drop policy if exists "Users select own sessions" on public.user_sessions;
-    create policy "Users select own sessions"
-    on public.user_sessions for select
-    to authenticated
-    using ((select auth.uid()) = user_id);
-  end if;
-end $$;
-
-do $$
-begin
   if to_regclass('public.job_views') is not null then
     drop policy if exists "Users select own job_views" on public.job_views;
     create policy "Users select own job_views"
