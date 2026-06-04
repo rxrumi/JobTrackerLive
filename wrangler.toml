@@ -1,6 +1,6 @@
 name = "job-tracker"
 main = "src/worker.js"
-compatibility_date = "2026-06-05"
+compatibility_date = "2026-06-04"
 workers_dev = false
 
 [[kv_namespaces]]
