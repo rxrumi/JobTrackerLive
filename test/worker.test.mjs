@@ -62,7 +62,7 @@ function samplePostings(count) {
     country: i % 2 ? "IE" : "AU",
     city: i % 2 ? "Dublin" : "Sydney",
     location: i % 2 ? "Dublin, Ireland" : "Sydney, Australia",
-    tier: i % 2 ? "Ecosystem" : "Scaleup",
+    tier: i % 2 ? "GrowthSaaS" : "Scaleup",
     role_family: "Operations",
     seniority: "Manager",
     visa: i % 2 ? "Strong" : "Likely",
@@ -204,7 +204,7 @@ test("homepage source exposes legal discovery links and structured data", () => 
   assert.match(html, /Live Job Index: Find Active Openings at Top Global Tech Companies/);
   assert.match(html, /Find real-time openings at the world's leading tech companies/);
   assert.match(html, /<nav class="public-nav" aria-label="Product pages">/);
-  assert.match(html, /href="\/jobs"/);
+  assert.doesNotMatch(html, /<a href="\/jobs">Live Jobs<\/a>/);
   assert.match(html, /href="\/visa-roles"/);
   assert.match(html, /href="\/pipeline"/);
   assert.match(html, /href="\/insights"/);
@@ -228,7 +228,7 @@ test("sitemap source includes public SEO pillar routes", () => {
 test("homepage source includes routed profile and onboarding handling", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/profile', '\/onboarding'\]\)/);
+  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/profile', '\/onboarding', '\/pipeline', '\/insights'\]\)/);
   assert.match(html, /function applyRoute\(\)/);
   assert.match(html, /navigateTo\('\/profile'\)/);
   assert.doesNotMatch(html, /account-pill'\)\.onclick = showProfilePanel/);
@@ -299,7 +299,7 @@ test("runScan applies company aliases for display and classification", async t =
   assert.equal(payload.postings.length, 1);
   assert.equal(payload.postings[0].company, "talkdesk");
   assert.equal(payload.postings[0].source_token, "talkdesk2");
-  assert.equal(payload.postings[0].tier, "Ecosystem");
+  assert.equal(payload.postings[0].tier, "GrowthSaaS");
   assert.equal(payload.postings[0].role_family, "Operations");
   assert.equal(payload.postings[0].visa, "Likely");
 });
@@ -558,6 +558,22 @@ test("jobs query allows anonymous page one and caps per_page at fifteen", async 
   assert.equal(payload.postings.length, 15);
   assert.equal(payload.pagination.per_page, 15);
   assert.equal(payload.pagination.total_pages, 2);
+});
+
+test("jobs query normalizes legacy Ecosystem tier values", async () => {
+  const KV = createKV();
+  const legacy = { ...samplePostings(1)[0], tier: "Ecosystem" };
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: [legacy] }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    body: JSON.stringify({ page: 1, filters: { tier: ["Ecosystem"] } })
+  }), { KV });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.pagination.total, 1);
+  assert.equal(payload.postings[0].tier, "GrowthSaaS");
 });
 
 test("jobs query rejects anonymous page two", async () => {
@@ -888,7 +904,7 @@ test("runScan preserves previous postings from a failed active source", async t 
     city: "London",
     country: "GB",
     url: "https://example.com/old",
-    tier: "Ecosystem",
+    tier: "GrowthSaaS",
     role_family: "Operations",
     seniority: "Senior/Lead",
     visa: "Strong",
@@ -971,6 +987,67 @@ test("manual scan accepts X-Scan-Key and rejects missing auth", async t => {
   const payload = await authorized.json();
   assert.equal(payload.error, undefined);
   assert.ok(KV.puts.some(p => p.key === "jobs"));
+});
+
+test("manual scan persists Supabase analytics with REST upserts", async t => {
+  const supabaseCalls = [];
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+    const href = String(url);
+    if (href.startsWith("https://supabase.example/rest/v1/")) {
+      supabaseCalls.push({
+        url: href,
+        method: init.method,
+        prefer: init.headers?.Prefer || init.headers?.prefer,
+        body: init.body ? JSON.parse(init.body) : null
+      });
+      return new Response(null, { status: 201 });
+    }
+
+    const token = tokenFromUrl(href);
+    if (token === "hubspot") {
+      return Response.json({
+        jobs: [{
+          id: 101,
+          title: "Revenue Operations Manager",
+          location: { name: "Dublin, Ireland" },
+          absolute_url: "https://example.com/hubspot-101"
+        }]
+      });
+    }
+    return Response.json(emptyPayload(href));
+  });
+
+  const KV = createKV();
+  const waitUntil = [];
+  const response = await worker.fetch(new Request("https://example.com/api/scan-now", {
+    headers: { "X-Scan-Key": "scan-secret" }
+  }), {
+    KV,
+    SCAN_KEY: "scan-secret",
+    SUPABASE_URL: "https://supabase.example",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+  }, {
+    waitUntil(promise) {
+      waitUntil.push(promise);
+    }
+  });
+
+  assert.equal(response.status, 200);
+  await Promise.all(waitUntil);
+
+  const jobPostingsCall = supabaseCalls.find(call => call.url.includes("/job_postings?"));
+  const snapshotsCall = supabaseCalls.find(call => call.url.includes("/job_snapshots?"));
+  const statsCall = supabaseCalls.find(call => call.url.includes("/daily_scan_stats?"));
+
+  assert.ok(jobPostingsCall);
+  assert.ok(snapshotsCall);
+  assert.ok(statsCall);
+  assert.match(jobPostingsCall.url, /on_conflict=id/);
+  assert.match(snapshotsCall.url, /on_conflict=job_id%2Cscan_date/);
+  assert.match(statsCall.url, /on_conflict=scan_date/);
+  assert.equal(jobPostingsCall.prefer, "resolution=merge-duplicates,return=minimal");
+  assert.equal(snapshotsCall.prefer, "resolution=merge-duplicates,return=minimal");
+  assert.equal(statsCall.prefer, "resolution=merge-duplicates,return=minimal");
 });
 
 test("session endpoint creates anonymous session cookie", async () => {

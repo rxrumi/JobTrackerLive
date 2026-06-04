@@ -457,7 +457,7 @@ Examples:
 
 Each dynamic posting gets a company tier:
 
-- `Ecosystem`: companies closely aligned with the user's HubSpot, Clay, CRM, RevOps, and GTM tooling background.
+- `GrowthSaaS`: focused SaaS and software companies with strong commercial, product, customer, and operations hiring relevance.
 - `Scaleup`: growth-stage technology companies.
 - `BigTech`: default category for larger or uncategorized technology companies.
 
@@ -548,7 +548,7 @@ Internal scan history:
       "city": "London",
       "country": "GB",
       "url": "https://example.com/job",
-      "tier": "Ecosystem",
+      "tier": "GrowthSaaS",
       "role_family": "Operations",
       "seniority": "Manager",
       "visa": "Strong",
@@ -729,7 +729,7 @@ Lifecycle badges:
 
 Signal badges:
 
-- Company tier: Big Tech, Scale-up, or HubSpot/Clay ecosystem.
+- Company tier: Big Tech, Scale-up, or Growth SaaS.
 - Role family.
 - Seniority.
 - Visa likelihood.
@@ -954,7 +954,7 @@ npm test
    - `LEVER_TOKENS`
    - `SMARTRECRUITERS_TOKENS`
 2. Add a `COMPANY_ALIASES` entry if the token is not the real display/classification name.
-3. Add the company to `HIGH_FIT_COMPANIES`, `ECOSYSTEM_COMPANIES`, `SCALEUP_COMPANIES`, `STRONG_VISA_COMPANIES`, or `LIKELY_VISA_COMPANIES` if applicable.
+3. Add the company to `GROWTH_SAAS_COMPANIES`, `SCALEUP_COMPANIES`, `STRONG_VISA_COMPANIES`, or `LIKELY_VISA_COMPANIES` if applicable.
 4. Run tests.
 5. Deploy.
 

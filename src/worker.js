@@ -142,10 +142,11 @@ const COMPANY_ALIASES = {
   boxinc: "box"
 };
 
-const HIGH_FIT_COMPANIES = new Set([
+const GROWTH_SAAS_COMPANIES = new Set([
   "hubspot", "gongio", "klaviyo", "pleo", "personio",
   "typeform", "factorialhr", "talkdesk", "mollie", "pipedrive",
-  "mentimeter", "deel", "kahoot", "notion", "xero", "trustpilot", "miro"
+  "mentimeter", "deel", "kahoot", "notion", "xero", "trustpilot", "miro",
+  "outsystems"
 ]);
 
 const STRONG_VISA_COMPANIES = new Set([
@@ -161,7 +162,6 @@ const LIKELY_VISA_COMPANIES = new Set([
   "mollie", "notion", "ramp", "pipedrive", "talkdesk", "box"
 ]);
 
-const ECOSYSTEM_COMPANIES = new Set([...HIGH_FIT_COMPANIES, "outsystems"]);
 const SCALEUP_COMPANIES = new Set([
   "celonis", "airtable", "gitlab", "figma", "linear", "ramp", "brex",
   "mercury", "vercel", "travelperk", "glovo", "feedzai", "unbabel",
@@ -204,9 +204,14 @@ function classifySeniority(title) {
 
 function classifyTier(token) {
   const company = canonicalCompany(token);
-  if (ECOSYSTEM_COMPANIES.has(company)) return "Ecosystem";
+  if (GROWTH_SAAS_COMPANIES.has(company)) return "GrowthSaaS";
   if (SCALEUP_COMPANIES.has(company)) return "Scaleup";
   return "BigTech";
+}
+
+function normalizeTier(tier) {
+  if (tier === "Ecosystem") return "GrowthSaaS";
+  return tier || "BigTech";
 }
 
 function classifyVisa(token) {
@@ -248,13 +253,15 @@ function createServiceClient(env) {
       }
     },
     async upsert(table, rows, onConflict) {
-      const res = await fetch(`${base}/rest/v1/${table}`, {
+      const endpoint = new URL(`${base}/rest/v1/${table}`);
+      if (onConflict) endpoint.searchParams.set("on_conflict", onConflict);
+      const res = await fetch(endpoint.toString(), {
         method: "POST",
         headers: {
           "apikey": key,
           "Authorization": `Bearer ${key}`,
           "Content-Type": "application/json",
-          "Prefer": `resolution=merge-duplicates,return=minimal${onConflict ? `,on_conflict=${onConflict}` : ""}`
+          "Prefer": "resolution=merge-duplicates,return=minimal"
         },
         body: JSON.stringify(rows)
       });
@@ -306,7 +313,7 @@ async function persistScanToSupabase(env, scanResult, today) {
     is_filled: Boolean(p.last_filled)
   }));
 
-  await client.insert("job_snapshots", snapshotRows);
+  await client.upsert("job_snapshots", snapshotRows, "job_id,scan_date");
 
   // 3. Compute and upsert daily_scan_stats
   const perSource = {};
@@ -357,6 +364,7 @@ function normalizePosting(posting, today) {
   const roleFamily = posting.role_family || classifyRoleFamily(posting.title) || "Other";
   const seniority = posting.seniority || classifySeniority(posting.title);
   const visa = posting.visa || "Unknown";
+  const tier = normalizeTier(posting.tier);
   const firstSeen = posting.first_seen || today;
   const score = calcScore({
     visa,
@@ -367,6 +375,7 @@ function normalizePosting(posting, today) {
   });
   return {
     ...posting,
+    tier,
     role_family: roleFamily,
     seniority,
     score
@@ -730,7 +739,7 @@ function normalizeJobQuery(payload = {}) {
     search: cleanString(payload.search || filters.search).toLowerCase(),
     filters: {
       country: cleanStringArray(filters.country),
-      tier: cleanStringArray(filters.tier),
+      tier: cleanStringArray(filters.tier).map(normalizeTier),
       family: cleanStringArray(filters.family),
       seniority: cleanStringArray(filters.seniority),
       visa: cleanStringArray(filters.visa),
@@ -749,7 +758,8 @@ function postingMatchesQuery(posting, query) {
   if (query.ids.length && !query.ids.includes(posting.id)) return false;
   const filters = query.filters;
   if (filters.country.length && !filters.country.includes(posting.country)) return false;
-  if (filters.tier.length && !filters.tier.includes(posting.tier)) return false;
+  const tier = normalizeTier(posting.tier);
+  if (filters.tier.length && !filters.tier.includes(tier)) return false;
   if (filters.family.length && !filters.family.includes(posting.role_family)) return false;
   if (filters.seniority.length && !filters.seniority.includes(posting.seniority)) return false;
   if (filters.visa.length && !filters.visa.includes(posting.visa)) return false;
@@ -763,7 +773,7 @@ function postingMatchesQuery(posting, query) {
       posting.city,
       posting.location,
       posting.country,
-      posting.tier,
+      tier,
       posting.role_family,
       posting.seniority,
       posting.visa
@@ -793,7 +803,7 @@ function sortPostings(postings, query) {
 }
 
 function pagePostings(data, query) {
-  const all = Array.isArray(data.postings) ? data.postings : [];
+  const all = Array.isArray(data.postings) ? data.postings.map(p => ({ ...p, tier: normalizeTier(p.tier) })) : [];
   const matching = sortPostings(all.filter(posting => postingMatchesQuery(posting, query)), query);
   const total = matching.length;
   const totalPages = Math.max(1, Math.ceil(total / query.per_page));
@@ -1350,11 +1360,17 @@ async function handleSettings(request, env) {
 }
 
 async function readJobsPayload(env) {
-  return (await env.KV.get("jobs", "json")) || {
+  const payload = (await env.KV.get("jobs", "json")) || {
     last_scan: null,
     last_scan_at: null,
     postings: [],
     scan_meta: null
+  };
+  return {
+    ...payload,
+    postings: Array.isArray(payload.postings)
+      ? payload.postings.map(p => ({ ...p, tier: normalizeTier(p.tier) }))
+      : []
   };
 }
 

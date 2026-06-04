@@ -91,7 +91,7 @@
   --filled: var(--border);
   --tier-bigtech-bg: var(--accent-soft); --tier-bigtech-fg: var(--accent);
   --tier-scaleup-bg: var(--violet-soft); --tier-scaleup-fg: var(--violet);
-  --tier-ecosystem-bg: var(--live-soft); --tier-ecosystem-fg: var(--live);
+  --tier-growthsaas-bg: var(--live-soft); --tier-growthsaas-fg: var(--live);
   --family-bg: var(--panel-2); --family-fg: var(--text-secondary);
   --seniority-bg: var(--warning-soft); --seniority-fg: var(--warning);
   --neutral-bg: var(--bg-soft); --neutral-fg: var(--text-secondary);
@@ -300,6 +300,8 @@ thead th:hover { color: var(--text); }
 thead th.sorted { color: var(--accent); }
 thead th.sorted::after { content: ' ↓'; }
 thead th.sorted.asc::after { content: ' ↑'; }
+.header-help { display: inline-flex; align-items: center; justify-content: center; margin-left: 4px; color: var(--text-secondary); font-size: 10px; text-transform: none; letter-spacing: 0; cursor: help; }
+.header-help:hover { color: var(--accent); }
 tbody td { padding: 10px 12px; border-bottom: 0.5px solid var(--border-soft); font-size: 13px; vertical-align: middle; }
 tbody tr { border-left: 3px solid transparent; background: var(--card); transition: background 0.15s, box-shadow 0.15s; }
 tbody tr:hover { background: var(--card-hover); box-shadow: inset 3px 0 0 var(--accent); }
@@ -325,7 +327,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .tier-badge, .family-badge, .seniority-badge, .visa-badge, .new-badge, .filled-badge, .source-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .tier-bigtech { background: var(--tier-bigtech-bg); color: var(--tier-bigtech-fg); }
 .tier-scaleup { background: var(--tier-scaleup-bg); color: var(--tier-scaleup-fg); }
-.tier-ecosystem { background: var(--tier-ecosystem-bg); color: var(--tier-ecosystem-fg); }
+.tier-growthsaas { background: var(--tier-growthsaas-bg); color: var(--tier-growthsaas-fg); }
 .family-badge { background: var(--family-bg); color: var(--family-fg); }
 .seniority-badge { background: var(--seniority-bg); color: var(--seniority-fg); }
 .visa-strong { background: var(--visa-strong-bg); color: var(--visa-strong-fg); }
@@ -559,7 +561,6 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 </div>
 
 <nav class="public-nav" aria-label="Product pages">
-  <a href="/jobs">Live Jobs</a>
   <a href="/visa-roles">Visa Roles</a>
   <a href="/pipeline">My Pipeline</a>
   <a href="/insights">Market Insights</a>
@@ -1000,7 +1001,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <th data-sort="company">Company</th>
       <th data-sort="role">Role</th>
       <th data-sort="location">Location</th>
-      <th>Signals</th>
+      <th>Signals <span class="header-help" title="Signals combine company tier, role family, seniority, and visa likelihood." aria-label="Signals combine company tier, role family, seniority, and visa likelihood.">(i)</span></th>
       <th>Action</th>
       <th data-col="notes">Notes</th>
       <th data-sort="status">Status</th>
@@ -1063,16 +1064,16 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 
 <script>
 const STATIC_COMPANIES = [
-  { id: 1, company: 'HubSpot', country: 'IE', city: 'Dublin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin' },
-  { id: 2, company: 'HubSpot', country: 'SG', city: 'Singapore', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Singapore' },
-  { id: 3, company: 'HubSpot', country: 'AU', city: 'Sydney', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Sydney' },
-  { id: 4, company: 'HubSpot', country: 'DE', city: 'Berlin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Berlin' },
-  { id: 5, company: 'HubSpot', country: 'IE', city: 'Dublin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin' },
+  { id: 1, company: 'HubSpot', country: 'IE', city: 'Dublin', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin' },
+  { id: 2, company: 'HubSpot', country: 'SG', city: 'Singapore', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Singapore' },
+  { id: 3, company: 'HubSpot', country: 'AU', city: 'Sydney', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Sydney' },
+  { id: 4, company: 'HubSpot', country: 'DE', city: 'Berlin', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Berlin' },
+  { id: 5, company: 'HubSpot', country: 'IE', city: 'Dublin', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=Dublin' },
   { id: 6, company: 'Stripe', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=Europe--Dublin' },
   { id: 7, company: 'Stripe', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=Europe--London&teams=Sales%2C+Solutions+%26+Support' },
   { id: 8, company: 'Stripe', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=Asia+Pacific--Singapore' },
-  { id: 9, company: 'Gong', country: 'IE', city: 'Dublin', tier: 'Ecosystem', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?offices[]=Dublin' },
-  { id: 10, company: 'Gong', country: 'SG', city: 'Singapore', tier: 'Ecosystem', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?offices[]=Singapore' },
+  { id: 9, company: 'Gong', country: 'IE', city: 'Dublin', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?offices[]=Dublin' },
+  { id: 10, company: 'Gong', country: 'SG', city: 'Singapore', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://job-boards.greenhouse.io/gongio?offices[]=Singapore' },
   { id: 11, company: 'Datadog', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.datadoghq.com/dublin/' },
   { id: 12, company: 'Datadog', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.datadoghq.com/apac/?location=singapore' },
   { id: 13, company: 'Datadog', country: 'NL', city: 'Amsterdam', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.datadoghq.com/all-jobs/?location=Amsterdam' },
@@ -1119,8 +1120,8 @@ const STATIC_COMPANIES = [
   { id: 54, company: 'Miro', country: 'NL', city: 'Amsterdam', tier: 'Scaleup', visa: 'Strong', apply: 'https://miro.com/careers/vacancy/7121462002/' },
   { id: 55, company: 'Notion', country: 'IE', city: 'Dublin', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.notion.com/careers?location=Dublin' },
   { id: 56, company: 'Notion', country: 'SG', city: 'Singapore', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.notion.com/careers?location=Singapore' },
-  { id: 57, company: 'Klaviyo', country: 'GB', city: 'London', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.klaviyo.com/company/careers/jobs?location=London' },
-  { id: 58, company: 'Klaviyo', country: 'AU', city: 'Sydney', tier: 'Ecosystem', visa: 'Likely', apply: 'https://www.klaviyo.com/company/careers/jobs?location=Sydney' },
+  { id: 57, company: 'Klaviyo', country: 'GB', city: 'London', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.klaviyo.com/company/careers/jobs?location=London' },
+  { id: 58, company: 'Klaviyo', country: 'AU', city: 'Sydney', tier: 'GrowthSaaS', visa: 'Likely', apply: 'https://www.klaviyo.com/company/careers/jobs?location=Sydney' },
   { id: 59, company: 'Asana', country: 'IE', city: 'Dublin', tier: 'Scaleup', visa: 'Strong', apply: 'https://asana.com/jobs/all?location=Dublin' },
   { id: 60, company: 'Figma', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.figma.com/careers/?location=london' },
   { id: 61, company: 'Confluent', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.confluent.io/careers/?location=London' },
@@ -1141,16 +1142,16 @@ const STATIC_COMPANIES = [
   { id: 76, company: 'Cognite', country: 'NO', city: 'Oslo', tier: 'Scaleup', visa: 'Likely', apply: 'https://www.cognite.com/careers?location=Oslo' },
   { id: 77, company: 'Kahoot!', country: 'NO', city: 'Oslo', tier: 'Scaleup', visa: 'Likely', apply: 'https://kahoot.com/careers/?location=Oslo' },
   { id: 78, company: 'Visma', country: 'NO', city: 'Oslo', tier: 'Scaleup', visa: 'Likely', apply: 'https://www.visma.com/careers/?location=Oslo' },
-  { id: 79, company: 'Typeform', country: 'ES', city: 'Barcelona', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.typeform.com/careers/?location=Barcelona' },
+  { id: 79, company: 'Typeform', country: 'ES', city: 'Barcelona', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.typeform.com/careers/?location=Barcelona' },
   { id: 80, company: 'Factorial', country: 'ES', city: 'Barcelona', tier: 'Scaleup', visa: 'Likely', apply: 'https://factorialhr.com/careers?location=Barcelona' },
   { id: 81, company: 'TravelPerk', country: 'ES', city: 'Barcelona', tier: 'Scaleup', visa: 'Likely', apply: 'https://www.travelperk.com/careers/?location=Barcelona' },
   { id: 82, company: 'Glovo', country: 'ES', city: 'Barcelona', tier: 'Scaleup', visa: 'Likely', apply: 'https://jobs.glovoapp.com/?location=Barcelona' },
   { id: 83, company: 'OutSystems', country: 'PT', city: 'Lisbon', tier: 'Scaleup', visa: 'Strong', apply: 'https://careers.outsystems.com/jobs?location=Lisbon' },
-  { id: 84, company: 'Talkdesk', country: 'PT', city: 'Lisbon', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.talkdesk.com/careers/?location=Lisbon' },
+  { id: 84, company: 'Talkdesk', country: 'PT', city: 'Lisbon', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.talkdesk.com/careers/?location=Lisbon' },
   { id: 85, company: 'Feedzai', country: 'PT', city: 'Lisbon', tier: 'Scaleup', visa: 'Strong', apply: 'https://feedzai.com/careers/?location=Lisbon' },
   { id: 86, company: 'Unbabel', country: 'PT', city: 'Lisbon', tier: 'Scaleup', visa: 'Likely', apply: 'https://unbabel.com/careers/?location=Lisbon' },
-  { id: 87, company: 'Pipedrive', country: 'EE', city: 'Tallinn', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Tallinn' },
-  { id: 88, company: 'Pipedrive', country: 'PT', city: 'Lisbon', tier: 'Ecosystem', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Lisbon' },
+  { id: 87, company: 'Pipedrive', country: 'EE', city: 'Tallinn', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Tallinn' },
+  { id: 88, company: 'Pipedrive', country: 'PT', city: 'Lisbon', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.pipedrive.com/en/jobs?location=Lisbon' },
   { id: 89, company: 'Wise', country: 'EE', city: 'Tallinn', tier: 'Scaleup', visa: 'Likely', apply: 'https://wise.jobs/?location=Tallinn' },
   { id: 90, company: 'Bolt', country: 'EE', city: 'Tallinn', tier: 'Scaleup', visa: 'Likely', apply: 'https://bolt.eu/en/careers/?location=Tallinn' },
   { id: 91, company: 'Xero', country: 'NZ', city: 'Auckland', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.xero.com/about/careers/?location=Auckland' },
@@ -1162,7 +1163,7 @@ const STATIC_COMPANIES = [
 
 const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand' };
 const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿' };
-const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', Ecosystem: 'HubSpot/Clay' };
+const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
 const ROLE_FAMILIES = ['Engineering', 'Product', 'Design', 'Data/Analytics', 'Security/IT', 'Sales', 'Marketing', 'Finance', 'Operations', 'Customer Success/Support', 'People/HR', 'Legal/Compliance', 'Strategy/Program', 'Other'];
 const SENIORITIES = ['Executive', 'Director/Head', 'Senior/Lead', 'Manager', 'Associate/Analyst', 'Unknown'];
 const SENIOR_PLUS = new Set(['Executive', 'Director/Head', 'Senior/Lead', 'Manager']);
@@ -1176,6 +1177,10 @@ const DEFAULT_BRAND_THEME = 'graphite';
 const BRAND_THEME_SEQUENCE = ['cobalt', 'graphite', 'aurora'];
 const BRAND_THEME_LABELS = { cobalt: 'Cobalt', graphite: 'Graphite', aurora: 'Aurora' };
 const VALID_BRAND_THEMES = new Set(BRAND_THEME_SEQUENCE);
+
+function normalizeTier(tier) {
+  return tier === 'Ecosystem' ? 'GrowthSaaS' : (tier || 'BigTech');
+}
 
 function calcScore(j) {
   const visaW = { Strong: 100, Likely: 75, Unknown: 50 };
@@ -1266,7 +1271,7 @@ let PENDING_PAGE = null;
 let PAGE_ACCESS_VERIFIED = false;
 let ACTIVE_REFRESH_TIMER = null;
 let PROFILE_FILTERS_APPLIED = false;
-const APP_ROUTES = new Set(['/', '/profile', '/onboarding']);
+const APP_ROUTES = new Set(['/', '/profile', '/onboarding', '/pipeline', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
 
@@ -1332,7 +1337,7 @@ function routeFromPath(path) {
 }
 
 function isProtectedRoute() {
-  return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding';
+  return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding' || CURRENT_ROUTE === '/pipeline' || CURRENT_ROUTE === '/insights';
 }
 
 function googleAuthHref() {
@@ -1387,7 +1392,7 @@ function updateHeaderStatus(message) {
 function serializedFilters() {
   return {
     country: [...state.country],
-    tier: [...state.tier],
+    tier: [...state.tier].map(normalizeTier),
     family: [...state.family],
     seniority: [...state.seniority],
     visa: [...state.visa],
@@ -1417,6 +1422,7 @@ function buildJobs(dynamicPostings) {
     .map(j => ({
       ...j,
       id: `static-${j.id}`,
+      tier: normalizeTier(j.tier),
       role: 'Company career target',
       role_family: 'Multiple',
       role_families: j.role_families || ROLE_FAMILIES.filter(f => f !== 'Other'),
@@ -1434,7 +1440,7 @@ function buildJobs(dynamicPostings) {
     role: p.title,
     country: p.country,
     city: p.city || p.location,
-    tier: p.tier,
+    tier: normalizeTier(p.tier),
     role_family: p.role_family || inferRoleFamily(p.title),
     role_families: [p.role_family || inferRoleFamily(p.title)],
     seniority: p.seniority || inferSeniority(p.title),
@@ -1450,6 +1456,7 @@ function buildJobs(dynamicPostings) {
 
   JOBS = [...dynamicMapped, ...staticMapped];
   JOBS.forEach(j => {
+    j.tier = normalizeTier(j.tier);
     if (!j.score) j.score = calcScore(j);
     j.location = `${COUNTRY_FLAGS[j.country]} ${j.city}`;
     j.tierLabel = TIER_LABELS[j.tier] || j.tier;
@@ -1678,6 +1685,7 @@ function filterChanged() {
 }
 
 function toggleFilterValue(cat, val) {
+  if (cat === 'tier') val = normalizeTier(val);
   if (state[cat].has(val)) state[cat].delete(val);
   else state[cat].add(val);
   filterChanged();
@@ -1780,7 +1788,7 @@ function renderFilterOptions(countryCounts = {}) {
   quickEl.appendChild(filterSection('Company tier', [
     filterOption('tier', 'BigTech', 'Big Tech'),
     filterOption('tier', 'Scaleup', 'Scale-up'),
-    filterOption('tier', 'Ecosystem', 'HubSpot/Clay ecosystem')
+    filterOption('tier', 'GrowthSaaS', 'Growth SaaS')
   ]));
   quickEl.appendChild(filterSection('Tags', [
     presetOption('new', 'New'),
@@ -1921,12 +1929,17 @@ function scoreBarHTML(score) {
 
 function compositeBadgesHTML(j) {
   const familyTitle = j.is_static ? (j.role_families || []).join(', ') : j.familyLabel;
-  return `<span class="composite-cell">
-    <span class="tier-badge tier-${j.tier.toLowerCase()}">${j.tierLabel}</span>
-    <span class="family-badge" title="${familyTitle}">${j.familyLabel}</span>
-    <span class="seniority-badge">${j.seniorityLabel}</span>
-    <span class="visa-badge visa-${j.visa.toLowerCase()}">${j.visa}</span>
-  </span>`;
+  const badges = [
+    `<span class="tier-badge tier-${j.tier.toLowerCase()}">${j.tierLabel}</span>`,
+    `<span class="family-badge" title="${familyTitle}">${j.familyLabel}</span>`
+  ];
+  if (j.seniorityLabel !== 'Unknown') {
+    badges.push(`<span class="seniority-badge">${j.seniorityLabel}</span>`);
+  }
+  if (j.visa !== 'Unknown') {
+    badges.push(`<span class="visa-badge visa-${j.visa.toLowerCase()}">${j.visa}</span>`);
+  }
+  return `<span class="composite-cell">${badges.join('')}</span>`;
 }
 
 function statusSelectHTML(id) {
@@ -2246,6 +2259,11 @@ function wireStaticHandlers() {
   // Tabs
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => {
+      if (!ME?.user && (t.dataset.tab === 'pipeline' || t.dataset.tab === 'archive')) {
+        AUTH_MODE = 'login';
+        showAuth('Sign in or create an account to manage your pipeline.');
+        return;
+      }
       state.tab = t.dataset.tab;
       resetPage();
       render();
@@ -2458,9 +2476,9 @@ function showOnboarding() {
   selectAccountType(ME?.user?.account_type || 'individual', false);
 }
 
-function showDashboard() {
+function showDashboard(route = '/') {
   hideAuth();
-  CURRENT_ROUTE = '/';
+  CURRENT_ROUTE = route;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
@@ -2687,10 +2705,26 @@ async function applyRoute() {
   }
 
   if (!ME?.user) {
-    const message = CURRENT_ROUTE === '/profile'
-      ? 'Sign in to manage your profile and settings.'
-      : 'Sign in or create an account to complete onboarding.';
+    const routeMessages = {
+      '/profile': 'Sign in to manage your profile and settings.',
+      '/pipeline': 'Sign in or create an account to manage your pipeline.',
+      '/insights': 'Sign in or create an account to view market insights.'
+    };
+    const message = routeMessages[CURRENT_ROUTE] || 'Sign in or create an account to complete onboarding.';
     showAuth(message, true);
+    return;
+  }
+
+  if (CURRENT_ROUTE === '/pipeline' || CURRENT_ROUTE === '/insights') {
+    if (!ME.user?.onboarding_completed) {
+      navigateTo('/onboarding', true);
+      return;
+    }
+    await loadUserJobs().catch(() => {});
+    state.tab = CURRENT_ROUTE === '/pipeline' ? 'pipeline' : 'active';
+    resetPage();
+    showDashboard(CURRENT_ROUTE);
+    render();
     return;
   }
 
