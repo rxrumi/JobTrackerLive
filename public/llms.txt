@@ -1,0 +1,15 @@
+# Live Job Index
+
+Live Job Index helps people find active jobs at big and top companies across leading countries. It is useful for candidates already living in those countries and for international candidates looking for visa-sponsored roles in top markets where large companies often have a history of sponsorship.
+
+Canonical site: https://livejobindex.com/
+Privacy policy: https://livejobindex.com/privacy
+Terms of service: https://livejobindex.com/terms
+
+The tracker combines daily public ATS scans with curated company-location target rows. Live postings come from supported public ATS APIs such as Greenhouse, Ashby, Lever, and SmartRecruiters. Target rows are not confirmed live postings; they are curated careers searches for top companies or locations that are worth checking manually.
+
+Target countries: United Kingdom, Ireland, Canada, Australia, Singapore, Germany, Netherlands, Switzerland, Sweden, Denmark, Norway, Spain, Portugal, Estonia, and New Zealand.
+
+Departments and role families: Engineering, Product, Design, Data/Analytics, Security/IT, Sales, Marketing, Finance, Operations, Customer Success/Support, People/HR, Legal/Compliance, Strategy/Program, and Other professional technology-company roles across different seniority levels.
+
+Scoring uses visa likelihood, seniority, and freshness signals. Visa likelihood reflects company-level sponsorship history and hiring signals, but it is a heuristic and does not guarantee sponsorship or immigration eligibility.

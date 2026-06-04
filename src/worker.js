@@ -709,11 +709,39 @@ function appOrigin(env) {
   return env.APP_ORIGIN || "https://livejobindex.com";
 }
 
+function safeAuthNext(value) {
+  return ["/", "/profile", "/onboarding"].includes(value) ? value : "/";
+}
+
 function assetRequest(request, pathname) {
   const url = new URL(request.url);
   url.pathname = pathname;
   url.search = "";
   return new Request(url.toString(), request);
+}
+
+const TRUST_HEADERS = {
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "geolocation=(), microphone=(), camera=()"
+};
+
+function withTrustHeaders(response) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(TRUST_HEADERS)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+async function fetchAsset(request, env, pathname) {
+  const response = await env.ASSETS.fetch(pathname ? assetRequest(request, pathname) : request);
+  return withTrustHeaders(response);
 }
 
 async function readJSON(request) {
@@ -955,11 +983,16 @@ async function handleLogin(request, env) {
 }
 
 async function handleGoogleLogin(request, env) {
+  const requestUrl = new URL(request.url);
+  const next = safeAuthNext(requestUrl.searchParams.get("next"));
+  const callbackUrl = new URL(`${appOrigin(env)}/auth/callback`);
+  if (next !== "/") callbackUrl.searchParams.set("next", next);
+
   const context = createSupabaseContext(request, env);
   const { data, error } = await context.supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${appOrigin(env)}/auth/callback`
+      redirectTo: callbackUrl.toString()
     }
   });
 
@@ -973,19 +1006,20 @@ async function handleGoogleLogin(request, env) {
 async function handleAuthCallback(request, env) {
   const url = new URL(request.url);
   const code = cleanString(url.searchParams.get("code"));
+  const next = safeAuthNext(url.searchParams.get("next"));
   if (!code) {
-    return redirectResponse("/?auth_error=missing_code");
+    return redirectResponse(`${next}?auth_error=missing_code`);
   }
 
   const context = createSupabaseContext(request, env);
   const { error } = await context.supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return redirectResponse("/?auth_error=oauth_exchange_failed", 303, context);
+    return redirectResponse(`${next}?auth_error=oauth_exchange_failed`, 303, context);
   }
 
   const { data, error: userError } = await context.supabase.auth.getUser();
   if (userError || !data?.user) {
-    return redirectResponse("/?auth_error=oauth_user_missing", 303, context);
+    return redirectResponse(`${next}?auth_error=oauth_user_missing`, 303, context);
   }
 
   await ensureAccountRows(context.supabase, data.user);
@@ -995,7 +1029,7 @@ async function handleAuthCallback(request, env) {
     .eq("id", data.user.id);
   await recordActivity(context.supabase, data.user.id, "login_google");
 
-  return redirectResponse("/", 303, context);
+  return redirectResponse(next, 303, context);
 }
 
 async function handleLogout(request, env) {
@@ -1266,12 +1300,22 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    if (url.protocol === "http:") {
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 301);
+    }
+
+    if (url.hostname === "www.livejobindex.com") {
+      url.hostname = "livejobindex.com";
+      return Response.redirect(url.toString(), 301);
+    }
+
     if (url.pathname === "/privacy") {
-      return env.ASSETS.fetch(assetRequest(request, "/privacy.html"));
+      return fetchAsset(request, env, "/privacy.html");
     }
 
     if (url.pathname === "/terms") {
-      return env.ASSETS.fetch(assetRequest(request, "/terms.html"));
+      return fetchAsset(request, env, "/terms.html");
     }
 
     if (url.pathname === "/api/jobs") {
@@ -1352,7 +1396,7 @@ export default {
       return Response.json(result);
     }
 
-    return env.ASSETS.fetch(request);
+    return fetchAsset(request, env);
   },
 
   async scheduled(event, env, ctx) {

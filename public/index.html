@@ -3,11 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live Job Index - Visa-aware tech job tracker</title>
-<meta name="description" content="Live Job Index tracks visa-aware technology jobs across relocation markets with daily public ATS scans, curated targets, and a personal application pipeline.">
+<title>Live Job Index - Top company jobs across leading markets</title>
+<meta name="description" content="Live Job Index tracks active jobs at top companies for candidates in leading countries and international job seekers targeting visa-sponsored roles.">
 <meta name="robots" content="index,follow">
 <meta name="theme-color" content="#0d4dff">
 <link rel="canonical" href="https://livejobindex.com/">
+<link rel="privacy-policy" href="https://livejobindex.com/privacy">
+<link rel="terms-of-service" href="https://livejobindex.com/terms">
 <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" href="/assets/favicon-32x32.png" type="image/png" sizes="32x32">
@@ -17,15 +19,51 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://livejobindex.com/">
 <meta property="og:title" content="Live Job Index">
-<meta property="og:description" content="A live, visa-aware technology job tracker for relocation markets.">
+<meta property="og:description" content="A live job index for candidates in leading countries and international job seekers targeting top companies with strong sponsorship histories.">
 <meta property="og:image" content="https://livejobindex.com/assets/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="1200">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Live Job Index">
-<meta name="twitter:description" content="A live, visa-aware technology job tracker for relocation markets.">
+<meta name="twitter:description" content="A live job index for candidates in leading countries and international job seekers targeting top companies with strong sponsorship histories.">
 <meta name="twitter:image" content="https://livejobindex.com/assets/og-image.png">
 <!-- Search Console verification: add the google-site-verification meta tag here when the token is available. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://livejobindex.com/#website",
+      "url": "https://livejobindex.com/",
+      "name": "Live Job Index",
+      "description": "A live index of active jobs at top companies for candidates in leading countries and international job seekers targeting visa-sponsored roles."
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://livejobindex.com/#organization",
+      "name": "Live Job Index",
+      "url": "https://livejobindex.com/",
+      "founder": {
+        "@type": "Person",
+        "name": "Sohaib Kazmi"
+      }
+    },
+    {
+      "@type": "WebApplication",
+      "@id": "https://livejobindex.com/#app",
+      "name": "Live Job Index",
+      "url": "https://livejobindex.com/",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "description": "Live Job Index tracks active jobs from top company careers pages and leading public job boards for candidates in leading countries and international job seekers targeting visa-sponsored roles.",
+      "publisher": {
+        "@id": "https://livejobindex.com/#organization"
+      }
+    }
+  ]
+}
+</script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-CNP336YP4G"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -330,6 +368,8 @@ tbody tr.is-filled .role { font-style: italic; }
 .auth-panel, .onboarding-panel { max-width: 760px; margin: 28px auto; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 22px; box-shadow: var(--shadow-soft); }
 .auth-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(8, 13, 20, 0.62); backdrop-filter: blur(8px); }
 .auth-modal .auth-panel { width: min(100%, 560px); max-height: calc(100vh - 36px); margin: 0; overflow-y: auto; }
+.auth-modal.page-auth { position: static; display: block; padding: 0; background: transparent; backdrop-filter: none; }
+.auth-modal.page-auth .auth-panel { width: min(100%, 760px); max-height: none; margin: 28px auto; overflow: visible; }
 .auth-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .auth-close { flex: 0 0 auto; width: 30px; height: 30px; border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg-soft); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 18px; line-height: 1; }
 .auth-close:hover { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
@@ -396,6 +436,9 @@ tbody tr.is-filled .role { font-style: italic; }
 .site-footer a { color: var(--text-secondary); text-decoration: none; }
 .site-footer a:hover { color: var(--text); }
 .footer-links { display: flex; gap: 12px; flex-wrap: wrap; }
+.methodology-note { margin-top: 16px; padding: 12px 14px; border: 0.5px solid var(--border-soft); border-radius: 8px; background: var(--panel); color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+.methodology-note h2 { margin: 0 0 6px; color: var(--text); font-size: 13px; font-weight: 600; }
+.methodology-note p { margin: 0; }
 
 @media (max-width: 800px) {
   body { padding: 16px; }
@@ -649,7 +692,7 @@ tbody tr.is-filled .role { font-style: italic; }
       <h2 class="auth-title">Profile</h2>
       <p class="auth-copy">Manage your account profile, saved preferences, and job-search settings.</p>
     </div>
-    <button class="secondary-btn" id="close-profile-btn" type="button">Close</button>
+    <button class="secondary-btn" id="close-profile-btn" type="button">Back to jobs</button>
   </div>
 
   <div class="profile-grid">
@@ -901,14 +944,19 @@ tbody tr.is-filled .role { font-style: italic; }
     Status, stars, and brand theme save to your account.
   </div>
 </details>
+
+<section class="methodology-note" aria-labelledby="methodology-title">
+  <h2 id="methodology-title">Tracking Methodology</h2>
+  <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, and New Zealand, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
+</section>
 </main>
 
 <footer class="site-footer">
   <span>Live Job Index operated by Sohaib Kazmi.</span>
   <nav class="footer-links" aria-label="Legal links">
-    <a href="/">Home</a>
-    <a href="/privacy">Privacy</a>
-    <a href="/terms">Terms</a>
+    <a href="https://livejobindex.com/">Home</a>
+    <a href="https://livejobindex.com/privacy">Privacy</a>
+    <a href="https://livejobindex.com/terms">Terms</a>
   </nav>
 </footer>
 
@@ -1086,6 +1134,39 @@ let TURNSTILE_WIDGET_ID = null;
 let PENDING_PAGE = null;
 let PAGE_ACCESS_VERIFIED = false;
 let ACTIVE_REFRESH_TIMER = null;
+const APP_ROUTES = new Set(['/', '/profile', '/onboarding']);
+let CURRENT_ROUTE = routeFromPath(window.location.pathname);
+
+function safeRoute(path) {
+  return APP_ROUTES.has(path) ? path : '/';
+}
+
+function routeFromPath(path) {
+  return safeRoute(path || '/');
+}
+
+function isProtectedRoute() {
+  return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding';
+}
+
+function googleAuthHref() {
+  return CURRENT_ROUTE === '/' ? '/api/auth/google' : `/api/auth/google?next=${encodeURIComponent(CURRENT_ROUTE)}`;
+}
+
+function syncAuthRouteLinks() {
+  document.querySelectorAll('.google-btn').forEach(link => {
+    link.href = googleAuthHref();
+  });
+}
+
+function navigateTo(path, replace = false) {
+  const route = safeRoute(path);
+  if (window.location.pathname !== route) {
+    window.history[replace ? 'replaceState' : 'pushState']({}, '', route);
+  }
+  CURRENT_ROUTE = route;
+  applyRoute();
+}
 
 function mergeDynamicPostings(postings) {
   (postings || []).forEach(p => {
@@ -1921,7 +2002,7 @@ async function setBrandTheme(theme, persist = false) {
       body: JSON.stringify({ brand_theme: theme })
     });
     syncAccountHeader();
-    syncProfilePanel();
+    if (CURRENT_ROUTE === '/profile') syncProfilePanel();
     setMessage('settings-message', 'Theme saved.');
   } catch (e) {
     setMessage('settings-message', e.message, true);
@@ -1931,8 +2012,9 @@ async function setBrandTheme(theme, persist = false) {
 function updateAuthTabs() {
   document.getElementById('show-login').classList.toggle('active', AUTH_MODE === 'login');
   document.getElementById('show-signup').classList.toggle('active', AUTH_MODE === 'signup');
-  document.getElementById('header-login-btn').classList.toggle('active', AUTH_MODE === 'login' && !document.getElementById('auth-panel').hidden);
-  document.getElementById('header-signup-btn').classList.toggle('active', AUTH_MODE === 'signup' && !document.getElementById('auth-panel').hidden);
+  const authVisible = !document.getElementById('auth-panel').hidden;
+  document.getElementById('header-login-btn').classList.toggle('active', AUTH_MODE === 'login' && authVisible);
+  document.getElementById('header-signup-btn').classList.toggle('active', AUTH_MODE === 'signup' && authVisible);
   document.getElementById('login-form').hidden = AUTH_MODE !== 'login';
   document.getElementById('signup-form').hidden = AUTH_MODE !== 'signup';
   document.querySelector('#auth-panel .auth-title').textContent = AUTH_MODE === 'login' ? 'Sign in' : 'Create account';
@@ -1940,13 +2022,19 @@ function updateAuthTabs() {
 }
 
 function hideAuth() {
+  if (isProtectedRoute() && !ME?.user) {
+    navigateTo('/');
+    return;
+  }
   document.getElementById('auth-panel').hidden = true;
   document.getElementById('auth-modal').hidden = true;
+  document.getElementById('auth-modal').classList.remove('page-auth');
   updateAuthTabs();
 }
 
 function showPublicDashboard() {
   hideAuth();
+  CURRENT_ROUTE = '/';
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
@@ -1958,16 +2046,19 @@ function showPublicDashboard() {
   updateAuthTabs();
 }
 
-function showAuth(message = '') {
+function showAuth(message = '', asPage = false) {
   document.getElementById('auth-modal').hidden = false;
+  document.getElementById('auth-modal').classList.toggle('page-auth', asPage);
   document.getElementById('auth-panel').hidden = false;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
-  document.getElementById('dashboard').hidden = false;
+  document.getElementById('dashboard').hidden = asPage;
   document.getElementById('account-pill').hidden = true;
   document.getElementById('logout-btn').hidden = true;
-  document.getElementById('header-login-btn').hidden = false;
-  document.getElementById('header-signup-btn').hidden = false;
+  document.getElementById('header-login-btn').hidden = asPage;
+  document.getElementById('header-signup-btn').hidden = asPage;
+  document.getElementById('auth-close').hidden = asPage;
+  syncAuthRouteLinks();
   updateAuthTabs();
   if (message) setMessage('auth-message', message, true);
   queueMicrotask(() => {
@@ -1978,6 +2069,7 @@ function showAuth(message = '') {
 
 function showOnboarding() {
   hideAuth();
+  CURRENT_ROUTE = '/onboarding';
   document.getElementById('onboarding-panel').hidden = false;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = true;
@@ -1991,6 +2083,7 @@ function showOnboarding() {
 
 function showDashboard() {
   hideAuth();
+  CURRENT_ROUTE = '/';
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
@@ -2145,22 +2238,70 @@ function fillProfileForms() {
 
 function showProfilePanel() {
   if (!ME?.user) {
-    showAuth('Sign in to manage your profile.');
+    showAuth('Sign in to manage your profile.', true);
     return;
   }
   hideAuth();
+  CURRENT_ROUTE = '/profile';
   document.getElementById('onboarding-panel').hidden = true;
-  document.getElementById('dashboard').hidden = false;
+  document.getElementById('dashboard').hidden = true;
   document.getElementById('profile-panel').hidden = false;
+  document.getElementById('logout-btn').hidden = false;
+  document.getElementById('header-login-btn').hidden = true;
+  document.getElementById('header-signup-btn').hidden = true;
   syncAccountHeader();
   syncProfilePanel();
   setMessage('profile-message', '');
-  document.getElementById('profile-panel').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 function hideProfilePanel() {
-  document.getElementById('profile-panel').hidden = true;
+  navigateTo('/');
   setMessage('profile-message', '');
+}
+
+async function applyRoute() {
+  CURRENT_ROUTE = routeFromPath(window.location.pathname);
+  syncAuthRouteLinks();
+
+  if (CURRENT_ROUTE === '/') {
+    if (ME?.user?.onboarding_completed) {
+      await loadUserJobs().catch(() => {});
+      showDashboard();
+      render();
+    } else if (ME?.user) {
+      navigateTo('/onboarding', true);
+    } else {
+      showPublicDashboard();
+      render();
+    }
+    return;
+  }
+
+  if (!ME?.user) {
+    const message = CURRENT_ROUTE === '/profile'
+      ? 'Sign in to manage your profile and settings.'
+      : 'Sign in or create an account to complete onboarding.';
+    showAuth(message, true);
+    return;
+  }
+
+  if (CURRENT_ROUTE === '/onboarding') {
+    if (ME.user?.onboarding_completed) {
+      navigateTo('/profile', true);
+      return;
+    }
+    showOnboarding();
+    return;
+  }
+
+  if (CURRENT_ROUTE === '/profile') {
+    if (!ME.user?.onboarding_completed) {
+      navigateTo('/onboarding', true);
+      return;
+    }
+    await loadUserJobs().catch(() => {});
+    showProfilePanel();
+  }
 }
 
 function knownFullName() {
@@ -2241,7 +2382,7 @@ async function loadUserJobs() {
 async function completeOnboarding() {
   ME = await api('/api/onboarding/complete', { method: 'POST' });
   await loadUserJobs();
-  showDashboard();
+  navigateTo('/');
   render();
 }
 
@@ -2279,7 +2420,7 @@ function wireAuthHandlers() {
     AUTH_MODE = 'signup';
     showAuth();
   };
-  document.getElementById('account-pill').onclick = showProfilePanel;
+  document.getElementById('account-pill').onclick = () => navigateTo('/profile');
   document.getElementById('close-profile-btn').onclick = hideProfilePanel;
   document.getElementById('show-login').onclick = () => {
     AUTH_MODE = 'login';
@@ -2303,11 +2444,9 @@ function wireAuthHandlers() {
         })
       });
       if (ME.user?.onboarding_completed) {
-        await loadUserJobs();
-        showDashboard();
-        render();
+        await applyRoute();
       } else {
-        showOnboarding();
+        navigateTo('/onboarding');
       }
     } catch (err) {
       setMessage('auth-message', err.message, true);
@@ -2347,7 +2486,7 @@ function wireAuthHandlers() {
     USER_JOBS = new Map();
     PAGE_ACCESS_VERIFIED = false;
     resetPage();
-    showPublicDashboard();
+    navigateTo('/');
   };
 
   document.getElementById('choose-individual').onclick = () => selectAccountType('individual');
@@ -2462,6 +2601,11 @@ function wireAuthHandlers() {
       setMessage('profile-message', err.message, true);
     }
   };
+
+  window.addEventListener('popstate', () => {
+    CURRENT_ROUTE = routeFromPath(window.location.pathname);
+    applyRoute();
+  });
 }
 
 async function init() {
@@ -2499,14 +2643,13 @@ async function init() {
 
   const me = await loadMe();
   if (!me) {
-    if (authError) showAuth(authError);
-    else showPublicDashboard();
+    if (authError && CURRENT_ROUTE === '/') showAuth(authError);
+    else await applyRoute();
   } else if (!me.user?.onboarding_completed) {
-    showOnboarding();
+    if (CURRENT_ROUTE === '/') navigateTo('/onboarding', true);
+    else await applyRoute();
   } else {
-    await loadUserJobs();
-    showDashboard();
-    render();
+    await applyRoute();
   }
 }
 

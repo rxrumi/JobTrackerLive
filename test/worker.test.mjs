@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import worker, { runScan } from "../src/worker.js";
 
@@ -76,6 +77,116 @@ function requestWithCf(url, init, cf) {
   Object.defineProperty(request, "cf", { value: cf });
   return request;
 }
+
+function createAssets() {
+  return {
+    requests: [],
+    async fetch(request) {
+      const url = new URL(request.url);
+      this.requests.push(url.pathname);
+      if (url.pathname === "/privacy.html") {
+        return new Response("privacy", { headers: { "content-type": "text/html" } });
+      }
+      if (url.pathname === "/terms.html") {
+        return new Response("terms", { headers: { "content-type": "text/html" } });
+      }
+      if (url.pathname === "/robots.txt") {
+        return new Response("User-agent: *\nAllow: /\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url.pathname === "/sitemap.xml") {
+        return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url.pathname === "/llms.txt") {
+        return new Response("# Live Job Index\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url.pathname === "/") {
+        return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
+      }
+      if (url.pathname === "/profile" || url.pathname === "/onboarding") {
+        return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
+      }
+      return new Response("missing", { status: 404 });
+    }
+  };
+}
+
+test("canonical redirects preserve path and query", async () => {
+  const httpResponse = await worker.fetch(new Request("http://livejobindex.com/privacy?source=test"), {});
+  const wwwResponse = await worker.fetch(new Request("https://www.livejobindex.com/terms?source=test"), {});
+
+  assert.equal(httpResponse.status, 301);
+  assert.equal(httpResponse.headers.get("location"), "https://livejobindex.com/privacy?source=test");
+  assert.equal(wwwResponse.status, 301);
+  assert.equal(wwwResponse.headers.get("location"), "https://livejobindex.com/terms?source=test");
+});
+
+test("legal pages are served from static assets without SPA fallback", async () => {
+  const ASSETS = createAssets();
+
+  const privacyResponse = await worker.fetch(new Request("https://livejobindex.com/privacy"), { ASSETS });
+  const termsResponse = await worker.fetch(new Request("https://livejobindex.com/terms?utm=test"), { ASSETS });
+
+  assert.equal(privacyResponse.status, 200);
+  assert.equal(await privacyResponse.text(), "privacy");
+  assert.equal(termsResponse.status, 200);
+  assert.equal(await termsResponse.text(), "terms");
+  assert.equal(privacyResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(privacyResponse.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(ASSETS.requests, ["/privacy.html", "/terms.html"]);
+});
+
+test("crawler files are served as static files without SPA fallback", async () => {
+  const ASSETS = createAssets();
+
+  const robotsResponse = await worker.fetch(new Request("https://livejobindex.com/robots.txt"), { ASSETS });
+  const sitemapResponse = await worker.fetch(new Request("https://livejobindex.com/sitemap.xml"), { ASSETS });
+  const llmsResponse = await worker.fetch(new Request("https://livejobindex.com/llms.txt"), { ASSETS });
+
+  assert.equal(robotsResponse.status, 200);
+  assert.match(robotsResponse.headers.get("content-type"), /text\/plain/);
+  assert.match(await robotsResponse.text(), /User-agent: \*/);
+  assert.equal(sitemapResponse.status, 200);
+  assert.match(sitemapResponse.headers.get("content-type"), /application\/xml/);
+  assert.match(await sitemapResponse.text(), /<urlset/);
+  assert.equal(llmsResponse.status, 200);
+  assert.match(llmsResponse.headers.get("content-type"), /text\/plain/);
+  assert.match(await llmsResponse.text(), /Live Job Index/);
+  assert.deepEqual(ASSETS.requests, ["/robots.txt", "/sitemap.xml", "/llms.txt"]);
+});
+
+test("profile and onboarding routes resolve through static asset fallback with trust headers", async () => {
+  const ASSETS = createAssets();
+
+  const profileResponse = await worker.fetch(new Request("https://livejobindex.com/profile"), { ASSETS });
+  const onboardingResponse = await worker.fetch(new Request("https://livejobindex.com/onboarding"), { ASSETS });
+
+  assert.equal(profileResponse.status, 200);
+  assert.match(await profileResponse.text(), /Live Job Index/);
+  assert.equal(profileResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(onboardingResponse.status, 200);
+  assert.match(await onboardingResponse.text(), /Live Job Index/);
+  assert.equal(onboardingResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.deepEqual(ASSETS.requests, ["/profile", "/onboarding"]);
+});
+
+test("homepage source exposes legal discovery links and structured data", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /rel="privacy-policy" href="https:\/\/livejobindex\.com\/privacy"/);
+  assert.match(html, /rel="terms-of-service" href="https:\/\/livejobindex\.com\/terms"/);
+  assert.match(html, /<script type="application\/ld\+json">/);
+  assert.match(html, /"@type": "WebApplication"/);
+  assert.match(html, /Tracking Methodology/);
+});
+
+test("homepage source includes routed profile and onboarding handling", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/profile', '\/onboarding'\]\)/);
+  assert.match(html, /function applyRoute\(\)/);
+  assert.match(html, /navigateTo\('\/profile'\)/);
+  assert.doesNotMatch(html, /account-pill'\)\.onclick = showProfilePanel/);
+});
 
 test("runScan matches lowercase/country-hint locations and classifies visa", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
@@ -538,6 +649,33 @@ test("google auth route redirects to Supabase OAuth with app callback", async ()
   assert.equal(call.payload.options.redirectTo, "https://livejobindex.com/auth/callback");
 });
 
+test("google auth route preserves safe next route and ignores unsafe next route", async () => {
+  const safeFake = createSupabaseFake({
+    oauthUrl: "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google"
+  });
+  const unsafeFake = createSupabaseFake({
+    oauthUrl: "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google"
+  });
+
+  await worker.fetch(new Request("https://livejobindex.com/api/auth/google?next=/profile"), {
+    KV: createKV(),
+    SUPABASE_CLIENT: safeFake
+  });
+  await worker.fetch(new Request("https://livejobindex.com/api/auth/google?next=https://evil.example/profile"), {
+    KV: createKV(),
+    SUPABASE_CLIENT: unsafeFake
+  });
+
+  assert.equal(
+    safeFake.calls.find(item => item.action === "signInWithOAuth").payload.options.redirectTo,
+    "https://livejobindex.com/auth/callback?next=%2Fprofile"
+  );
+  assert.equal(
+    unsafeFake.calls.find(item => item.action === "signInWithOAuth").payload.options.redirectTo,
+    "https://livejobindex.com/auth/callback"
+  );
+});
+
 test("auth callback exchanges code, ensures account rows, records activity, and redirects home", async () => {
   const user = {
     id: "00000000-0000-4000-8000-000000000011",
@@ -558,6 +696,23 @@ test("auth callback exchanges code, ensures account rows, records activity, and 
   assert.ok(fake.calls.some(item => item.table === "account_access" && item.action === "upsert" && item.payload.user_id === user.id));
   assert.ok(fake.calls.some(item => item.table === "users" && item.action === "update" && item.payload.email === user.email));
   assert.ok(fake.calls.some(item => item.table === "user_activity" && item.action === "insert" && item.payload.event_type === "login_google"));
+});
+
+test("auth callback redirects to safe next route after session exchange", async () => {
+  const user = {
+    id: "00000000-0000-4000-8000-000000000099",
+    email: "king@example.com",
+    user_metadata: { name: "Sohaib Kazmi" }
+  };
+  const fake = createSupabaseFake({ exchangeUser: user });
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback?code=oauth-code&next=/onboarding"), {
+    KV: createKV(),
+    SUPABASE_CLIENT: fake
+  });
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/onboarding");
 });
 
 test("auth callback missing code redirects with auth error", async () => {
