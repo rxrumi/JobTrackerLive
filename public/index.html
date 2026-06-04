@@ -1688,6 +1688,14 @@ function buildJobs(dynamicPostings) {
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (!headers.Authorization && SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) {
+    try {
+      const supabase = await getSupabaseBrowserClient();
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data?.session?.access_token;
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    } catch (e) {}
+  }
   const r = await fetch(path, { ...options, headers });
   const text = await r.text();
   const data = text ? JSON.parse(text) : null;
@@ -3296,7 +3304,6 @@ async function handleOAuthCallbackFromUrl() {
         refresh_token: session.refresh_token
       })
     });
-    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
     replaceAuthCallbackUrl(next);
     return '';
   } catch (err) {

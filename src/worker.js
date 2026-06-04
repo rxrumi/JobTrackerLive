@@ -1031,7 +1031,9 @@ function createSupabaseContext(request, env) {
 
   const cookieHeaders = [];
   const responseHeaders = new Headers({ "Cache-Control": "private, no-store" });
+  const authorization = request.headers.get("Authorization");
   const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
+    global: authorization ? { headers: { Authorization: authorization } } : undefined,
     cookies: {
       getAll() {
         return parseCookieHeader(request.headers.get("Cookie") || "");
