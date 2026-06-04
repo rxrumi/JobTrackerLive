@@ -429,7 +429,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .auth-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
 .auth-tab { border: 0.5px solid var(--border); background: var(--bg-soft); color: var(--text); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-family: inherit; font-size: 13px; }
 .auth-tab.active { background: var(--accent); color: var(--button-primary-text); border-color: var(--accent); }
-.google-btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 0.5px solid var(--border); border-radius: 8px; padding: 9px 13px; background: var(--bg-soft); color: var(--text); text-decoration: none; font-size: 13px; font-weight: 500; }
+.google-btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 0.5px solid var(--border); border-radius: 8px; padding: 9px 13px; background: var(--bg-soft); color: var(--text); text-decoration: none; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
 .google-btn:hover { background: var(--card-hover); border-color: var(--accent); }
 .google-mark { width: 18px; height: 18px; display: inline-block; }
 .auth-divider { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 11px; margin: 14px 0; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -581,7 +581,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
     </div>
     <button class="auth-close" id="auth-close" type="button" aria-label="Close sign in dialog">×</button>
   </div>
-  <a class="google-btn" href="/api/auth/google">
+  <button class="google-btn" id="google-auth-btn" type="button">
     <svg class="google-mark" viewBox="0 0 18 18" aria-hidden="true">
       <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
       <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
@@ -589,7 +589,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.43 1.35l2.59-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
     </svg>
     Continue with Google
-  </a>
+  </button>
   <div class="auth-divider">or use email</div>
   <div class="auth-tabs">
     <button class="auth-tab active" id="show-login" type="button">Login</button>
@@ -1294,6 +1294,10 @@ let USER_JOBS = new Map();
 let AUTH_MODE = 'login';
 let ONBOARDING_ACCOUNT_TYPE = 'individual';
 let TURNSTILE_SITE_KEY = '';
+let SUPABASE_URL = '';
+let SUPABASE_PUBLISHABLE_KEY = '';
+let SUPABASE_BROWSER_CLIENT = null;
+let SUPABASE_MODULE_PROMISE = null;
 let TURNSTILE_WIDGET_ID = null;
 let PENDING_PAGE = null;
 let PAGE_ACCESS_VERIFIED = false;
@@ -1302,6 +1306,8 @@ let PROFILE_FILTERS_APPLIED = false;
 const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
+const SUPABASE_JS_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.106.2/+esm';
+const OAUTH_NEXT_KEY = 'livejobindex_oauth_next';
 
 // ------------------------------------------------------------------
 // Lightweight anonymous session & event tracking
@@ -1368,14 +1374,53 @@ function isProtectedRoute() {
   return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding' || CURRENT_ROUTE === '/pipeline' || CURRENT_ROUTE === '/insights';
 }
 
-function googleAuthHref() {
-  return CURRENT_ROUTE === '/' ? '/api/auth/google' : `/api/auth/google?next=${encodeURIComponent(CURRENT_ROUTE)}`;
+function safeNextRoute(value) {
+  return APP_ROUTES.has(value) ? value : '/';
 }
 
 function syncAuthRouteLinks() {
-  document.querySelectorAll('.google-btn').forEach(link => {
-    link.href = googleAuthHref();
+  document.querySelectorAll('.google-btn').forEach(button => {
+    button.dataset.nextRoute = CURRENT_ROUTE;
   });
+}
+
+async function getSupabaseBrowserClient() {
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    throw new Error('Google sign-in is unavailable right now. Try email sign-in or try again shortly.');
+  }
+  if (SUPABASE_BROWSER_CLIENT) return SUPABASE_BROWSER_CLIENT;
+  if (!SUPABASE_MODULE_PROMISE) SUPABASE_MODULE_PROMISE = import(SUPABASE_JS_URL);
+  const { createClient } = await SUPABASE_MODULE_PROMISE;
+  SUPABASE_BROWSER_CLIENT = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: {
+      flowType: 'pkce',
+      detectSessionInUrl: false,
+      persistSession: true,
+      autoRefreshToken: true
+    }
+  });
+  return SUPABASE_BROWSER_CLIENT;
+}
+
+async function startGoogleAuth() {
+  setMessage('auth-message', 'Opening Google sign-in...');
+  const next = safeNextRoute(CURRENT_ROUTE);
+  try { sessionStorage.setItem(OAUTH_NEXT_KEY, next); } catch (e) {}
+  try {
+    const supabase = await getSupabaseBrowserClient();
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        scopes: 'openid email profile'
+      }
+    });
+    if (error) throw error;
+    if (!data?.url) throw new Error('Google sign-in could not be started. Try again.');
+    window.location.assign(data.url);
+  } catch (err) {
+    setMessage('auth-message', err.message || 'Google sign-in could not be started. Try again.', true);
+  }
 }
 
 function navigateTo(path, replace = false) {
@@ -1507,8 +1552,12 @@ async function loadPublicConfig() {
   try {
     const data = await api('/api/config');
     TURNSTILE_SITE_KEY = data.turnstile_site_key || '';
+    SUPABASE_URL = data.supabase_url || '';
+    SUPABASE_PUBLISHABLE_KEY = data.supabase_publishable_key || '';
   } catch {
     TURNSTILE_SITE_KEY = '';
+    SUPABASE_URL = '';
+    SUPABASE_PUBLISHABLE_KEY = '';
   }
 }
 
@@ -2893,12 +2942,84 @@ function readAuthError() {
   window.history.replaceState({}, '', nextUrl);
   const messages = {
     google_oauth_unavailable: 'Google sign-in is unavailable right now. Try email sign-in or try again shortly.',
+    google_frontend_required: 'Google sign-in has been updated. Refresh the page and try again.',
     missing_code: 'Google sign-in did not return a valid login code. Try again.',
     oauth_exchange_failed: 'Google sign-in could not be completed. Try again.',
     oauth_user_missing: 'Google sign-in completed, but the account session could not be loaded.',
     account_setup_failed: 'Google sign-in completed, but account setup failed. Try again shortly.'
   };
   return messages[code] || 'Sign-in could not be completed. Try again.';
+}
+
+function readOAuthProviderError() {
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const source = query.get('error') || hash.get('error');
+  if (!source) return '';
+  const description = query.get('error_description') || hash.get('error_description');
+  const code = query.get('error_code') || hash.get('error_code') || source;
+  return description || `Google sign-in could not be completed (${code}).`;
+}
+
+function storedOAuthNext() {
+  const params = new URLSearchParams(window.location.search);
+  let next = params.get('next') || '/';
+  try {
+    next = sessionStorage.getItem(OAUTH_NEXT_KEY) || next;
+    sessionStorage.removeItem(OAUTH_NEXT_KEY);
+  } catch (e) {}
+  return safeNextRoute(next);
+}
+
+function replaceAuthCallbackUrl(next = '/') {
+  const route = safeNextRoute(next);
+  window.history.replaceState({}, '', route);
+  CURRENT_ROUTE = route;
+}
+
+async function handleOAuthCallbackFromUrl() {
+  if (window.location.pathname !== '/auth/callback') return '';
+
+  const next = storedOAuthNext();
+  const providerError = readOAuthProviderError();
+  if (providerError) {
+    replaceAuthCallbackUrl('/');
+    return providerError;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) {
+    replaceAuthCallbackUrl('/');
+    return 'Google sign-in did not return a valid login code. Try again.';
+  }
+
+  try {
+    const supabase = await getSupabaseBrowserClient();
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    const session = data?.session;
+    if (!session?.access_token || !session?.refresh_token) {
+      throw new Error('Google sign-in completed, but the account session could not be loaded.');
+    }
+
+    ME = await api('/api/auth/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token
+      })
+    });
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    replaceAuthCallbackUrl(next);
+    return '';
+  } catch (err) {
+    replaceAuthCallbackUrl('/');
+    return err.message || 'Google sign-in could not be completed. Try again.';
+  }
 }
 
 function wireAuthHandlers() {
@@ -2935,6 +3056,7 @@ function wireAuthHandlers() {
     AUTH_MODE = 'signup';
     updateAuthTabs();
   };
+  document.getElementById('google-auth-btn').onclick = startGoogleAuth;
 
   document.getElementById('login-form').onsubmit = async (e) => {
     e.preventDefault();
@@ -3146,8 +3268,10 @@ async function init() {
   showPublicDashboard();
   render();
 
+  await loadPublicConfig();
+  const oauthError = await handleOAuthCallbackFromUrl();
+
   try {
-    await loadPublicConfig();
     const r = await fetch('/api/jobs');
     if (r.ok) {
       const data = await r.json();
@@ -3165,9 +3289,10 @@ async function init() {
     updateHeaderStatus('🟢 Active jobs updating today');
   }
 
-  const me = await loadMe();
+  const me = ME || await loadMe();
   if (!me) {
-    if (authError && CURRENT_ROUTE === '/') showAuth(authError);
+    if (oauthError) showAuth(oauthError);
+    else if (authError && CURRENT_ROUTE === '/') showAuth(authError);
     else await applyRoute();
   } else if (!me.user?.onboarding_completed) {
     if (CURRENT_ROUTE === '/') navigateTo('/onboarding', true);

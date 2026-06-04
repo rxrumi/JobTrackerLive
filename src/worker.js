@@ -918,14 +918,6 @@ async function validateTurnstile(request, env, token) {
   return Boolean(data.success);
 }
 
-function appOrigin(env) {
-  return env.APP_ORIGIN || "https://livejobindex.com";
-}
-
-function safeAuthNext(value) {
-  return ["/", "/profile", "/onboarding"].includes(value) ? value : "/";
-}
-
 function assetRequest(request, pathname) {
   const url = new URL(request.url);
   url.pathname = pathname;
@@ -1202,44 +1194,32 @@ async function handleLogin(request, env) {
 }
 
 async function handleGoogleLogin(request, env) {
-  const requestUrl = new URL(request.url);
-  const next = safeAuthNext(requestUrl.searchParams.get("next"));
-  const callbackUrl = new URL(`${appOrigin(env)}/auth/callback`);
-  if (next !== "/") callbackUrl.searchParams.set("next", next);
-
-  const context = createSupabaseContext(request, env);
-  const { data, error } = await context.supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: callbackUrl.toString()
-    }
-  });
-
-  if (error || !data?.url) {
-    return redirectResponse("/?auth_error=google_oauth_unavailable", 303, context);
-  }
-
-  return redirectResponse(data.url, 302, context);
+  return redirectResponse("/?auth_error=google_frontend_required", 303);
 }
 
 async function handleAuthCallback(request, env) {
-  const url = new URL(request.url);
-  const code = cleanString(url.searchParams.get("code"));
-  const next = safeAuthNext(url.searchParams.get("next"));
-  if (!code) {
-    return redirectResponse(`${next}?auth_error=missing_code`);
+  return fetchAsset(request, env);
+}
+
+async function handleAuthSession(request, env) {
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json");
+
+  const accessToken = cleanString(payload.access_token);
+  const refreshToken = cleanString(payload.refresh_token);
+  if (!accessToken || !refreshToken) {
+    return errorResponse(400, "access_token and refresh_token are required");
   }
 
   const context = createSupabaseContext(request, env);
-  const { error } = await context.supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    return redirectResponse(`${next}?auth_error=oauth_exchange_failed`, 303, context);
-  }
+  const { error: sessionError } = await context.supabase.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken
+  });
+  if (sessionError) return errorResponse(401, "invalid_session", context);
 
   const { data, error: userError } = await context.supabase.auth.getUser();
-  if (userError || !data?.user) {
-    return redirectResponse(`${next}?auth_error=oauth_user_missing`, 303, context);
-  }
+  if (userError || !data?.user) return errorResponse(401, "invalid_session", context);
 
   try {
     await ensureAccountRows(context.supabase, data.user);
@@ -1248,11 +1228,10 @@ async function handleAuthCallback(request, env) {
       .update({ last_login_at: new Date().toISOString(), email: data.user.email || "" })
       .eq("id", data.user.id);
     await recordActivity(context.supabase, data.user.id, "login_google");
+    return jsonResponse(await fetchMe(context.supabase, data.user), {}, context);
   } catch {
-    return redirectResponse(`${next}?auth_error=account_setup_failed`, 303, context);
+    return errorResponse(500, "account_setup_failed", context);
   }
-
-  return redirectResponse(next, 303, context);
 }
 
 async function handleLogout(request, env) {
@@ -1635,7 +1614,9 @@ async function handlePublicJobs(env) {
 
 function handlePublicConfig(env) {
   return jsonResponse({
-    turnstile_site_key: env.TURNSTILE_SITE_KEY || ""
+    turnstile_site_key: env.TURNSTILE_SITE_KEY || "",
+    supabase_url: env.SUPABASE_URL || "",
+    supabase_publishable_key: env.SUPABASE_PUBLISHABLE_KEY || ""
   }, {
     headers: {
       "Cache-Control": "public, max-age=300"
@@ -1859,6 +1840,10 @@ export default {
 
     if (url.pathname === "/auth/callback" && request.method === "GET") {
       return handleAuthCallback(request, env);
+    }
+
+    if (url.pathname === "/api/auth/session" && request.method === "POST") {
+      return handleAuthSession(request, env);
     }
 
     if (url.pathname === "/api/logout" && request.method === "POST") {

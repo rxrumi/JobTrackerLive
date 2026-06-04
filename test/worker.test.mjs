@@ -103,7 +103,7 @@ function createAssets() {
       if (url.pathname === "/") {
         return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
       }
-      if (url.pathname === "/profile" || url.pathname === "/onboarding") {
+      if (url.pathname === "/profile" || url.pathname === "/onboarding" || url.pathname === "/auth/callback") {
         return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
       }
       return new Response("missing", { status: 404 });
@@ -432,7 +432,7 @@ test("runScan excludes early-career and noisy unmatched titles", async t => {
   assert.equal(payload.postings[0].role_family, "Legal/Compliance");
 });
 
-function createSupabaseFake({ user, exchangeUser, exchangeError = null, oauthUrl = "https://supabase.example/auth/v1/authorize", rows = {} } = {}) {
+function createSupabaseFake({ user, exchangeUser, exchangeError = null, sessionUser, sessionError = null, oauthUrl = "https://supabase.example/auth/v1/authorize", rows = {} } = {}) {
   const calls = [];
   let currentUser = user || null;
   const data = {
@@ -537,6 +537,12 @@ function createSupabaseFake({ user, exchangeUser, exchangeError = null, oauthUrl
         if (exchangeError) return { data: null, error: exchangeError };
         currentUser = exchangeUser || currentUser;
         return { data: { user: currentUser }, error: null };
+      },
+      setSession: async session => {
+        calls.push({ table: "auth", action: "setSession", payload: session });
+        if (sessionError) return { data: null, error: sessionError };
+        currentUser = sessionUser || currentUser;
+        return { data: { session, user: currentUser }, error: null };
       },
       signOut: async () => ({ error: null })
     },
@@ -866,110 +872,109 @@ test("me exposes signup full name from auth metadata", async () => {
   assert.equal(payload.auth_user.full_name, "Sohaib Kazmi");
 });
 
-test("google auth route redirects to Supabase OAuth with app callback", async () => {
-  const fake = createSupabaseFake({
-    oauthUrl: "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google"
+test("public config exposes browser auth settings", async () => {
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/config"), {
+    TURNSTILE_SITE_KEY: "turnstile-public-key",
+    SUPABASE_URL: "https://rjdlgvltsszkjrixifim.supabase.co",
+    SUPABASE_PUBLISHABLE_KEY: "sb_publishable_public"
   });
 
-  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/google"), {
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "public, max-age=300");
+  const payload = await response.json();
+  assert.deepEqual(payload, {
+    turnstile_site_key: "turnstile-public-key",
+    supabase_url: "https://rjdlgvltsszkjrixifim.supabase.co",
+    supabase_publishable_key: "sb_publishable_public"
+  });
+});
+
+test("legacy google auth route redirects to frontend auth error", async () => {
+  const fake = createSupabaseFake();
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/google?next=/profile"), {
     KV: createKV(),
     SUPABASE_CLIENT: fake
   });
 
-  assert.equal(response.status, 302);
-  assert.equal(response.headers.get("Location"), "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google");
-  const call = fake.calls.find(item => item.action === "signInWithOAuth");
-  assert.equal(call.payload.provider, "google");
-  assert.equal(call.payload.options.redirectTo, "https://livejobindex.com/auth/callback");
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/?auth_error=google_frontend_required");
+  assert.equal(fake.calls.some(item => item.action === "signInWithOAuth"), false);
 });
 
-test("google auth route preserves safe next route and ignores unsafe next route", async () => {
-  const safeFake = createSupabaseFake({
-    oauthUrl: "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google"
-  });
-  const unsafeFake = createSupabaseFake({
-    oauthUrl: "https://rjdlgvltsszkjrixifim.supabase.co/auth/v1/authorize?provider=google"
+test("auth callback serves the frontend app shell", async () => {
+  const ASSETS = createAssets();
+
+  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback?code=oauth-code"), {
+    ASSETS,
+    KV: createKV()
   });
 
-  await worker.fetch(new Request("https://livejobindex.com/api/auth/google?next=/profile"), {
-    KV: createKV(),
-    SUPABASE_CLIENT: safeFake
-  });
-  await worker.fetch(new Request("https://livejobindex.com/api/auth/google?next=https://evil.example/profile"), {
-    KV: createKV(),
-    SUPABASE_CLIENT: unsafeFake
-  });
-
-  assert.equal(
-    safeFake.calls.find(item => item.action === "signInWithOAuth").payload.options.redirectTo,
-    "https://livejobindex.com/auth/callback?next=%2Fprofile"
-  );
-  assert.equal(
-    unsafeFake.calls.find(item => item.action === "signInWithOAuth").payload.options.redirectTo,
-    "https://livejobindex.com/auth/callback"
-  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "text/html");
+  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  assert.deepEqual(ASSETS.requests, ["/auth/callback"]);
 });
 
-test("auth callback exchanges code, ensures account rows, records activity, and redirects home", async () => {
+test("auth session bridge validates tokens, ensures account rows, records activity, and returns me", async () => {
   const user = {
     id: "00000000-0000-4000-8000-000000000011",
     email: "king@example.com",
     user_metadata: { name: "Sohaib Kazmi" }
   };
-  const fake = createSupabaseFake({ exchangeUser: user });
+  const fake = createSupabaseFake({ sessionUser: user });
 
-  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback?code=oauth-code"), {
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/session", {
+    method: "POST",
+    body: JSON.stringify({ access_token: "access-token", refresh_token: "refresh-token" })
+  }), {
     KV: createKV(),
     SUPABASE_CLIENT: fake
   });
 
-  assert.equal(response.status, 303);
-  assert.equal(response.headers.get("Location"), "/");
-  assert.deepEqual(fake.calls.find(item => item.action === "exchangeCodeForSession").payload, "oauth-code");
+  assert.equal(response.status, 200);
+  assert.deepEqual(fake.calls.find(item => item.action === "setSession").payload, {
+    access_token: "access-token",
+    refresh_token: "refresh-token"
+  });
   assert.ok(fake.calls.some(item => item.table === "users" && item.action === "upsert" && item.payload.id === user.id));
   assert.ok(fake.calls.some(item => item.table === "users" && item.action === "upsert" && item.payload.brand_theme === "graphite"));
   assert.ok(fake.calls.some(item => item.table === "account_access" && item.action === "upsert" && item.payload.user_id === user.id));
   assert.ok(fake.calls.some(item => item.table === "users" && item.action === "update" && item.payload.email === user.email));
   assert.ok(fake.calls.some(item => item.table === "user_activity" && item.action === "insert" && item.payload.event_type === "login_google"));
+  const payload = await response.json();
+  assert.equal(payload.auth_user.id, user.id);
+  assert.equal(payload.auth_user.full_name, "Sohaib Kazmi");
 });
 
-test("auth callback redirects to safe next route after session exchange", async () => {
-  const user = {
-    id: "00000000-0000-4000-8000-000000000099",
-    email: "king@example.com",
-    user_metadata: { name: "Sohaib Kazmi" }
-  };
-  const fake = createSupabaseFake({ exchangeUser: user });
-
-  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback?code=oauth-code&next=/onboarding"), {
-    KV: createKV(),
-    SUPABASE_CLIENT: fake
-  });
-
-  assert.equal(response.status, 303);
-  assert.equal(response.headers.get("Location"), "/onboarding");
-});
-
-test("auth callback missing code redirects with auth error", async () => {
-  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback"), {
+test("auth session bridge rejects missing tokens", async () => {
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/session", {
+    method: "POST",
+    body: JSON.stringify({ access_token: "access-token" })
+  }), {
     KV: createKV(),
     SUPABASE_CLIENT: createSupabaseFake()
   });
 
-  assert.equal(response.status, 303);
-  assert.equal(response.headers.get("Location"), "/?auth_error=missing_code");
+  assert.equal(response.status, 400);
+  const payload = await response.json();
+  assert.equal(payload.error, "access_token and refresh_token are required");
 });
 
-test("auth callback exchange failure redirects with auth error", async () => {
-  const fake = createSupabaseFake({ exchangeError: { message: "invalid code" } });
+test("auth session bridge rejects invalid sessions", async () => {
+  const fake = createSupabaseFake({ sessionError: { message: "invalid token" } });
 
-  const response = await worker.fetch(new Request("https://livejobindex.com/auth/callback?code=bad-code"), {
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/session", {
+    method: "POST",
+    body: JSON.stringify({ access_token: "bad-access-token", refresh_token: "bad-refresh-token" })
+  }), {
     KV: createKV(),
     SUPABASE_CLIENT: fake
   });
 
-  assert.equal(response.status, 303);
-  assert.equal(response.headers.get("Location"), "/?auth_error=oauth_exchange_failed");
+  assert.equal(response.status, 401);
+  const payload = await response.json();
+  assert.equal(payload.error, "invalid_session");
 });
 
 test("complete onboarding requires an agency profile for agency accounts", async () => {
