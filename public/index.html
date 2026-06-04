@@ -1204,6 +1204,16 @@ function formatTimeAgo(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function formatNoteAge(iso) {
+  if (!iso) return '';
+  const days = daysSince(iso);
+  if (days <= 0) return 'New today';
+  if (days === 1) return 'Added yesterday';
+  if (days < 7) return `Added ${days} days ago`;
+  const d = new Date(iso);
+  return `Added ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}`;
+}
+
 function prettyCompany(token) {
   const map = { gongio:'Gong', factorialhr:'Factorial', kahoot:'Kahoot!' };
   if (map[token]) return map[token];
@@ -1357,7 +1367,7 @@ function buildJobs(dynamicPostings) {
       role_family: 'Multiple',
       role_families: j.role_families || ROLE_FAMILIES.filter(f => f !== 'Other'),
       seniority: 'Any',
-      notes: `Curated careers search in ${COUNTRY_NAMES[j.country] || j.country}.`,
+      notes: `Search careers in ${COUNTRY_NAMES[j.country] || j.country}`,
       first_seen: '2000-01-01',
       is_static: true,
       is_new: false,
@@ -1376,7 +1386,7 @@ function buildJobs(dynamicPostings) {
     seniority: p.seniority || inferSeniority(p.title),
     visa: p.visa,
     apply: p.url,
-    notes: p.last_filled ? `Last seen ${p.last_seen}; no longer listed.` : `Detected ${daysSince(p.first_seen)}d ago via careers feed.`,
+    notes: p.last_filled ? `Last seen ${new Date(p.last_seen).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}, no longer listed` : formatNoteAge(p.first_seen),
     is_static: false,
     first_seen: p.first_seen,
     is_new: !p.last_filled && daysSince(p.first_seen) <= 7,
