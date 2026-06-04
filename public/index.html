@@ -402,7 +402,8 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .profile-dropdown-action { width: 100%; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; color: var(--text-secondary); cursor: pointer; text-align: left; font: inherit; font-size: 12px; }
 .profile-dropdown-action:hover { background: var(--card-hover); color: var(--text); }
 .profile-dropdown-action.danger { color: var(--danger); }
-.auth-panel, .onboarding-panel { max-width: 760px; margin: 28px auto; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 22px; box-shadow: var(--shadow-soft); }
+.auth-panel { max-width: 760px; margin: 28px auto; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 22px; box-shadow: var(--shadow-soft); }
+.onboarding-panel { max-width: 960px; margin: 24px auto; background: linear-gradient(180deg, var(--card), var(--panel)); border: 0.5px solid var(--border); border-radius: 10px; padding: 0; box-shadow: var(--shadow-soft); overflow: hidden; }
 .auth-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(8, 13, 20, 0.62); backdrop-filter: blur(8px); }
 .auth-modal .auth-panel { width: min(100%, 560px); max-height: calc(100vh - 36px); margin: 0; overflow-y: auto; }
 .auth-modal.page-auth { position: static; display: block; padding: 0; background: transparent; backdrop-filter: none; }
@@ -455,6 +456,43 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
 .check-grid label { display: flex; align-items: center; gap: 7px; padding: 7px 8px; border: 0.5px solid var(--border); border-radius: 8px; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 12px; background: var(--bg-soft); }
 .check-grid input { width: auto; }
+.onboarding-head { padding: 24px 24px 18px; border-bottom: 0.5px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 74%, var(--card)); }
+.onboarding-kicker { margin: 0 0 8px; color: var(--accent-2); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.onboarding-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.onboarding-title-row .auth-title { font-size: 24px; line-height: 1.18; }
+.onboarding-progress { min-width: min(420px, 100%); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.onboarding-progress-step { position: relative; display: grid; gap: 6px; color: var(--text-muted); font-size: 11px; line-height: 1.25; }
+.onboarding-progress-step::before { content: ""; height: 4px; border-radius: 999px; background: var(--border-soft); }
+.onboarding-progress-step.active { color: var(--text); }
+.onboarding-progress-step.complete { color: var(--text-secondary); }
+.onboarding-progress-step.active::before, .onboarding-progress-step.complete::before { background: var(--accent); }
+.onboarding-body { display: grid; grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr); gap: 0; }
+.onboarding-aside { padding: 22px 24px; border-right: 0.5px solid var(--border-soft); background: var(--bg-soft); }
+.onboarding-aside-title { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.onboarding-aside-copy { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+.onboarding-summary { margin-top: 18px; display: grid; gap: 8px; }
+.onboarding-summary-item { padding: 10px; border: 0.5px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
+.onboarding-summary-item strong { display: block; margin-bottom: 3px; font-size: 12px; }
+.onboarding-summary-item span { color: var(--text-muted); font-size: 11px; line-height: 1.35; }
+.onboarding-content { padding: 22px 24px 24px; }
+.onboarding-step { display: grid; gap: 16px; }
+.onboarding-step-head { display: grid; gap: 5px; }
+.onboarding-step-head h3 { margin: 0; font-size: 17px; font-weight: 600; }
+.onboarding-step-head p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.onboarding-choice-row { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); margin: 0; }
+.onboarding-choice-row .choice-card { min-height: 116px; padding: 16px; display: grid; align-content: start; gap: 6px; }
+.choice-card.primary-choice { background: linear-gradient(180deg, var(--accent-soft), var(--bg-soft)); }
+.choice-card .choice-badge { width: max-content; margin-bottom: 2px; padding: 3px 7px; border-radius: 999px; background: var(--live-soft); color: var(--live); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.onboarding-card { padding: 16px; border: 0.5px solid var(--border-soft); border-radius: 8px; background: var(--bg-soft); }
+.onboarding-card.compact { padding: 12px; }
+.onboarding-card-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.onboarding-check-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.onboarding-check-grid label { padding: 9px 10px; background: var(--panel); }
+.onboarding-check-grid label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.onboarding-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.onboarding-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; margin-top: 18px; border-top: 0.5px solid var(--border-soft); }
+.onboarding-actions-main { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.onboarding-actions .secondary-btn, .onboarding-actions .primary-btn { min-width: 110px; }
 
 .job-cards { display: none; }
 .job-card { background: var(--card); border: 0.5px solid var(--border); border-left: 3px solid transparent; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; box-shadow: var(--shadow-card); transition: background 0.15s, border-color 0.15s; }
@@ -523,6 +561,13 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   .site-footer { grid-template-columns: 1fr; }
   .footer-links { justify-content: flex-start; }
   .form-grid, .choice-row { grid-template-columns: 1fr; }
+  .onboarding-head { padding: 20px 18px 16px; }
+  .onboarding-title-row { display: grid; }
+  .onboarding-progress { min-width: 0; }
+  .onboarding-body { grid-template-columns: 1fr; }
+  .onboarding-aside { border-right: 0; border-bottom: 0.5px solid var(--border-soft); padding: 16px 18px; }
+  .onboarding-content { padding: 18px; }
+  .onboarding-review-grid { grid-template-columns: 1fr; }
   .profile-head { flex-direction: column; }
   .profile-grid { grid-template-columns: 1fr; }
   .profile-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -634,139 +679,240 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 </div>
 
 <section class="onboarding-panel" id="onboarding-panel" hidden>
-  <h2 class="auth-title">Complete onboarding</h2>
-  <p class="auth-copy">Choose how you plan to use JobTrackerLive, then save the matching profile.</p>
-  <div class="choice-row">
-    <button class="choice-card" id="choose-individual" type="button" data-account-type="individual">
-      <strong>For my own job search</strong>
-      <span>Track visa-friendly technology roles and application progress.</span>
-    </button>
-    <button class="choice-card" id="choose-agency" type="button" data-account-type="agency">
-      <strong>Agency, recruiting, or data use</strong>
-      <span>Explore market data and record integration interest for later.</span>
-    </button>
+  <div class="onboarding-head">
+    <p class="onboarding-kicker">Account setup</p>
+    <div class="onboarding-title-row">
+      <div>
+        <h2 class="auth-title">Build your job-search workspace</h2>
+        <p class="auth-copy">Answer a few focused questions so Live Job Index can prioritize relevant roles, markets, and visa-aware hiring signals.</p>
+      </div>
+      <div class="onboarding-progress" id="onboarding-progress" aria-label="Onboarding progress"></div>
+    </div>
   </div>
 
-  <form id="individual-form" hidden>
-    <div class="form-grid">
-      <div class="form-field" id="individual-name-field">
-        <label for="individual-name">Full name</label>
-        <input id="individual-name" name="full_name" type="text" autocomplete="name" required>
+  <div class="onboarding-body">
+    <aside class="onboarding-aside">
+      <h3 class="onboarding-aside-title" id="onboarding-aside-title">Start with the path that fits you</h3>
+      <p class="onboarding-aside-copy" id="onboarding-aside-copy">The personal job-search setup is tuned for relocation-friendly technology roles. Agency and data use stays available for broader market workflows.</p>
+      <div class="onboarding-summary">
+        <div class="onboarding-summary-item">
+          <strong>Saved filters</strong>
+          <span>Your choices become default filters after onboarding.</span>
+        </div>
+        <div class="onboarding-summary-item">
+          <strong>Visa-aware matches</strong>
+          <span>Country and sponsorship preferences shape the first view.</span>
+        </div>
       </div>
-      <div class="form-field">
-        <label for="current-title">Current title</label>
-        <input id="current-title" name="current_title" type="text" required>
-      </div>
-      <div class="form-field">
-        <label for="years-experience">Years experience</label>
-        <input id="years-experience" name="years_experience" type="number" min="0" step="0.5" required>
-      </div>
-      <div class="form-field">
-        <label for="target-seniority">Target seniority</label>
-        <select id="target-seniority" name="target_seniority" required></select>
-      </div>
-      <div class="form-field">
-        <label for="preferred-work-mode">Work mode</label>
-        <select id="preferred-work-mode" name="preferred_work_mode">
-          <option value="">Any</option>
-          <option value="remote">Remote</option>
-          <option value="hybrid">Hybrid</option>
-          <option value="onsite">On-site</option>
-        </select>
-      </div>
-      <div class="form-field">
-        <label for="salary-min-usd">Minimum salary USD</label>
-        <input id="salary-min-usd" name="salary_min_usd" type="number" min="0" step="1000">
-      </div>
-      <div class="form-field">
-        <label for="linkedin-url">LinkedIn URL</label>
-        <input id="linkedin-url" name="linkedin_url" type="url">
-      </div>
-      <div class="form-field">
-        <label for="resume-url">Resume URL</label>
-        <input id="resume-url" name="resume_url" type="url">
-      </div>
-      <div class="form-field full">
-        <span class="choice-label">Target countries</span>
-        <div class="check-grid" id="individual-countries"></div>
-      </div>
-      <div class="form-field full">
-        <span class="choice-label">Role families</span>
-        <div class="check-grid" id="individual-role-families"></div>
-      </div>
-      <div class="form-field full">
-        <label><input id="visa-needed" name="visa_needed" type="checkbox" checked> Visa sponsorship needed</label>
-      </div>
-    </div>
-    <div class="form-actions">
-      <button class="primary-btn" type="submit">Save profile</button>
-    </div>
-  </form>
+    </aside>
 
-  <form id="agency-form" hidden>
-    <div class="form-grid">
-      <div class="form-field">
-        <label for="agency-name">Agency/company name</label>
-        <input id="agency-name" name="agency_name" type="text" required>
+    <div class="onboarding-content">
+      <section class="onboarding-step" id="onboarding-use-case" data-onboarding-step="0">
+        <div class="onboarding-step-head">
+          <h3>How will you use Live Job Index?</h3>
+          <p>Choose the setup path. Most users should start with the personal job-search profile.</p>
+        </div>
+        <div class="choice-row onboarding-choice-row">
+          <button class="choice-card primary-choice" id="choose-individual" type="button" data-account-type="individual">
+            <span class="choice-badge">Recommended</span>
+            <strong>My job search</strong>
+            <span>Track visa-friendly technology roles, save matches, and manage application progress.</span>
+          </button>
+          <button class="choice-card" id="choose-agency" type="button" data-account-type="agency">
+            <strong>Agency or data use</strong>
+            <span>Explore market data, hiring signals, and future integration needs.</span>
+          </button>
+        </div>
+      </section>
+
+      <form id="individual-form" hidden>
+        <section class="onboarding-step" data-individual-step="1">
+          <div class="onboarding-step-head">
+            <h3>Your search profile</h3>
+            <p>This helps rank roles at the right level and keeps your workspace personal.</p>
+          </div>
+          <div class="onboarding-card">
+            <div class="form-grid">
+              <div class="form-field" id="individual-name-field">
+                <label for="individual-name">Full name</label>
+                <input id="individual-name" name="full_name" type="text" autocomplete="name" required>
+              </div>
+              <div class="form-field">
+                <label for="current-title">Current title</label>
+                <input id="current-title" name="current_title" type="text" required>
+              </div>
+              <div class="form-field">
+                <label for="years-experience">Years experience</label>
+                <input id="years-experience" name="years_experience" type="number" min="0" step="0.5" required>
+              </div>
+              <div class="form-field">
+                <label for="target-seniority">Target seniority</label>
+                <select id="target-seniority" name="target_seniority" required></select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="onboarding-step" data-individual-step="2" hidden>
+          <div class="onboarding-step-head">
+            <h3>Target markets and roles</h3>
+            <p>Select the countries and role families you want prioritized in your first dashboard view.</p>
+          </div>
+          <div class="onboarding-card">
+            <h4 class="onboarding-card-title">Target countries</h4>
+            <div class="check-grid onboarding-check-grid" id="individual-countries"></div>
+          </div>
+          <div class="onboarding-card">
+            <h4 class="onboarding-card-title">Role families</h4>
+            <div class="check-grid onboarding-check-grid" id="individual-role-families"></div>
+          </div>
+        </section>
+
+        <section class="onboarding-step" data-individual-step="3" hidden>
+          <div class="onboarding-step-head">
+            <h3>Preferences and review</h3>
+            <p>Add optional details now, or finish setup and refine them later from Profile.</p>
+          </div>
+          <div class="onboarding-review-grid">
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label for="preferred-work-mode">Work mode</label>
+                <select id="preferred-work-mode" name="preferred_work_mode">
+                  <option value="">Any</option>
+                  <option value="remote">Remote</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="onsite">On-site</option>
+                </select>
+              </div>
+            </div>
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label for="salary-min-usd">Minimum salary USD</label>
+                <input id="salary-min-usd" name="salary_min_usd" type="number" min="0" step="1000">
+              </div>
+            </div>
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label for="linkedin-url">LinkedIn URL</label>
+                <input id="linkedin-url" name="linkedin_url" type="url">
+              </div>
+            </div>
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label for="resume-url">Resume URL</label>
+                <input id="resume-url" name="resume_url" type="url">
+              </div>
+            </div>
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label><input id="visa-needed" name="visa_needed" type="checkbox" checked> Visa sponsorship needed</label>
+              </div>
+            </div>
+          </div>
+        </section>
+      </form>
+
+      <form id="agency-form" hidden>
+        <section class="onboarding-step" data-agency-step="1">
+          <div class="onboarding-step-head">
+            <h3>Agency basics</h3>
+            <p>Set up a lightweight profile for market research, recruiting, or data workflows.</p>
+          </div>
+          <div class="onboarding-card">
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="agency-name">Agency/company name</label>
+                <input id="agency-name" name="agency_name" type="text" required>
+              </div>
+              <div class="form-field">
+                <label for="agency-type">Agency type</label>
+                <select id="agency-type" name="agency_type" required>
+                  <option value="recruiting_agency">Recruiting agency</option>
+                  <option value="lead_gen_agency">Lead-gen agency</option>
+                  <option value="immigration_consultancy">Immigration consultancy</option>
+                  <option value="career_services">Career services</option>
+                  <option value="market_research">Market research</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-field full">
+                <label for="agency-use-case">Use case</label>
+                <select id="agency-use-case" name="use_case" required>
+                  <option value="recruiting">Recruiting</option>
+                  <option value="lead_generation">Lead generation</option>
+                  <option value="visa_market_research">Visa market research</option>
+                  <option value="talent_intelligence">Talent intelligence</option>
+                  <option value="job_data_integration">Job data integration</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="onboarding-step" data-agency-step="2" hidden>
+          <div class="onboarding-step-head">
+            <h3>Market coverage</h3>
+            <p>Choose the countries and role categories your workflow should focus on.</p>
+          </div>
+          <div class="onboarding-card">
+            <h4 class="onboarding-card-title">Target countries</h4>
+            <div class="check-grid onboarding-check-grid" id="agency-countries"></div>
+          </div>
+          <div class="onboarding-card">
+            <h4 class="onboarding-card-title">Role families</h4>
+            <div class="check-grid onboarding-check-grid" id="agency-role-families"></div>
+          </div>
+        </section>
+
+        <section class="onboarding-step" data-agency-step="3" hidden>
+          <div class="onboarding-step-head">
+            <h3>Data preferences</h3>
+            <p>These optional details help shape future agency and integration features.</p>
+          </div>
+          <div class="onboarding-review-grid">
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label for="integration-interest">Integration interest</label>
+                <select id="integration-interest" name="integration_interest">
+                  <option value="none">None</option>
+                  <option value="zapier">Zapier</option>
+                  <option value="make">Make</option>
+                  <option value="clay">Clay</option>
+                  <option value="airtable">Airtable</option>
+                  <option value="google_sheets">Google Sheets</option>
+                  <option value="crm">CRM</option>
+                  <option value="api">API</option>
+                  <option value="webhook">Webhook</option>
+                </select>
+              </div>
+            </div>
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label for="monthly-data-volume">Monthly data volume</label>
+                <input id="monthly-data-volume" name="monthly_data_volume" type="text">
+              </div>
+            </div>
+            <div class="onboarding-card compact">
+              <div class="form-field">
+                <label for="target-markets">Target markets</label>
+                <textarea id="target-markets" name="target_markets" placeholder="SaaS, GTM tools, RevOps agencies"></textarea>
+              </div>
+            </div>
+          </div>
+        </section>
+      </form>
+
+      <div class="onboarding-actions">
+        <button class="secondary-btn" id="onboarding-back-btn" type="button">Back</button>
+        <div class="onboarding-actions-main">
+          <button class="primary-btn" id="onboarding-next-btn" type="button">Continue</button>
+          <button class="primary-btn" id="onboarding-finish-btn" type="button" hidden>Finish setup</button>
+        </div>
       </div>
-      <div class="form-field">
-        <label for="agency-type">Agency type</label>
-        <select id="agency-type" name="agency_type" required>
-          <option value="recruiting_agency">Recruiting agency</option>
-          <option value="lead_gen_agency">Lead-gen agency</option>
-          <option value="immigration_consultancy">Immigration consultancy</option>
-          <option value="career_services">Career services</option>
-          <option value="market_research">Market research</option>
-          <option value="other">Other</option>
-        </select>
-      </div>
-      <div class="form-field">
-        <label for="agency-use-case">Use case</label>
-        <select id="agency-use-case" name="use_case" required>
-          <option value="recruiting">Recruiting</option>
-          <option value="lead_generation">Lead generation</option>
-          <option value="visa_market_research">Visa market research</option>
-          <option value="talent_intelligence">Talent intelligence</option>
-          <option value="job_data_integration">Job data integration</option>
-          <option value="other">Other</option>
-        </select>
-      </div>
-      <div class="form-field">
-        <label for="integration-interest">Integration interest</label>
-        <select id="integration-interest" name="integration_interest">
-          <option value="none">None</option>
-          <option value="zapier">Zapier</option>
-          <option value="make">Make</option>
-          <option value="clay">Clay</option>
-          <option value="airtable">Airtable</option>
-          <option value="google_sheets">Google Sheets</option>
-          <option value="crm">CRM</option>
-          <option value="api">API</option>
-          <option value="webhook">Webhook</option>
-        </select>
-      </div>
-      <div class="form-field">
-        <label for="monthly-data-volume">Monthly data volume</label>
-        <input id="monthly-data-volume" name="monthly_data_volume" type="text">
-      </div>
-      <div class="form-field full">
-        <span class="choice-label">Target countries</span>
-        <div class="check-grid" id="agency-countries"></div>
-      </div>
-      <div class="form-field full">
-        <span class="choice-label">Role families</span>
-        <div class="check-grid" id="agency-role-families"></div>
-      </div>
-      <div class="form-field full">
-        <label for="target-markets">Target markets</label>
-        <textarea id="target-markets" name="target_markets" placeholder="SaaS, GTM tools, RevOps agencies"></textarea>
-      </div>
+      <div class="form-message" id="onboarding-message"></div>
     </div>
-    <div class="form-actions">
-      <button class="primary-btn" type="submit">Save profile</button>
-    </div>
-  </form>
-  <div class="form-message" id="onboarding-message"></div>
+  </div>
 </section>
 
 <section class="profile-panel" id="profile-panel" hidden>
@@ -1293,6 +1439,7 @@ let ME = null;
 let USER_JOBS = new Map();
 let AUTH_MODE = 'login';
 let ONBOARDING_ACCOUNT_TYPE = 'individual';
+let ONBOARDING_STEP = 0;
 let TURNSTILE_SITE_KEY = '';
 let SUPABASE_URL = '';
 let SUPABASE_PUBLISHABLE_KEY = '';
@@ -2902,13 +3049,133 @@ function buildOnboardingOptions() {
   document.getElementById('profile-target-seniority').innerHTML = seniorityOptions;
 }
 
+const ONBOARDING_STEP_LABELS = {
+  individual: ['Use case', 'Basics', 'Targets', 'Preferences'],
+  agency: ['Use case', 'Basics', 'Markets', 'Data']
+};
+
+const ONBOARDING_ASIDE_COPY = {
+  individual: [
+    ['Start with the path that fits you', 'The personal job-search setup is tuned for relocation-friendly technology roles. Agency and data use stays available for broader market workflows.'],
+    ['Keep the profile practical', 'Use your current title and target level so the tracker can start from realistic matches.'],
+    ['Prioritize the right feed', 'Countries and role families become your default filters after setup.'],
+    ['Finish with useful defaults', 'Visa and work-mode preferences help keep the first dashboard view aligned with your search.']
+  ],
+  agency: [
+    ['Start with the path that fits you', 'Agency setup keeps the workflow lightweight while preserving access to market coverage and integration interest.'],
+    ['Describe the organization', 'Use this profile for recruiting, lead generation, market research, or data workflows.'],
+    ['Set market coverage', 'Countries and role families define the parts of the job market you want to inspect first.'],
+    ['Capture data needs', 'Optional integration details help shape future agency features without blocking setup.']
+  ]
+};
+
+function onboardingStepCount() {
+  return ONBOARDING_STEP_LABELS[ONBOARDING_ACCOUNT_TYPE]?.length || 4;
+}
+
+function clampOnboardingStep(step) {
+  return Math.max(0, Math.min(step, onboardingStepCount() - 1));
+}
+
+function renderOnboardingProgress() {
+  const labels = ONBOARDING_STEP_LABELS[ONBOARDING_ACCOUNT_TYPE] || ONBOARDING_STEP_LABELS.individual;
+  const progress = document.getElementById('onboarding-progress');
+  if (!progress) return;
+  progress.innerHTML = labels.map((label, index) => {
+    const state = index < ONBOARDING_STEP ? 'complete' : index === ONBOARDING_STEP ? 'active' : '';
+    return `<div class="onboarding-progress-step ${state}" aria-current="${index === ONBOARDING_STEP ? 'step' : 'false'}">${escapeHTML(label)}</div>`;
+  }).join('');
+}
+
+function syncOnboardingAside() {
+  const copy = ONBOARDING_ASIDE_COPY[ONBOARDING_ACCOUNT_TYPE]?.[ONBOARDING_STEP] || ONBOARDING_ASIDE_COPY.individual[0];
+  document.getElementById('onboarding-aside-title').textContent = copy[0];
+  document.getElementById('onboarding-aside-copy').textContent = copy[1];
+}
+
+function showOnboardingStep(step = ONBOARDING_STEP) {
+  ONBOARDING_STEP = clampOnboardingStep(step);
+  const isUseCase = ONBOARDING_STEP === 0;
+  document.getElementById('onboarding-use-case').hidden = !isUseCase;
+  document.getElementById('individual-form').hidden = isUseCase || ONBOARDING_ACCOUNT_TYPE !== 'individual';
+  document.getElementById('agency-form').hidden = isUseCase || ONBOARDING_ACCOUNT_TYPE !== 'agency';
+
+  document.querySelectorAll('[data-individual-step]').forEach(section => {
+    section.hidden = ONBOARDING_ACCOUNT_TYPE !== 'individual' || Number(section.dataset.individualStep) !== ONBOARDING_STEP;
+  });
+  document.querySelectorAll('[data-agency-step]').forEach(section => {
+    section.hidden = ONBOARDING_ACCOUNT_TYPE !== 'agency' || Number(section.dataset.agencyStep) !== ONBOARDING_STEP;
+  });
+
+  const isFinal = ONBOARDING_STEP === onboardingStepCount() - 1;
+  document.getElementById('onboarding-back-btn').hidden = ONBOARDING_STEP === 0;
+  document.getElementById('onboarding-next-btn').hidden = isFinal;
+  document.getElementById('onboarding-finish-btn').hidden = !isFinal;
+  renderOnboardingProgress();
+  syncOnboardingAside();
+}
+
+function onboardingValue(id) {
+  return String(document.getElementById(id)?.value || '').trim();
+}
+
+function validateOnboardingStep(step = ONBOARDING_STEP) {
+  if (step === 0) return true;
+
+  if (ONBOARDING_ACCOUNT_TYPE === 'individual') {
+    if (step === 1) {
+      const fullName = knownFullName() || onboardingValue('individual-name');
+      const years = Number(onboardingValue('years-experience'));
+      if (!fullName) return setOnboardingValidationError('Add your full name to continue.');
+      if (!onboardingValue('current-title')) return setOnboardingValidationError('Add your current title to continue.');
+      if (!Number.isFinite(years) || years < 0) return setOnboardingValidationError('Add a valid years-of-experience value to continue.');
+      if (!onboardingValue('target-seniority')) return setOnboardingValidationError('Choose your target seniority to continue.');
+    }
+    if (step === 2) {
+      if (!checkedValues('individual-countries').length) return setOnboardingValidationError('Choose at least one target country.');
+      if (!checkedValues('individual-role-families').length) return setOnboardingValidationError('Choose at least one role family.');
+    }
+  }
+
+  if (ONBOARDING_ACCOUNT_TYPE === 'agency') {
+    if (step === 1) {
+      if (!onboardingValue('agency-name')) return setOnboardingValidationError('Add your agency or company name to continue.');
+      if (!onboardingValue('agency-type')) return setOnboardingValidationError('Choose an agency type to continue.');
+      if (!onboardingValue('agency-use-case')) return setOnboardingValidationError('Choose a use case to continue.');
+    }
+    if (step === 2) {
+      if (!checkedValues('agency-countries').length) return setOnboardingValidationError('Choose at least one target country.');
+      if (!checkedValues('agency-role-families').length) return setOnboardingValidationError('Choose at least one role family.');
+    }
+  }
+
+  setMessage('onboarding-message', '');
+  return true;
+}
+
+function setOnboardingValidationError(message) {
+  setMessage('onboarding-message', message, true);
+  return false;
+}
+
+function advanceOnboardingStep(direction) {
+  if (direction > 0 && !validateOnboardingStep()) return;
+  setMessage('onboarding-message', '');
+  showOnboardingStep(ONBOARDING_STEP + direction);
+}
+
+function submitActiveOnboardingForm() {
+  if (!validateOnboardingStep()) return;
+  const form = document.getElementById(ONBOARDING_ACCOUNT_TYPE === 'agency' ? 'agency-form' : 'individual-form');
+  form?.requestSubmit();
+}
+
 async function selectAccountType(accountType, persist = true) {
   ONBOARDING_ACCOUNT_TYPE = accountType;
   document.getElementById('choose-individual').classList.toggle('active', accountType === 'individual');
   document.getElementById('choose-agency').classList.toggle('active', accountType === 'agency');
-  document.getElementById('individual-form').hidden = accountType !== 'individual';
-  document.getElementById('agency-form').hidden = accountType !== 'agency';
   syncIndividualNameField();
+  showOnboardingStep(0);
   setMessage('onboarding-message', '');
   if (!persist) return;
   try {
@@ -3135,9 +3402,17 @@ function wireAuthHandlers() {
 
   document.getElementById('choose-individual').onclick = () => selectAccountType('individual');
   document.getElementById('choose-agency').onclick = () => selectAccountType('agency');
+  document.getElementById('onboarding-back-btn').onclick = () => advanceOnboardingStep(-1);
+  document.getElementById('onboarding-next-btn').onclick = () => advanceOnboardingStep(1);
+  document.getElementById('onboarding-finish-btn').onclick = submitActiveOnboardingForm;
 
   document.getElementById('individual-form').onsubmit = async (e) => {
     e.preventDefault();
+    if (ONBOARDING_STEP < onboardingStepCount() - 1) {
+      advanceOnboardingStep(1);
+      return;
+    }
+    if (!validateOnboardingStep()) return;
     const form = new FormData(e.currentTarget);
     const payload = {
       full_name: form.get('full_name'),
@@ -3166,6 +3441,11 @@ function wireAuthHandlers() {
 
   document.getElementById('agency-form').onsubmit = async (e) => {
     e.preventDefault();
+    if (ONBOARDING_STEP < onboardingStepCount() - 1) {
+      advanceOnboardingStep(1);
+      return;
+    }
+    if (!validateOnboardingStep()) return;
     const form = new FormData(e.currentTarget);
     const payload = {
       agency_name: form.get('agency_name'),
