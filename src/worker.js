@@ -692,12 +692,19 @@ const ANON_SESSION_COOKIE = "lji_session";
 const ANON_SESSION_TTL_DAYS = 365;
 const TRACKABLE_EVENTS = new Set(["job_view", "search", "page_view"]);
 
-function jsonResponse(data, init = {}, supabaseContext = null) {
-  const headers = new Headers(init.headers || {});
-  headers.set("Content-Type", "application/json");
+function applySupabaseHeaders(headers, supabaseContext) {
+  for (const [key, value] of supabaseContext?.responseHeaders || []) {
+    headers.set(key, value);
+  }
   for (const cookie of supabaseContext?.cookieHeaders || []) {
     headers.append("Set-Cookie", cookie);
   }
+}
+
+function jsonResponse(data, init = {}, supabaseContext = null) {
+  const headers = new Headers(init.headers || {});
+  headers.set("Content-Type", "application/json");
+  applySupabaseHeaders(headers, supabaseContext);
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
@@ -707,9 +714,7 @@ function errorResponse(status, message, supabaseContext = null) {
 
 function redirectResponse(location, status = 303, supabaseContext = null) {
   const headers = new Headers({ Location: location });
-  for (const cookie of supabaseContext?.cookieHeaders || []) {
-    headers.append("Set-Cookie", cookie);
-  }
+  applySupabaseHeaders(headers, supabaseContext);
   return new Response(null, { status, headers });
 }
 
@@ -966,27 +971,31 @@ function hasAuthMaterial(request) {
 
 function createSupabaseContext(request, env) {
   if (env.SUPABASE_CLIENT) {
-    return { supabase: env.SUPABASE_CLIENT, cookieHeaders: [] };
+    return { supabase: env.SUPABASE_CLIENT, cookieHeaders: [], responseHeaders: new Headers() };
   }
   if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
     throw new Error("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required for account routes");
   }
 
   const cookieHeaders = [];
+  const responseHeaders = new Headers({ "Cache-Control": "private, no-store" });
   const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
     cookies: {
       getAll() {
         return parseCookieHeader(request.headers.get("Cookie") || "");
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, cacheHeaders = {}) {
         for (const { name, value, options } of cookiesToSet) {
           cookieHeaders.push(serializeCookieHeader(name, value, options));
+        }
+        for (const [key, value] of Object.entries(cacheHeaders)) {
+          responseHeaders.set(key, value);
         }
       }
     }
   });
 
-  return { supabase, cookieHeaders };
+  return { supabase, cookieHeaders, responseHeaders };
 }
 
 async function requireUser(request, env) {
@@ -1023,11 +1032,12 @@ function buildUserDefaults(user, accountType = "individual") {
 }
 
 async function ensureAccountRows(supabase, user, accountType = "individual") {
-  await supabase
+  const userResult = await supabase
     .from("users")
     .upsert(buildUserDefaults(user, accountType), { onConflict: "id", ignoreDuplicates: true });
+  if (userResult.error) throw userResult.error;
 
-  await supabase
+  const accessResult = await supabase
     .from("account_access")
     .upsert({
       user_id: user.id,
@@ -1038,6 +1048,7 @@ async function ensureAccountRows(supabase, user, accountType = "individual") {
       export_enabled: accountType === "agency" ? "limited" : "none",
       rate_limit_tier: "free"
     }, { onConflict: "user_id", ignoreDuplicates: true });
+  if (accessResult.error) throw accessResult.error;
 }
 
 async function fetchMe(supabase, user) {
@@ -1230,12 +1241,16 @@ async function handleAuthCallback(request, env) {
     return redirectResponse(`${next}?auth_error=oauth_user_missing`, 303, context);
   }
 
-  await ensureAccountRows(context.supabase, data.user);
-  await context.supabase
-    .from("users")
-    .update({ last_login_at: new Date().toISOString(), email: data.user.email || "" })
-    .eq("id", data.user.id);
-  await recordActivity(context.supabase, data.user.id, "login_google");
+  try {
+    await ensureAccountRows(context.supabase, data.user);
+    await context.supabase
+      .from("users")
+      .update({ last_login_at: new Date().toISOString(), email: data.user.email || "" })
+      .eq("id", data.user.id);
+    await recordActivity(context.supabase, data.user.id, "login_google");
+  } catch {
+    return redirectResponse(`${next}?auth_error=account_setup_failed`, 303, context);
+  }
 
   return redirectResponse(next, 303, context);
 }
@@ -1357,6 +1372,41 @@ async function handleSettings(request, env) {
 
   await recordActivity(auth.context.supabase, auth.user.id, "settings_updated", "account", auth.user.id, { brand_theme: brandTheme });
   return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+}
+
+async function handleAgencyFeedback(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+
+  const payload = await readJSON(request);
+  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+
+  const message = cleanString(payload.message);
+  if (!message) return errorResponse(400, "message is required", auth.context);
+  if (message.length > 2000) return errorResponse(400, "message must be 2000 characters or fewer", auth.context);
+
+  const me = await fetchMe(auth.context.supabase, auth.user);
+  if (me.user?.account_type !== "agency" || !me.user?.onboarding_completed || !me.agency_profile) {
+    return errorResponse(403, "agency onboarding is required", auth.context);
+  }
+
+  const metadata = {
+    agency_type: me.agency_profile.agency_type || null,
+    use_case: me.agency_profile.use_case || null,
+    integration_interest: me.agency_profile.integration_interest || null,
+    monthly_data_volume: me.agency_profile.monthly_data_volume || null
+  };
+
+  const { error } = await auth.context.supabase.from("agency_feedback").insert({
+    user_id: auth.user.id,
+    agency_name: me.agency_profile.agency_name || null,
+    message,
+    metadata
+  });
+  if (error) return errorResponse(500, error.message, auth.context);
+
+  await recordActivity(auth.context.supabase, auth.user.id, "agency_feedback_submitted", "agency_feedback", auth.user.id, metadata);
+  return jsonResponse({ ok: true }, { status: 201 }, auth.context);
 }
 
 async function readJobsPayload(env) {
@@ -1491,7 +1541,7 @@ function renderSeoPage(path, summary) {
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
 .page { max-width: 1120px; margin: 0 auto; padding: 28px 22px 42px; }
-.top-nav, .footer-nav { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.top-nav, .footer-nav, .footer-contact { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
 .top-nav { justify-content: space-between; margin-bottom: 64px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 650; }
 .brand img { width: 36px; height: 36px; border-radius: 8px; }
@@ -1512,6 +1562,8 @@ h1 { max-width: 760px; font-size: clamp(36px, 7vw, 68px); line-height: 0.98; let
 .panel ul { margin: 0; padding-left: 18px; color: var(--muted); }
 .note { color: var(--muted); font-size: 13px; margin-top: 20px; }
 footer { border-top: 1px solid var(--border); margin-top: 44px; padding-top: 18px; color: var(--muted); }
+.footer-contact { margin-bottom: 10px; }
+.footer-contact strong { color: var(--text); }
 @media (max-width: 760px) { .top-nav { margin-bottom: 44px; } .stats, .grid { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -1544,6 +1596,11 @@ footer { border-top: 1px solid var(--border); margin-top: 44px; padding-top: 18p
   <p class="note">Visa-aware labels reflect company-level sponsorship history and hiring signals. They are prioritization heuristics, not sponsorship guarantees.</p>
 </main>
 <footer>
+  <div class="footer-contact">
+    <strong>Contact</strong>
+    <span>Business inquiries: <a href="mailto:business@livejobindex.com">business@livejobindex.com</a></span>
+    <span>General inquiries: <a href="mailto:hello@livejobindex.com">hello@livejobindex.com</a></span>
+  </div>
   <nav class="footer-nav" aria-label="Footer">
     <a href="/">Home</a>
     <a href="/privacy">Privacy</a>
@@ -1830,6 +1887,10 @@ export default {
 
     if (url.pathname === "/api/settings" && request.method === "PATCH") {
       return handleSettings(request, env);
+    }
+
+    if (url.pathname === "/api/agency-feedback" && request.method === "POST") {
+      return handleAgencyFeedback(request, env);
     }
 
     if (url.pathname === "/api/user-jobs" && request.method === "GET") {

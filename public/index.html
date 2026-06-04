@@ -201,9 +201,6 @@ body { margin: 0 auto; padding: 24px; background: var(--bg); color: var(--text);
 h1 { font-size: 24px; font-weight: 600; margin: 0 0 3px; letter-spacing: 0; }
 .subtitle { color: var(--text-secondary); font-size: 13px; margin: 0 0 5px; }
 .last-scan { color: var(--text-muted); font-size: 11px; margin: 0; opacity: 0.86; }
-.public-nav { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: -14px 0 22px 56px; }
-.public-nav a { color: var(--text-secondary); font-size: 13px; text-decoration: none; }
-.public-nav a:hover { color: var(--accent); }
 .theme-toggle { background: var(--panel); border: 0.5px solid var(--border); border-radius: 999px; padding: 0; width: 32px; height: 32px; font-size: 16px; cursor: pointer; color: var(--text); line-height: 1; transition: background 0.15s, border-color 0.15s; font-family: inherit; display: inline-flex; align-items: center; justify-content: center; }
 .theme-toggle:hover { background: var(--card-hover); border-color: var(--accent); }
 .brand-switcher { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 0.5px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text-muted); font-size: 11px; }
@@ -228,6 +225,15 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .setting-copy { color: var(--text-secondary); font-size: 12px; margin-top: 2px; }
 .settings-message { min-height: 16px; color: var(--text-secondary); font-size: 12px; }
 .settings-message.error { color: var(--danger); }
+
+.agency-banner { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr); gap: 14px; align-items: start; margin: 0 0 16px; padding: 14px; background: var(--panel); border: 0.5px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; box-shadow: var(--shadow-card); }
+.agency-banner-title { margin: 0 0 5px; font-size: 14px; font-weight: 600; color: var(--text); }
+.agency-banner-copy { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.agency-feedback-form { display: grid; gap: 8px; }
+.agency-feedback-form textarea { width: 100%; min-height: 74px; resize: vertical; border: 0.5px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg-soft); color: var(--text); font: inherit; font-size: 12px; }
+.agency-feedback-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.agency-feedback-message { min-height: 16px; color: var(--text-secondary); font-size: 12px; }
+.agency-feedback-message.error { color: var(--danger); }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
 .stat { background: var(--card); border: 0.5px solid var(--border); border-radius: 8px; padding: 10px 12px; box-shadow: var(--shadow-card); }
@@ -463,11 +469,14 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .job-card .card-line-3 .composite-cell { gap: 4px; flex: 1; min-width: 0; }
 .job-card .card-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .job-card .notes-mobile { color: var(--text-secondary); font-size: 12px; margin-top: 6px; line-height: 1.4; }
-.site-footer { margin: 22px 0 0; padding-top: 16px; border-top: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--text-secondary); font-size: 12px; }
+.site-footer { margin: 24px 0 0; padding: 16px 18px; border: 0.5px solid var(--border); border-radius: 10px; background: var(--panel); display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 16px 22px; align-items: start; color: var(--text-secondary); font-size: 12px; box-shadow: var(--shadow-card); }
 .site-footer a { color: var(--text-secondary); text-decoration: none; }
 .site-footer a:hover { color: var(--text); }
-.footer-brand { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.footer-links { display: flex; gap: 12px; flex-wrap: wrap; }
+.footer-brand { display: grid; gap: 10px; }
+.footer-brand-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.footer-contact { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; color: var(--text-secondary); }
+.footer-contact-title { color: var(--text); font-weight: 600; }
+.footer-links { display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 .social-links { display: flex; align-items: center; gap: 6px; }
 .social-link { width: 28px; height: 28px; border: 0.5px solid var(--border); border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); background: var(--panel); transition: color 0.15s, border-color 0.15s, background 0.15s; }
 .social-link:hover { color: var(--text); border-color: var(--accent); background: var(--card-hover); }
@@ -510,6 +519,9 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   .filter-bar { padding: 8px; }
   .filter-popup, .filter-popup.wide { min-width: min(280px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
   .stats { grid-template-columns: repeat(2, 1fr); }
+  .agency-banner { grid-template-columns: 1fr; }
+  .site-footer { grid-template-columns: 1fr; }
+  .footer-links { justify-content: flex-start; }
   .form-grid, .choice-row { grid-template-columns: 1fr; }
   .profile-head { flex-direction: column; }
   .profile-grid { grid-template-columns: 1fr; }
@@ -559,12 +571,6 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
     </div>
   </div>
 </div>
-
-<nav class="public-nav" aria-label="Product pages">
-  <a href="/visa-roles">Visa Roles</a>
-  <a href="/pipeline">My Pipeline</a>
-  <a href="/insights">Market Insights</a>
-</nav>
 
 <div class="auth-modal" id="auth-modal" hidden>
 <section class="auth-panel" id="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title" hidden>
@@ -930,11 +936,26 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 </section>
 
 <main id="dashboard" hidden>
+<section class="agency-banner" id="agency-banner" hidden>
+  <div>
+    <h2 class="agency-banner-title">Agency tools are coming soon</h2>
+    <p class="agency-banner-copy">API access, integrations, lead-generation workflows, data exports, and research/scraping support for Live Job Index data are planned. Some options may use API keys or connected tools.</p>
+  </div>
+  <form class="agency-feedback-form" id="agency-feedback-form">
+    <textarea id="agency-feedback-message" name="message" maxlength="2000" placeholder="Share a feature request, integration need, or workflow idea..." required></textarea>
+    <div class="agency-feedback-actions">
+      <button class="secondary-btn" type="submit">Send feedback</button>
+      <span class="agency-feedback-message" id="agency-feedback-status"></span>
+    </div>
+  </form>
+</section>
 <nav class="tabs" id="tabs">
-  <button class="tab active" data-tab="active">Live jobs <span class="count" id="count-active">—</span></button>
-  <button class="tab" data-tab="targets">Targets <span class="count" id="count-targets">—</span></button>
-  <button class="tab" data-tab="pipeline">My pipeline <span class="count" id="count-pipeline">—</span></button>
-  <button class="tab" data-tab="archive">Archive <span class="count" id="count-archive">—</span></button>
+  <button class="tab" type="button" data-route="/visa-roles">Visa Roles</button>
+  <button class="tab active" type="button" data-tab="active">Live jobs <span class="count" id="count-active">—</span></button>
+  <button class="tab" type="button" data-tab="targets">Targets <span class="count" id="count-targets">—</span></button>
+  <button class="tab" type="button" data-tab="pipeline">My pipeline <span class="count" id="count-pipeline">—</span></button>
+  <button class="tab" type="button" data-tab="archive">Archive <span class="count" id="count-archive">—</span></button>
+  <button class="tab" type="button" data-route="/insights">Market Insights</button>
 </nav>
 
 <div class="stats" id="stats"></div>
@@ -1035,21 +1056,28 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 
 <footer class="site-footer">
   <div class="footer-brand">
-    <span>Live Job Index operated by Sohaib Kazmi.</span>
-    <nav class="social-links" aria-label="Sohaib Kazmi social links">
-      <a class="social-link" href="https://www.linkedin.com/in/sohaibkazmi/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.58c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.95v5.67H9.34V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.61 0 4.27 2.37 4.27 5.46v6.28ZM5.32 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12Zm1.78 13.02H3.54V9H7.1v11.45ZM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0Z"/></svg>
-      </a>
-      <a class="social-link" href="https://x.com/rumi_kaz" target="_blank" rel="noopener noreferrer" aria-label="X">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.4l-5.8-7.58-6.63 7.58H.48l8.6-9.83L0 1.15h7.59l5.24 6.93 6.07-6.93Zm-1.29 20.5h2.04L6.49 2.99H4.3l13.61 18.66Z"/></svg>
-      </a>
-      <a class="social-link" href="https://www.instagram.com/sohaibkazmi.r/" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.22.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.05.41 2.22.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.22-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.05.36-2.22.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.22-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.05-.41-2.22-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.22.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.05-.36 2.22-.41 1.27-.06 1.65-.07 4.85-.07ZM12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.91.33 4.14.63a5.88 5.88 0 0 0-2.13 1.38A5.88 5.88 0 0 0 .63 4.14c-.3.77-.5 1.64-.56 2.91C.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.14.56 2.91.31.8.72 1.48 1.38 2.13.65.66 1.33 1.07 2.13 1.38.77.3 1.64.5 2.91.56 1.28.06 1.69.07 4.95.07s3.67-.01 4.95-.07c1.27-.06 2.14-.26 2.91-.56.8-.31 1.48-.72 2.13-1.38.66-.65 1.07-1.33 1.38-2.13.3-.77.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.14-.56-2.91a5.88 5.88 0 0 0-1.38-2.13A5.88 5.88 0 0 0 19.86.63c-.77-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0Zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32Zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm7.85-10.4a1.44 1.44 0 1 1-2.88 0 1.44 1.44 0 0 1 2.88 0Z"/></svg>
-      </a>
-      <a class="social-link" href="mailto:sohaibkazmi.w@gmail.com" aria-label="Email">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2Zm-.4 4.25-7.07 4.42a1 1 0 0 1-1.06 0L4.4 8.25a1 1 0 1 1 1.06-1.7L12 10.64l6.54-4.09a1 1 0 1 1 1.06 1.7Z"/></svg>
-      </a>
-    </nav>
+    <div class="footer-brand-row">
+      <span>Live Job Index operated by Sohaib Kazmi.</span>
+      <nav class="social-links" aria-label="Sohaib Kazmi social links">
+        <a class="social-link" href="https://www.linkedin.com/in/sohaibkazmi/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.58c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.95v5.67H9.34V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.61 0 4.27 2.37 4.27 5.46v6.28ZM5.32 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12Zm1.78 13.02H3.54V9H7.1v11.45ZM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0Z"/></svg>
+        </a>
+        <a class="social-link" href="https://x.com/rumi_kaz" target="_blank" rel="noopener noreferrer" aria-label="X">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.4l-5.8-7.58-6.63 7.58H.48l8.6-9.83L0 1.15h7.59l5.24 6.93 6.07-6.93Zm-1.29 20.5h2.04L6.49 2.99H4.3l13.61 18.66Z"/></svg>
+        </a>
+        <a class="social-link" href="https://www.instagram.com/sohaibkazmi.r/" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.22.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.05.41 2.22.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.22-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.05.36-2.22.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.22-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.05-.41-2.22-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.22.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.05-.36 2.22-.41 1.27-.06 1.65-.07 4.85-.07ZM12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.91.33 4.14.63a5.88 5.88 0 0 0-2.13 1.38A5.88 5.88 0 0 0 .63 4.14c-.3.77-.5 1.64-.56 2.91C.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.14.56 2.91.31.8.72 1.48 1.38 2.13.65.66 1.33 1.07 2.13 1.38.77.3 1.64.5 2.91.56 1.28.06 1.69.07 4.95.07s3.67-.01 4.95-.07c1.27-.06 2.14-.26 2.91-.56.8-.31 1.48-.72 2.13-1.38.66-.65 1.07-1.33 1.38-2.13.3-.77.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.14-.56-2.91a5.88 5.88 0 0 0-1.38-2.13A5.88 5.88 0 0 0 19.86.63c-.77-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0Zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32Zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm7.85-10.4a1.44 1.44 0 1 1-2.88 0 1.44 1.44 0 0 1 2.88 0Z"/></svg>
+        </a>
+        <a class="social-link" href="mailto:hello@livejobindex.com" aria-label="Email">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2Zm-.4 4.25-7.07 4.42a1 1 0 0 1-1.06 0L4.4 8.25a1 1 0 1 1 1.06-1.7L12 10.64l6.54-4.09a1 1 0 1 1 1.06 1.7Z"/></svg>
+        </a>
+      </nav>
+    </div>
+    <div class="footer-contact">
+      <span class="footer-contact-title">Contact</span>
+      <span>Business inquiries: <a href="mailto:business@livejobindex.com">business@livejobindex.com</a></span>
+      <span>General inquiries: <a href="mailto:hello@livejobindex.com">hello@livejobindex.com</a></span>
+    </div>
   </div>
   <nav class="footer-links" aria-label="Legal links">
     <a href="https://livejobindex.com/">Home</a>
@@ -1271,7 +1299,7 @@ let PENDING_PAGE = null;
 let PAGE_ACCESS_VERIFIED = false;
 let ACTIVE_REFRESH_TIMER = null;
 let PROFILE_FILTERS_APPLIED = false;
-const APP_ROUTES = new Set(['/', '/profile', '/onboarding', '/pipeline', '/insights']);
+const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
 
@@ -1991,7 +2019,10 @@ function renderTabs() {
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
   document.getElementById('count-archive').textContent = buckets.archive;
   document.querySelectorAll('.tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.tab === state.tab);
+    const route = t.dataset.route;
+    const routeActive = route === CURRENT_ROUTE;
+    const bucketActive = !route && t.dataset.tab === state.tab && CURRENT_ROUTE !== '/visa-roles' && CURRENT_ROUTE !== '/insights';
+    t.classList.toggle('active', routeActive || bucketActive);
     if (t.dataset.tab === 'targets') t.style.display = ME?.user ? '' : 'none';
   });
 }
@@ -2259,10 +2290,23 @@ function wireStaticHandlers() {
   // Tabs
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => {
+      if (t.dataset.route) {
+        navigateTo(t.dataset.route);
+        return;
+      }
       if (!ME?.user && (t.dataset.tab === 'pipeline' || t.dataset.tab === 'archive')) {
         AUTH_MODE = 'login';
         showAuth('Sign in or create an account to manage your pipeline.');
         return;
+      }
+      if (t.dataset.tab === 'pipeline') {
+        navigateTo('/pipeline');
+        return;
+      }
+      if (CURRENT_ROUTE !== '/') {
+        window.history.pushState({}, '', '/');
+        CURRENT_ROUTE = '/';
+        trackPageView('/');
       }
       state.tab = t.dataset.tab;
       resetPage();
@@ -2353,6 +2397,14 @@ function setMessage(id, message, isError = false) {
   el.classList.toggle('error', Boolean(isError));
 }
 
+function syncAgencyBanner() {
+  const banner = document.getElementById('agency-banner');
+  if (!banner) return;
+  const shouldShow = ME?.user?.account_type === 'agency' && ME.user.onboarding_completed;
+  banner.hidden = !shouldShow;
+  if (!shouldShow) setMessage('agency-feedback-status', '');
+}
+
 async function setBrandTheme(theme, persist = false) {
   if (!VALID_BRAND_THEMES.has(theme)) theme = DEFAULT_BRAND_THEME;
   document.documentElement.dataset.brandTheme = theme;
@@ -2424,12 +2476,13 @@ function hideAuth() {
   updateAuthTabs();
 }
 
-function showPublicDashboard() {
+function showPublicDashboard(route = '/') {
   hideAuth();
-  CURRENT_ROUTE = '/';
+  CURRENT_ROUTE = route;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
+  syncAgencyBanner();
   document.getElementById('account-pill').hidden = true;
   document.getElementById('profile-menu').hidden = true;
   document.getElementById('logout-btn').hidden = true;
@@ -2482,6 +2535,7 @@ function showDashboard(route = '/') {
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
+  syncAgencyBanner();
   document.getElementById('logout-btn').hidden = false;
   document.getElementById('header-login-btn').hidden = true;
   document.getElementById('header-signup-btn').hidden = true;
@@ -2687,18 +2741,18 @@ async function applyRoute() {
   CURRENT_ROUTE = routeFromPath(window.location.pathname);
   syncAuthRouteLinks();
 
-  if (CURRENT_ROUTE === '/') {
+  if (CURRENT_ROUTE === '/' || CURRENT_ROUTE === '/visa-roles') {
     if (ME?.user?.onboarding_completed) {
       await loadUserJobs().catch(() => {});
       applyProfileFiltersOnce();
       state.sort = 'first_seen'; state.dir = 'desc';
       document.getElementById('sort-select').value = 'first_seen|desc';
-      showDashboard();
+      showDashboard(CURRENT_ROUTE);
       render();
     } else if (ME?.user) {
       navigateTo('/onboarding', true);
     } else {
-      showPublicDashboard();
+      showPublicDashboard(CURRENT_ROUTE);
       render();
     }
     return;
@@ -2841,7 +2895,8 @@ function readAuthError() {
     google_oauth_unavailable: 'Google sign-in is unavailable right now. Try email sign-in or try again shortly.',
     missing_code: 'Google sign-in did not return a valid login code. Try again.',
     oauth_exchange_failed: 'Google sign-in could not be completed. Try again.',
-    oauth_user_missing: 'Google sign-in completed, but the account session could not be loaded.'
+    oauth_user_missing: 'Google sign-in completed, but the account session could not be loaded.',
+    account_setup_failed: 'Google sign-in completed, but account setup failed. Try again shortly.'
   };
   return messages[code] || 'Sign-in could not be completed. Try again.';
 }
@@ -3050,6 +3105,28 @@ function wireAuthHandlers() {
       setMessage('profile-message', 'Profile saved.');
     } catch (err) {
       setMessage('profile-message', err.message, true);
+    }
+  };
+
+  document.getElementById('agency-feedback-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const textarea = document.getElementById('agency-feedback-message');
+    const message = textarea.value.trim();
+    if (!message) {
+      setMessage('agency-feedback-status', 'Add a note first.', true);
+      textarea.focus();
+      return;
+    }
+    try {
+      setMessage('agency-feedback-status', 'Saving...');
+      await api('/api/agency-feedback', {
+        method: 'POST',
+        body: JSON.stringify({ message })
+      });
+      textarea.value = '';
+      setMessage('agency-feedback-status', 'Thanks. Feedback saved.');
+    } catch (err) {
+      setMessage('agency-feedback-status', err.message, true);
     }
   };
 

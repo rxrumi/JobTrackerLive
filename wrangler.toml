@@ -7,6 +7,9 @@ workers_dev = true
 binding = "KV"
 id = "8cf95c7c04054745bff09d88ea57d707"
 
+[[send_email]]
+name = "SEND_EMAIL"
+
 [triggers]
 crons = ["0 3 * * *"]
 

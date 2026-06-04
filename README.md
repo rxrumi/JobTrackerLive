@@ -850,6 +850,22 @@ npx wrangler secret put TURNSTILE_SITE_KEY
 npx wrangler secret put PAGE_ACCESS_SECRET
 ```
 
+Enable Cloudflare Email Sending for the production domain:
+
+```bash
+npx wrangler email sending enable livejobindex.com
+npx wrangler email sending dns get livejobindex.com
+```
+
+Confirm the required DNS records are present in Cloudflare, then verify the Worker dry run or deploy output lists `env.SEND_EMAIL` as a `Send Email` binding. The current Worker only configures the binding; it does not send email from scheduled scans, manual scans, or HTTP routes yet.
+
+Future email features should keep sender and recipient addresses in deployment env vars instead of hardcoding them:
+
+```bash
+FROM_EMAIL="jobs@livejobindex.com"
+DIGEST_TO_EMAIL="you@example.com"
+```
+
 For production OAuth redirects, keep the app origin as `https://livejobindex.com`. The Worker defaults to that value; set `APP_ORIGIN` only if deploying to a different canonical domain.
 
 Google Cloud Console branding URLs:
@@ -1009,7 +1025,7 @@ Use static entries for companies that are important but cannot be scanned reliab
 - Role matching is title-based; it does not inspect job descriptions.
 - `content=false` is used for Greenhouse, so description text is not fetched.
 - Theme is stored in browser `localStorage`.
-- There is no email digest yet.
+- Cloudflare Email Service is configured as a Worker binding, but there is no email digest yet.
 - KV is eventually consistent, so very recent writes may take a short time to appear everywhere.
 - The app is optimized for low personal usage, not high-volume public traffic.
 

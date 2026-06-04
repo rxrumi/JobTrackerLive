@@ -194,6 +194,8 @@ test("public SEO pillar routes render crawlable metadata from Worker", async () 
     assert.match(html, new RegExp(`<link rel="canonical" href="${canonical}">`));
     assert.match(html, /<script type="application\/ld\+json">/);
     assert.match(html, /visa-aware/i);
+    assert.match(html, /mailto:business@livejobindex\.com/);
+    assert.match(html, /mailto:hello@livejobindex\.com/);
     assert.doesNotMatch(html, /verified visa sponsorship/i);
   }
 });
@@ -203,17 +205,32 @@ test("homepage source exposes legal discovery links and structured data", () => 
 
   assert.match(html, /Live Job Index: Find Active Openings at Top Global Tech Companies/);
   assert.match(html, /Find real-time openings at the world's leading tech companies/);
-  assert.match(html, /<nav class="public-nav" aria-label="Product pages">/);
+  assert.doesNotMatch(html, /<nav class="public-nav" aria-label="Product pages">/);
+  assert.match(html, /<nav class="tabs" id="tabs">/);
   assert.doesNotMatch(html, /<a href="\/jobs">Live Jobs<\/a>/);
-  assert.match(html, /href="\/visa-roles"/);
-  assert.match(html, /href="\/pipeline"/);
-  assert.match(html, /href="\/insights"/);
+  assert.match(html, /data-route="\/visa-roles"/);
+  assert.match(html, /data-tab="pipeline"/);
+  assert.match(html, /data-route="\/insights"/);
+  assert.match(html, /Business inquiries: <a href="mailto:business@livejobindex\.com">business@livejobindex\.com<\/a>/);
+  assert.match(html, /General inquiries: <a href="mailto:hello@livejobindex\.com">hello@livejobindex\.com<\/a>/);
   assert.doesNotMatch(html, /verified visa sponsorship/i);
   assert.match(html, /rel="privacy-policy" href="https:\/\/livejobindex\.com\/privacy"/);
   assert.match(html, /rel="terms-of-service" href="https:\/\/livejobindex\.com\/terms"/);
   assert.match(html, /<script type="application\/ld\+json">/);
   assert.match(html, /"@type": "WebApplication"/);
   assert.match(html, /Tracking Methodology/);
+});
+
+test("legal page sources expose footer contact emails", () => {
+  const privacy = readFileSync(new URL("../public/privacy.html", import.meta.url), "utf8");
+  const terms = readFileSync(new URL("../public/terms.html", import.meta.url), "utf8");
+
+  for (const html of [privacy, terms]) {
+    assert.match(html, /mailto:business@livejobindex\.com/);
+    assert.match(html, /mailto:hello@livejobindex\.com/);
+    assert.match(html, /Business inquiries/);
+    assert.match(html, /General inquiries/);
+  }
 });
 
 test("sitemap source includes public SEO pillar routes", () => {
@@ -228,7 +245,7 @@ test("sitemap source includes public SEO pillar routes", () => {
 test("homepage source includes routed profile and onboarding handling", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/profile', '\/onboarding', '\/pipeline', '\/insights'\]\)/);
+  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/visa-roles', '\/profile', '\/onboarding', '\/pipeline', '\/insights'\]\)/);
   assert.match(html, /function applyRoute\(\)/);
   assert.match(html, /navigateTo\('\/profile'\)/);
   assert.doesNotMatch(html, /account-pill'\)\.onclick = showProfilePanel/);
@@ -426,6 +443,7 @@ function createSupabaseFake({ user, exchangeUser, exchangeError = null, oauthUrl
     user_jobs: [],
     user_activity: [],
     user_job_history: [],
+    agency_feedback: [],
     job_postings: [],
     job_snapshots: [],
     daily_scan_stats: [],
@@ -692,6 +710,143 @@ test("complete onboarding requires an individual profile for individual accounts
 
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error, "individual profile is required");
+});
+
+test("agency feedback requires authentication", async () => {
+  const response = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
+    method: "POST",
+    body: JSON.stringify({ message: "Add API exports." })
+  }), { KV: createKV() });
+
+  assert.equal(response.status, 401);
+});
+
+test("agency feedback rejects non-agency and incomplete accounts", async () => {
+  const individualUser = { id: "00000000-0000-4000-8000-000000000031", email: "individual@example.com" };
+  const incompleteAgencyUser = { id: "00000000-0000-4000-8000-000000000032", email: "agency@example.com" };
+  const individualFake = createSupabaseFake({
+    user: individualUser,
+    rows: {
+      users: [{ id: individualUser.id, email: individualUser.email, account_type: "individual", onboarding_completed: true }],
+      user_profiles: [{
+        user_id: individualUser.id,
+        full_name: "Individual User",
+        current_title: "Operator",
+        years_experience: 5,
+        target_role_families: ["Operations"],
+        target_seniority: "Manager",
+        target_countries: ["GB"]
+      }],
+      account_access: [{ user_id: individualUser.id, account_type: "individual", plan: "free" }]
+    }
+  });
+  const incompleteAgencyFake = createSupabaseFake({
+    user: incompleteAgencyUser,
+    rows: {
+      users: [{ id: incompleteAgencyUser.id, email: incompleteAgencyUser.email, account_type: "agency", onboarding_completed: false }],
+      agency_profiles: [{
+        user_id: incompleteAgencyUser.id,
+        agency_name: "Pipeline Studio",
+        agency_type: "lead_gen_agency",
+        use_case: "lead_generation",
+        integration_interest: "api",
+        target_role_families: ["Sales"],
+        target_countries: ["GB"]
+      }],
+      account_access: [{ user_id: incompleteAgencyUser.id, account_type: "agency", plan: "free" }]
+    }
+  });
+
+  const individualResponse = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ message: "Need an API." })
+  }), { KV: createKV(), SUPABASE_CLIENT: individualFake });
+  const incompleteResponse = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ message: "Need an API." })
+  }), { KV: createKV(), SUPABASE_CLIENT: incompleteAgencyFake });
+
+  assert.equal(individualResponse.status, 403);
+  assert.equal(incompleteResponse.status, 403);
+});
+
+test("agency feedback validates message length", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000033", email: "agency@example.com" };
+  const fake = createSupabaseFake({
+    user,
+    rows: {
+      users: [{ id: user.id, email: user.email, account_type: "agency", onboarding_completed: true }],
+      agency_profiles: [{
+        user_id: user.id,
+        agency_name: "Growth Desk",
+        agency_type: "lead_gen_agency",
+        use_case: "lead_generation",
+        integration_interest: "api",
+        target_role_families: ["Sales"],
+        target_countries: ["GB"]
+      }],
+      account_access: [{ user_id: user.id, account_type: "agency", plan: "free" }]
+    }
+  });
+
+  const blankResponse = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ message: "   " })
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  const longResponse = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ message: "x".repeat(2001) })
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(blankResponse.status, 400);
+  assert.equal((await blankResponse.json()).error, "message is required");
+  assert.equal(longResponse.status, 400);
+  assert.equal((await longResponse.json()).error, "message must be 2000 characters or fewer");
+});
+
+test("agency feedback saves completed agency feedback with profile metadata", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000034", email: "agency@example.com" };
+  const fake = createSupabaseFake({
+    user,
+    rows: {
+      users: [{ id: user.id, email: user.email, account_type: "agency", onboarding_completed: true }],
+      agency_profiles: [{
+        user_id: user.id,
+        agency_name: "Lead Forge",
+        agency_type: "lead_gen_agency",
+        use_case: "lead_generation",
+        integration_interest: "clay",
+        monthly_data_volume: "5000/month",
+        target_role_families: ["Sales"],
+        target_countries: ["GB"]
+      }],
+      account_access: [{ user_id: user.id, account_type: "agency", plan: "free" }]
+    }
+  });
+
+  const response = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: JSON.stringify({ message: "Please add API keys and Clay export support." })
+  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { ok: true });
+  const feedbackCall = fake.calls.find(item => item.table === "agency_feedback" && item.action === "insert");
+  assert.equal(feedbackCall.payload.user_id, user.id);
+  assert.equal(feedbackCall.payload.agency_name, "Lead Forge");
+  assert.equal(feedbackCall.payload.message, "Please add API keys and Clay export support.");
+  assert.deepEqual(feedbackCall.payload.metadata, {
+    agency_type: "lead_gen_agency",
+    use_case: "lead_generation",
+    integration_interest: "clay",
+    monthly_data_volume: "5000/month"
+  });
+  assert.ok(fake.calls.find(item => item.table === "user_activity" && item.action === "insert" && item.payload.event_type === "agency_feedback_submitted"));
 });
 
 test("me exposes signup full name from auth metadata", async () => {
