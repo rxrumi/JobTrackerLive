@@ -235,10 +235,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .stat-value { font-size: 20px; font-weight: 500; }
 .stat-value.text { font-size: 14px; line-height: 1.3; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; padding: 10px 12px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; padding: 10px 12px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
 .filter-bar > details { position: relative; }
-.filter-bar > details > summary { list-style: none; cursor: pointer; padding: 5px 12px; border: 0.5px solid var(--border); border-radius: 999px; font-size: 12px; user-select: none; background: var(--bg-soft); white-space: nowrap; transition: all 0.15s; color: var(--text); }
+.filter-bar > details > summary { list-style: none; cursor: pointer; padding: 9px 18px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; font-weight: 500; user-select: none; background: var(--bg-soft); white-space: nowrap; transition: all 0.15s; color: var(--text); position: relative; padding-right: 32px; }
 .filter-bar > details > summary::-webkit-details-marker { display: none; }
+.filter-bar > details > summary::after { content: "▼"; position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 9px; opacity: 0.6; }
+.filter-bar > details[open] > summary::after { opacity: 1; }
 .filter-bar > details > summary:hover { background: var(--card-hover); border-color: var(--accent); }
 .filter-bar > details[open] > summary { background: var(--accent); color: var(--button-primary-text); border-color: var(--accent); }
 .filter-bar > details > summary .badge-count { display: none; background: var(--button-primary-text); color: var(--accent); font-size: 10px; padding: 1px 6px; margin-left: 4px; border-radius: 999px; font-weight: 500; }
@@ -273,7 +275,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .search-clear:hover { color: var(--text); }
 .sort-select { padding: 7px 10px; border-radius: 8px; border: 0.5px solid var(--border); background: var(--panel); color: var(--text); font-size: 12px; cursor: pointer; font-family: inherit; }
 .results-count { color: var(--text-secondary); font-size: 12px; margin-left: auto; white-space: nowrap; }
-.reset { padding: 6px 12px; font-size: 12px; background: transparent; border: 0.5px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-family: inherit; }
+.reset { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; background: transparent; border: 0.5px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-family: inherit; }
 .reset:hover { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
 
 .pagination-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; color: var(--text-secondary); font-size: 12px; flex-wrap: wrap; }
@@ -910,17 +912,21 @@ tbody tr.is-filled .role { font-style: italic; }
 <div class="stats" id="stats"></div>
 
 <div class="filter-bar">
-  <details class="filter-dropdown" data-group="location">
-    <summary>Location <span class="badge-count" id="bc-location">0</span></summary>
-    <div class="filter-popup" id="filter-country"></div>
+  <details class="filter-dropdown" data-group="role">
+    <summary>Role <span class="badge-count" id="bc-role">0</span></summary>
+    <div class="filter-popup wide" id="filter-role"></div>
   </details>
-  <details class="filter-dropdown" data-group="role-experience">
-    <summary>Role &amp; Experience <span class="badge-count" id="bc-role-experience">0</span></summary>
-    <div class="filter-popup wide" id="filter-role-experience"></div>
+  <details class="filter-dropdown" data-group="experience">
+    <summary>Experience <span class="badge-count" id="bc-experience">0</span></summary>
+    <div class="filter-popup wide" id="filter-experience"></div>
   </details>
   <details class="filter-dropdown" data-group="eligibility">
     <summary>Eligibility <span class="badge-count" id="bc-eligibility">0</span></summary>
     <div class="filter-popup" id="filter-eligibility"></div>
+  </details>
+  <details class="filter-dropdown" data-group="location">
+    <summary>Location <span class="badge-count" id="bc-location">0</span></summary>
+    <div class="filter-popup" id="filter-country"></div>
   </details>
   <details class="filter-dropdown" data-group="quick">
     <summary>Quick Filters <span class="badge-count" id="bc-quick">0</span></summary>
@@ -935,14 +941,13 @@ tbody tr.is-filled .role { font-style: italic; }
   </div>
   <select class="sort-select" id="sort-select">
     <option value="first_seen|desc">Sort: Newest ↓</option>
-    <option value="score|desc">Sort: Score ↓</option>
-    <option value="score|asc">Sort: Score ↑</option>
+    <option value="first_seen|asc">Sort: Newest ↑</option>
     <option value="company|asc">Sort: Company A→Z</option>
     <option value="role|asc">Sort: Role A→Z</option>
     <option value="country|asc">Sort: Country</option>
     <option value="status|asc">Sort: Status</option>
   </select>
-  <button class="reset" id="reset-btn">Reset</button>
+  <button class="reset" id="reset-btn" aria-label="Clear all filters" title="Clear all filters">✕</button>
   <span class="results-count" id="results-count"></span>
 </div>
 
@@ -969,7 +974,6 @@ tbody tr.is-filled .role { font-style: italic; }
       <th data-sort="role">Role</th>
       <th data-sort="location">Location</th>
       <th>Signals</th>
-      <th data-sort="score" class="sorted">Score</th>
       <th>Action</th>
       <th data-col="notes">Notes</th>
       <th data-sort="status">Status</th>
@@ -1629,10 +1633,11 @@ function filterSection(title, items) {
 
 function renderFilterOptions(countryCounts = {}) {
   const countryEl = document.getElementById('filter-country');
-  const roleEl = document.getElementById('filter-role-experience');
+  const roleEl = document.getElementById('filter-role');
+  const experienceEl = document.getElementById('filter-experience');
   const eligibilityEl = document.getElementById('filter-eligibility');
   const quickEl = document.getElementById('filter-quick');
-  if (!countryEl || !roleEl || !eligibilityEl || !quickEl) return;
+  if (!countryEl || !roleEl || !experienceEl || !eligibilityEl || !quickEl) return;
 
   countryEl.innerHTML = '';
   Object.entries(COUNTRY_NAMES).sort((a, b) => {
@@ -1644,8 +1649,10 @@ function renderFilterOptions(countryCounts = {}) {
 
   roleEl.innerHTML = '';
   roleEl.appendChild(filterSection('Role family', ROLE_FAMILIES.map(f => filterOption('family', f, f))));
-  roleEl.appendChild(filterSection('Experience', SENIORITIES.map(s => filterOption('seniority', s, s))));
-  roleEl.appendChild(filterSection('Preference', [presetOption('senior', 'Senior+ only')]));
+
+  experienceEl.innerHTML = '';
+  experienceEl.appendChild(filterSection('Experience', SENIORITIES.map(s => filterOption('seniority', s, s))));
+  experienceEl.appendChild(filterSection('Preference', [presetOption('senior', 'Senior+ only')]));
 
   eligibilityEl.innerHTML = '';
   eligibilityEl.appendChild(filterSection('Visa level', [
@@ -1671,7 +1678,8 @@ function renderFilterOptions(countryCounts = {}) {
 function updateFilterBadges() {
   const counts = {
     location: state.country.size,
-    'role-experience': state.family.size + state.seniority.size + (state.presets.has('senior') ? 1 : 0),
+    role: state.family.size,
+    experience: state.seniority.size + (state.presets.has('senior') ? 1 : 0),
     eligibility: state.visa.size + (state.presets.has('strong-visa') ? 1 : 0),
     quick: state.tier.size + (state.presets.has('new') ? 1 : 0) + (state.presets.has('starred') ? 1 : 0)
   };
@@ -1859,7 +1867,6 @@ function rowHTML(j) {
     <td class="role">${j.role}</td>
     <td>${j.location}</td>
     <td>${compositeBadgesHTML(j)}</td>
-    <td><span class="score-cell">${scoreBarHTML(j.score)}<span class="score ${scoreClass}">${j.score}</span></span></td>
     <td>${applyButtonHTML(j)}</td>
     <td class="notes-cell" title="${j.notes || ''}">${note}</td>
     <td>${statusSelectHTML(j.id)}</td>
@@ -1880,7 +1887,7 @@ function cardHTML(j) {
         <span class="company-name">${j.company}</span>
         <span class="company-meta">${sourceBadge}${newBadge}${filledBadge}</span>
       </span>
-      <span class="score-cell">${scoreBarHTML(j.score)}<span class="score ${scoreClass}">${j.score}</span></span>
+      <span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>
     </div>
     <div class="card-line-2">${j.role}</div>
     <div class="card-line-3">
@@ -2037,7 +2044,7 @@ function wireStaticHandlers() {
     th.onclick = () => {
       const k = th.dataset.sort;
       if (state.sort === k) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
-      else { state.sort = k; state.dir = (k === 'score') ? 'desc' : 'asc'; }
+      else { state.sort = k; state.dir = 'asc'; }
       resetPage();
       // sync sort dropdown
       const sel = document.getElementById('sort-select');
@@ -2416,8 +2423,8 @@ async function applyRoute() {
   if (CURRENT_ROUTE === '/') {
     if (ME?.user?.onboarding_completed) {
       await loadUserJobs().catch(() => {});
-      state.sort = 'score'; state.dir = 'desc';
-      document.getElementById('sort-select').value = 'score|desc';
+      state.sort = 'first_seen'; state.dir = 'desc';
+      document.getElementById('sort-select').value = 'first_seen|desc';
       showDashboard();
       render();
     } else if (ME?.user) {
