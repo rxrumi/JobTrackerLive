@@ -133,3 +133,5 @@ curl -H "X-Scan-Key: <your-secret>" "https://job-tracker.sohaibkazmi-r.workers.d
 npm test
 npx wrangler deploy --dry-run
 ```
+
+Do not run browser, Playwright, Chrome, or in-app Browser checks for this repository. Sohaib will do manual browser verification when needed. For UI changes, run the automated checks above and clearly note that browser verification was left manual.

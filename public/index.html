@@ -324,6 +324,11 @@ tbody tr.is-filled .role { font-style: italic; }
 .account-pill { border: 0.5px solid var(--border); border-radius: 999px; padding: 6px 12px; color: var(--text-secondary); font-size: 12px; background: var(--panel); cursor: pointer; font-family: inherit; }
 .account-pill:hover { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
 .auth-panel, .onboarding-panel { max-width: 760px; margin: 28px auto; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 22px; box-shadow: var(--shadow-soft); }
+.auth-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(8, 13, 20, 0.62); backdrop-filter: blur(8px); }
+.auth-modal .auth-panel { width: min(100%, 560px); max-height: calc(100vh - 36px); margin: 0; overflow-y: auto; }
+.auth-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.auth-close { flex: 0 0 auto; width: 30px; height: 30px; border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg-soft); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 18px; line-height: 1; }
+.auth-close:hover { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
 .profile-panel { max-width: 960px; margin: 18px auto 22px; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 22px; box-shadow: var(--shadow-soft); }
 .auth-title { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
 .auth-copy { margin: 0 0 16px; color: var(--text-secondary); font-size: 13px; }
@@ -436,9 +441,15 @@ tbody tr.is-filled .role { font-style: italic; }
   </div>
 </div>
 
-<section class="auth-panel" id="auth-panel" hidden>
-  <h2 class="auth-title">Sign in</h2>
-  <p class="auth-copy">Access your saved jobs, pipeline, and onboarding profile.</p>
+<div class="auth-modal" id="auth-modal" hidden>
+<section class="auth-panel" id="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title" hidden>
+  <div class="auth-head">
+    <div>
+      <h2 class="auth-title" id="auth-title">Sign in</h2>
+      <p class="auth-copy">Access your saved jobs, pipeline, and onboarding profile.</p>
+    </div>
+    <button class="auth-close" id="auth-close" type="button" aria-label="Close sign in dialog">×</button>
+  </div>
   <a class="google-btn" href="/api/auth/google">
     <svg class="google-mark" viewBox="0 0 18 18" aria-hidden="true">
       <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
@@ -489,6 +500,7 @@ tbody tr.is-filled .role { font-style: italic; }
   </form>
   <div class="form-message" id="auth-message"></div>
 </section>
+</div>
 
 <section class="onboarding-panel" id="onboarding-panel" hidden>
   <h2 class="auth-title">Complete onboarding</h2>
@@ -1866,8 +1878,14 @@ function updateAuthTabs() {
   setMessage('auth-message', '');
 }
 
-function showPublicDashboard() {
+function hideAuth() {
   document.getElementById('auth-panel').hidden = true;
+  document.getElementById('auth-modal').hidden = true;
+  updateAuthTabs();
+}
+
+function showPublicDashboard() {
+  hideAuth();
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
@@ -1880,6 +1898,7 @@ function showPublicDashboard() {
 }
 
 function showAuth(message = '') {
+  document.getElementById('auth-modal').hidden = false;
   document.getElementById('auth-panel').hidden = false;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
@@ -1890,11 +1909,14 @@ function showAuth(message = '') {
   document.getElementById('header-signup-btn').hidden = false;
   updateAuthTabs();
   if (message) setMessage('auth-message', message, true);
-  document.getElementById('auth-panel').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  queueMicrotask(() => {
+    const field = AUTH_MODE === 'login' ? document.getElementById('login-email') : document.getElementById('signup-name');
+    field?.focus({ preventScroll: true });
+  });
 }
 
 function showOnboarding() {
-  document.getElementById('auth-panel').hidden = true;
+  hideAuth();
   document.getElementById('onboarding-panel').hidden = false;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = true;
@@ -1907,7 +1929,7 @@ function showOnboarding() {
 }
 
 function showDashboard() {
-  document.getElementById('auth-panel').hidden = true;
+  hideAuth();
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
@@ -2065,7 +2087,7 @@ function showProfilePanel() {
     showAuth('Sign in to manage your profile.');
     return;
   }
-  document.getElementById('auth-panel').hidden = true;
+  hideAuth();
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
   document.getElementById('profile-panel').hidden = false;
@@ -2180,6 +2202,14 @@ function readAuthError() {
 }
 
 function wireAuthHandlers() {
+  document.getElementById('auth-close').onclick = hideAuth;
+  document.getElementById('auth-modal').onclick = e => {
+    if (e.target === e.currentTarget) hideAuth();
+  };
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !document.getElementById('auth-modal').hidden) hideAuth();
+  });
+
   document.getElementById('header-login-btn').onclick = () => {
     AUTH_MODE = 'login';
     showAuth();
