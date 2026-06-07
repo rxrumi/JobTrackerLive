@@ -264,6 +264,17 @@ test("homepage defaults signed-out theme to graphite and uses icon-only header t
   assert.doesNotMatch(html, /theme-toggle"[^>]*>Aurora<\/button>/);
 });
 
+test("homepage exposes United States in market constants and generated country controls", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /US: 'United States'/);
+  assert.match(html, /US: '🇺🇸'/);
+  assert.match(html, /United States, UK, Ireland, Canada/);
+  assert.match(html, /buildCheckGrid\('individual-countries', countryEntries\);/);
+  assert.match(html, /buildCheckGrid\('profile-individual-countries', countryEntries\);/);
+  assert.match(html, /company: 'Google', country: 'US', city: 'New York'/);
+});
+
 test("homepage silently relaxes onboarding filters when profile defaults have no active matches", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
@@ -302,6 +313,40 @@ test("runScan matches lowercase/country-hint locations and classifies visa", asy
   assert.equal(payload.postings[0].seniority, "Manager");
   assert.equal(payload.postings[0].visa, "Strong");
   assert.equal(payload.postings[0].score, 94);
+});
+
+test("runScan matches United States city and remote country-hint locations", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      hubspot: {
+        jobs: [{
+          id: 301,
+          title: "Revenue Operations Manager",
+          location: { name: "New York, United States" },
+          absolute_url: "https://example.com/hubspot-301"
+        }, {
+          id: 302,
+          title: "Sales Operations Manager",
+          location: { name: "Remote - US" },
+          absolute_url: "https://example.com/hubspot-302"
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  assert.equal(payload.postings.length, 2);
+
+  const byTitle = new Map(payload.postings.map(p => [p.title, p]));
+  assert.equal(byTitle.get("Revenue Operations Manager").city, "New York");
+  assert.equal(byTitle.get("Revenue Operations Manager").country, "US");
+  assert.equal(byTitle.get("Sales Operations Manager").city, "Remote - US");
+  assert.equal(byTitle.get("Sales Operations Manager").country, "US");
 });
 
 test("runScan applies company aliases for display and classification", async t => {

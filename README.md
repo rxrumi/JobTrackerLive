@@ -308,11 +308,11 @@ Each fetcher returns a normalized object: `{ id, title, location, url }`.
 
 ## Target Geography
 
-15 countries: `GB`, `IE`, `CA`, `AU`, `SG`, `DE`, `NL`, `CH`, `SE`, `DK`, `NO`, `ES`, `PT`, `EE`, `NZ`.
+16 countries: `GB`, `IE`, `CA`, `AU`, `US`, `SG`, `DE`, `NL`, `CH`, `SE`, `DK`, `NO`, `ES`, `PT`, `EE`, `NZ`.
 
 Location matching uses two layers:
-- `CITY_TO_COUNTRY`: specific city names (London, Dublin, Toronto, Sydney, Berlin, Amsterdam, etc.)
-- `COUNTRY_HINTS`: country-level text (United Kingdom, Ireland, Canada, Singapore, etc.)
+- `CITY_TO_COUNTRY`: specific city names (London, Dublin, Toronto, Sydney, San Francisco, New York, Seattle, Austin, Berlin, Amsterdam, etc.)
+- `COUNTRY_HINTS`: country-level text (United Kingdom, Ireland, Canada, United States, Singapore, etc.)
 
 ## Role Matching
 
@@ -421,7 +421,7 @@ Clicking `Apply` on a live dynamic job auto-moves status from `Not started` or `
 
 `STATIC_COMPANIES` in `public/index.html` contains ~95 curated company-location entries for companies with proprietary, JS-rendered, login-gated, or bot-protected careers pages. These are not live postings — they are careers-search targets.
 
-Examples: Stripe, Salesforce, Google, Meta, AWS/Amazon, Microsoft, Adobe, ServiceNow, Atlassian, Shopify, Personio, Miro, Klarna, Spotify, Zendesk, Pinterest, LinkedIn, and many more across all 15 target countries.
+Examples: Stripe, Salesforce, Google, Meta, AWS/Amazon, Microsoft, Adobe, ServiceNow, Atlassian, Shopify, Personio, Miro, Klarna, Spotify, Zendesk, Pinterest, LinkedIn, and many more across all 16 target countries.
 
 Static rows use `role: "Company career target"`, `role_family: "Multiple"`, `seniority: "Any"`. Deduplicated by `company | country | city`.
 
@@ -532,7 +532,7 @@ npx wrangler deploy --dry-run
 
 ### Add a new target country or city
 
-1. Update `CITY_TO_COUNTRY` and `COUNTRY_HINTS` in `src/worker.js`.
+1. Update `CITY_TO_COUNTRY` and `COUNTRY_HINTS` in `src/worker.js`, including country-level aliases and key city/remote-location variants.
 2. Update `COUNTRY_NAMES` and `COUNTRY_FLAGS` in `public/index.html`.
 3. Run tests, deploy.
 

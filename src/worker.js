@@ -31,6 +31,14 @@ const CITY_TO_COUNTRY = {
   "Dublin": "IE", "Cork": "IE",
   "Toronto": "CA", "Vancouver": "CA", "Montreal": "CA",
   "Sydney": "AU", "Melbourne": "AU",
+  "San Francisco": "US", "San Jose": "US", "Palo Alto": "US", "Mountain View": "US",
+  "Menlo Park": "US", "Bay Area": "US", "New York": "US", "Seattle": "US",
+  "Bellevue": "US", "Redmond": "US", "Austin": "US", "Boston": "US",
+  "Cambridge": "US", "Denver": "US", "Chicago": "US", "Atlanta": "US",
+  "Los Angeles": "US", "San Diego": "US", "Washington, DC": "US",
+  "Washington DC": "US", "Raleigh": "US", "Miami": "US", "Remote US": "US",
+  "Remote - US": "US", "Remote (US)": "US", "US Remote": "US",
+  "United States Remote": "US",
   "Singapore": "SG",
   "Berlin": "DE", "Munich": "DE", "Hamburg": "DE", "Frankfurt": "DE",
   "Amsterdam": "NL", "Rotterdam": "NL",
@@ -52,6 +60,12 @@ const COUNTRY_HINTS = {
   "ireland": { country: "IE", city: "Ireland" },
   "canada": { country: "CA", city: "Canada" },
   "australia": { country: "AU", city: "Australia" },
+  "united states of america": { country: "US", city: "United States" },
+  "united states": { country: "US", city: "United States" },
+  "u.s.a": { country: "US", city: "United States" },
+  "u.s.": { country: "US", city: "United States" },
+  "usa": { country: "US", city: "United States" },
+  "us": { country: "US", city: "United States" },
   "singapore": { country: "SG", city: "Singapore" },
   "germany": { country: "DE", city: "Germany" },
   "netherlands": { country: "NL", city: "Netherlands" },
@@ -176,9 +190,17 @@ function matchCountry(locationName) {
     if (normalized.includes(city.toLowerCase())) return { country: code, city };
   }
   for (const [hint, loc] of Object.entries(COUNTRY_HINTS)) {
-    if (normalized.includes(hint)) return loc;
+    if (matchesLocationHint(normalized, hint)) return loc;
   }
   return null;
+}
+
+function matchesLocationHint(normalizedLocation, hint) {
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(hint)}([^a-z0-9]|$)`).test(normalizedLocation);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function classifyRoleFamily(title) {
@@ -633,6 +655,7 @@ const COUNTRY_NAMES = {
   IE: "Ireland",
   CA: "Canada",
   AU: "Australia",
+  US: "United States",
   SG: "Singapore",
   DE: "Germany",
   NL: "Netherlands",

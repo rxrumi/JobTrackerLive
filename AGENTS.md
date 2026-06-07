@@ -43,7 +43,7 @@ The local scanner has been removed. The app is cloud-only. On load, `public/inde
 
 ## Target geography
 
-15 countries: GB, IE, CA, AU, SG, DE, NL, CH, SE, DK, NO, ES, PT, EE, NZ.
+16 countries: GB, IE, CA, AU, US, SG, DE, NL, CH, SE, DK, NO, ES, PT, EE, NZ.
 City matching is in `CITY_TO_COUNTRY` and country-level fallback matching is in `COUNTRY_HINTS` in `src/worker.js`.
 
 ## Role matching
@@ -108,7 +108,7 @@ curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
 
 - **Add a new public ATS company**: append its ATS token to the relevant token array in `src/worker.js`. If needed, update aliases, tier sets, and visa sets.
 - **Add a new static target**: add a company-location entry to `STATIC_COMPANIES` in `public/index.html`.
-- **Add a new country**: extend `CITY_TO_COUNTRY` / `COUNTRY_HINTS` in `src/worker.js` and `COUNTRY_NAMES` / `COUNTRY_FLAGS` in `public/index.html`.
+- **Add a new country**: extend `CITY_TO_COUNTRY` / `COUNTRY_HINTS` in `src/worker.js` with country-level aliases plus key city/remote-location variants, and update `COUNTRY_NAMES` / `COUNTRY_FLAGS` in `public/index.html`.
 - **Add or change role matching**: update `ROLE_FAMILIES`, `ROLE_FALLBACK_KEYWORDS`, or `EXCLUDED_TITLE_KEYWORDS`; mirror display fallback changes in `public/index.html` if needed.
 - **Change scoring**: update `calcScore()` in both `src/worker.js` and `public/index.html`.
 - **Sync status across devices**: build a `POST /api/status` endpoint that writes to KV, keyed by a session cookie. Replace localStorage calls in `public/index.html` with fetches to `/api/status`.

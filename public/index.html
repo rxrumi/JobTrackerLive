@@ -1196,7 +1196,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 
 <section class="methodology-note" aria-labelledby="methodology-title">
   <h2 id="methodology-title">Tracking Methodology</h2>
-  <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, and New Zealand, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
+  <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the United States, UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, and New Zealand, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
 </section>
 </main>
 
@@ -1332,11 +1332,28 @@ const STATIC_COMPANIES = [
   { id: 92, company: 'Twilio', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Strong', apply: 'https://www.twilio.com/en-us/company/jobs?location=London' },
   { id: 93, company: 'Twilio', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Strong', apply: 'https://www.twilio.com/en-us/company/jobs?location=Singapore' },
   { id: 94, company: 'Pinterest', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://www.pinterestcareers.com/jobs/?location=Dublin' },
-  { id: 95, company: 'LinkedIn', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.linkedin.com/jobs?location=Dublin' }
+  { id: 95, company: 'LinkedIn', country: 'IE', city: 'Dublin', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.linkedin.com/jobs?location=Dublin' },
+  { id: 96, company: 'HubSpot', country: 'US', city: 'Remote (US)', tier: 'GrowthSaaS', visa: 'Strong', apply: 'https://www.hubspot.com/careers/jobs/all?location=United%20States' },
+  { id: 97, company: 'Stripe', country: 'US', city: 'San Francisco', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=North%20America--San%20Francisco' },
+  { id: 98, company: 'Stripe', country: 'US', city: 'New York', tier: 'BigTech', visa: 'Strong', apply: 'https://stripe.com/jobs/search?office_locations=North%20America--New%20York' },
+  { id: 99, company: 'Salesforce', country: 'US', city: 'San Francisco', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=San%20Francisco' },
+  { id: 100, company: 'Salesforce', country: 'US', city: 'New York', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.salesforce.com/en/jobs/?location=New%20York' },
+  { id: 101, company: 'Google', country: 'US', city: 'Mountain View', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=Mountain%20View,%20CA,%20USA' },
+  { id: 102, company: 'Google', country: 'US', city: 'New York', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.google.com/jobs/results/?location=New%20York,%20NY,%20USA' },
+  { id: 103, company: 'Meta', country: 'US', city: 'Menlo Park', tier: 'BigTech', visa: 'Strong', apply: 'https://www.metacareers.com/jobs/?offices[0]=Menlo%20Park%2C%20CA' },
+  { id: 104, company: 'AWS / Amazon', country: 'US', city: 'Seattle', tier: 'BigTech', visa: 'Strong', apply: 'https://www.amazon.jobs/en/search?loc_query=Seattle%2C+Washington' },
+  { id: 105, company: 'Microsoft', country: 'US', city: 'Redmond', tier: 'BigTech', visa: 'Strong', apply: 'https://jobs.careers.microsoft.com/global/en/search?lc=Redmond' },
+  { id: 106, company: 'Cloudflare', country: 'US', city: 'San Francisco', tier: 'BigTech', visa: 'Strong', apply: 'https://www.cloudflare.com/careers/jobs/?location=San%20Francisco' },
+  { id: 107, company: 'Adobe', country: 'US', city: 'San Jose', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.adobe.com/us/en/search-results?location=San%20Jose' },
+  { id: 108, company: 'Snowflake', country: 'US', city: 'San Francisco', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.snowflake.com/us/en/search-results?location=San%20Francisco' },
+  { id: 109, company: 'Databricks', country: 'US', city: 'San Francisco', tier: 'BigTech', visa: 'Strong', apply: 'https://www.databricks.com/company/careers/open-positions?location=San%20Francisco' },
+  { id: 110, company: 'ServiceNow', country: 'US', city: 'San Diego', tier: 'BigTech', visa: 'Strong', apply: 'https://careers.servicenow.com/careers/jobs/?country=United%20States' },
+  { id: 111, company: 'Atlassian', country: 'US', city: 'Austin', tier: 'BigTech', visa: 'Strong', apply: 'https://www.atlassian.com/company/careers/all-jobs?location=Austin' },
+  { id: 112, company: 'Figma', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.figma.com/careers/?location=san-francisco' }
 ];
 
-const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand' };
-const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿' };
+const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', US: 'United States', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand' };
+const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', US: '🇺🇸', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿' };
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
 const ROLE_FAMILIES = ['Engineering', 'Product', 'Design', 'Data/Analytics', 'Security/IT', 'Sales', 'Marketing', 'Finance', 'Operations', 'Customer Success/Support', 'People/HR', 'Legal/Compliance', 'Strategy/Program', 'Other'];
 const SENIORITIES = ['Executive', 'Director/Head', 'Senior/Lead', 'Manager', 'Associate/Analyst', 'Unknown'];
