@@ -264,6 +264,17 @@ test("homepage defaults signed-out theme to graphite and uses icon-only header t
   assert.doesNotMatch(html, /theme-toggle"[^>]*>Aurora<\/button>/);
 });
 
+test("homepage silently relaxes onboarding filters when profile defaults have no active matches", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /function relaxedProfileFilterStates\(profile\)/);
+  assert.match(html, /const withoutRole = \{ \.\.\.full, family: new Set\(\) \};/);
+  assert.match(html, /const withoutRoleOrCountry = \{ \.\.\.withoutRole, country: new Set\(\) \};/);
+  assert.match(html, /seniority: new Set\(\),\n    visa: new Set\(\)/);
+  assert.match(html, /const selected = candidates\.find\(activeMatchCountForControls\) \|\| candidates\[candidates\.length - 1\];/);
+  assert.match(html, /PROFILE_FILTERS_RELAXED = selected !== candidates\[0\];/);
+});
+
 test("runScan matches lowercase/country-hint locations and classifies visa", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     jobsByToken: {

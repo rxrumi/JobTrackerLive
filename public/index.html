@@ -1450,6 +1450,7 @@ let PENDING_PAGE = null;
 let PAGE_ACCESS_VERIFIED = false;
 let ACTIVE_REFRESH_TIMER = null;
 let PROFILE_FILTERS_APPLIED = false;
+let PROFILE_FILTERS_RELAXED = false;
 const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
@@ -2046,27 +2047,31 @@ function updateFilterBadges() {
   });
 }
 
-function passesPresets(j) {
-  if (state.presets.has('senior') && !SENIOR_PLUS.has(j.seniority)) return false;
-  if (state.presets.has('strong-visa') && j.visa !== 'Strong') return false;
-  if (state.presets.has('new') && !j.is_new) return false;
-  if (state.presets.has('starred') && !loadStar(j.id)) return false;
+function passesPresets(j, controls = state) {
+  if (controls.presets.has('senior') && !SENIOR_PLUS.has(j.seniority)) return false;
+  if (controls.presets.has('strong-visa') && j.visa !== 'Strong') return false;
+  if (controls.presets.has('new') && !j.is_new) return false;
+  if (controls.presets.has('starred') && !loadStar(j.id)) return false;
   return true;
 }
 
-function passesControls(j, opts = {}) {
-  const q = state.search.toLowerCase().trim();
-  if (!opts.ignoreCountry && state.country.size && !state.country.has(j.country)) return false;
-  if (state.tier.size && !state.tier.has(j.tier)) return false;
-  if (state.family.size && !(j.role_families || [j.role_family]).some(f => state.family.has(f))) return false;
-  if (state.seniority.size && !j.is_static && !state.seniority.has(j.seniority)) return false;
-  if (state.visa.size && !state.visa.has(j.visa)) return false;
-  if (!passesPresets(j)) return false;
+function matchesControls(j, controls, opts = {}) {
+  const q = controls.search.toLowerCase().trim();
+  if (!opts.ignoreCountry && controls.country.size && !controls.country.has(j.country)) return false;
+  if (controls.tier.size && !controls.tier.has(j.tier)) return false;
+  if (controls.family.size && !(j.role_families || [j.role_family]).some(f => controls.family.has(f))) return false;
+  if (controls.seniority.size && !j.is_static && !controls.seniority.has(j.seniority)) return false;
+  if (controls.visa.size && !controls.visa.has(j.visa)) return false;
+  if (!passesPresets(j, controls)) return false;
   if (q) {
     const blob = (j.company + ' ' + j.role + ' ' + j.familyLabel + ' ' + j.seniorityLabel + ' ' + j.city + ' ' + (j.notes||'') + ' ' + j.tierLabel).toLowerCase();
     if (!blob.includes(q)) return false;
   }
   return true;
+}
+
+function passesControls(j, opts = {}) {
+  return matchesControls(j, state, opts);
 }
 
 function filtered() {
@@ -2088,19 +2093,59 @@ function hasActiveControls() {
   );
 }
 
+function profileFilterState(profile) {
+  const controls = {
+    country: new Set(profile.target_countries || []),
+    tier: new Set(),
+    family: new Set(profile.target_role_families || []),
+    seniority: new Set(),
+    visa: new Set(),
+    presets: new Set(),
+    search: ''
+  };
+  if (profile.target_seniority) controls.seniority.add(profile.target_seniority);
+  if (profile.visa_needed) {
+    controls.visa.add('Strong');
+    controls.visa.add('Likely');
+  }
+  return controls;
+}
+
+function activeMatchCountForControls(controls) {
+  return JOBS.filter(j => tabBucket(j) === 'active' && matchesControls(j, controls)).length;
+}
+
+function applyControlState(controls) {
+  state.country = new Set(controls.country);
+  state.tier = new Set(controls.tier);
+  state.family = new Set(controls.family);
+  state.seniority = new Set(controls.seniority);
+  state.visa = new Set(controls.visa);
+  state.presets = new Set(controls.presets);
+  state.search = controls.search;
+}
+
+function relaxedProfileFilterStates(profile) {
+  const full = profileFilterState(profile);
+  const withoutRole = { ...full, family: new Set() };
+  const withoutRoleOrCountry = { ...withoutRole, country: new Set() };
+  const allActive = {
+    ...withoutRoleOrCountry,
+    seniority: new Set(),
+    visa: new Set()
+  };
+  return [full, withoutRole, withoutRoleOrCountry, allActive];
+}
+
 function applyProfileFiltersOnce() {
   if (PROFILE_FILTERS_APPLIED) return;
   if (hasActiveControls()) return;
   const profile = ME?.individual_profile || ME?.agency_profile;
   if (!profile) return;
-  (profile.target_countries || []).forEach(c => state.country.add(c));
-  (profile.target_role_families || []).forEach(f => state.family.add(f));
-  const seniority = profile.target_seniority;
-  if (seniority) state.seniority.add(seniority);
-  if (profile.visa_needed) {
-    state.visa.add('Strong');
-    state.visa.add('Likely');
-  }
+  const candidates = relaxedProfileFilterStates(profile);
+  const selected = candidates.find(activeMatchCountForControls) || candidates[candidates.length - 1];
+  applyControlState(selected);
+  PROFILE_FILTERS_RELAXED = selected !== candidates[0];
   PROFILE_FILTERS_APPLIED = true;
 }
 
