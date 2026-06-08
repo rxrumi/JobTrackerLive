@@ -46,6 +46,7 @@ const ACTIVE_SOURCES = new Set([
   "ashby",
   "lever",
   "smartrecruiters",
+  "workday",
   "rmk",
   "tribepad",
   "nlx"
@@ -88,7 +89,97 @@ const ENGINEERING_SOURCES = [
     industry: INDUSTRIES.ENGINEERING,
     niche: ENGINEERING_NICHES.AEC,
     fetch: fetchNlxJobs
-  }
+  },
+  workdaySource({
+    token: "intel",
+    company: "intel",
+    host: "intel.wd1.myworkdayjobs.com",
+    tenant: "intel",
+    site: "External",
+    niche: ENGINEERING_NICHES.SEMICONDUCTORS,
+    visa: "Strong"
+  }),
+  workdaySource({
+    token: "boeing",
+    company: "boeing",
+    host: "boeing.wd1.myworkdayjobs.com",
+    tenant: "boeing",
+    site: "EXTERNAL_CAREERS",
+    niche: ENGINEERING_NICHES.AEROSPACE,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "airbus",
+    company: "airbus",
+    host: "ag.wd3.myworkdayjobs.com",
+    tenant: "ag",
+    site: "Airbus",
+    niche: ENGINEERING_NICHES.AEROSPACE,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "aurecon",
+    company: "aurecon",
+    host: "aurecongroup.wd3.myworkdayjobs.com",
+    tenant: "aurecongroup",
+    site: "aurecon",
+    niche: ENGINEERING_NICHES.AEC,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "gevernova",
+    company: "ge vernova",
+    host: "gevernova.wd5.myworkdayjobs.com",
+    tenant: "gevernova",
+    site: "Vernova_ExternalSite",
+    niche: ENGINEERING_NICHES.ENERGY,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "gensler",
+    company: "gensler",
+    host: "gensler.wd1.myworkdayjobs.com",
+    tenant: "gensler",
+    site: "genslercareers",
+    niche: ENGINEERING_NICHES.ARCHITECTURE,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "samsung-careers",
+    company: "samsung",
+    host: "sec.wd3.myworkdayjobs.com",
+    tenant: "sec",
+    site: "Samsung_Careers",
+    niche: ENGINEERING_NICHES.HARDWARE,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "3m",
+    company: "3m",
+    host: "3m.wd1.myworkdayjobs.com",
+    tenant: "3m",
+    site: "Search",
+    niche: ENGINEERING_NICHES.INDUSTRIAL,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "rockwellautomation",
+    company: "rockwell automation",
+    host: "rockwellautomation.wd1.myworkdayjobs.com",
+    tenant: "rockwellautomation",
+    site: "External_Rockwell_Automation",
+    niche: ENGINEERING_NICHES.INDUSTRIAL,
+    visa: "Likely"
+  }),
+  workdaySource({
+    token: "bostondynamics",
+    company: "boston dynamics",
+    host: "bostondynamics.wd1.myworkdayjobs.com",
+    tenant: "bostondynamics",
+    site: "Boston_Dynamics",
+    niche: ENGINEERING_NICHES.ROBOTICS,
+    visa: "Likely"
+  })
 ];
 
 const CITY_TO_COUNTRY = {
@@ -334,6 +425,22 @@ function techSource(source, token, fetcher) {
   };
 }
 
+function workdaySource({ token, company, host, tenant, site, niche, visa }) {
+  return {
+    source: "workday",
+    token,
+    company,
+    host,
+    tenant,
+    site,
+    industry: INDUSTRIES.ENGINEERING,
+    niche,
+    tier: "BigTech",
+    visa,
+    fetch: fetchWorkday
+  };
+}
+
 // ------------------------------------------------------------------
 // Supabase service-role client (lightweight REST wrapper)
 // Used by the scheduled handler to write scan results to the DB.
@@ -524,9 +631,9 @@ function postingSourceId(posting) {
   return `${posting.source}-${posting.source_token || posting.company}`;
 }
 
-async function fetchJSON(url) {
+async function fetchJSON(url, init = {}) {
   try {
-    const r = await fetch(url, { cf: { cacheTtl: 0 } });
+    const r = await fetch(url, { cf: { cacheTtl: 0 }, ...init });
     if (!r.ok) return null;
     return await r.json();
   } catch {
@@ -675,6 +782,36 @@ async function fetchNlxJobs(source) {
     if (out.length) break;
   }
   return out.length ? uniqueJobs(out) : null;
+}
+
+async function fetchWorkday(source) {
+  const data = await fetchJSON(`https://${source.host}/wday/cxs/${source.tenant}/${source.site}/jobs`, {
+    method: "POST",
+    headers: {
+      "accept": "application/json",
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      appliedFacets: {},
+      limit: 20,
+      offset: 0,
+      searchText: source.searchText || ""
+    })
+  });
+  if (!data || !Array.isArray(data.jobPostings)) return null;
+  return uniqueJobs(data.jobPostings.map(job => {
+    const path = job.externalPath || job.externalUrl || "";
+    const id = (job.bulletFields || []).find(Boolean) || path.split("/").filter(Boolean).pop();
+    const url = /^https?:\/\//i.test(path)
+      ? path
+      : `https://${source.host}/${source.site}${path.startsWith("/") ? path : `/${path}`}`;
+    return {
+      id,
+      title: job.title,
+      location: job.locationsText,
+      url
+    };
+  }));
 }
 
 function inferLocationFromText(text) {

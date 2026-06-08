@@ -298,7 +298,7 @@ SMARTRECRUITERS_TOKENS = ["canva", "wise"]
 
 Company aliases normalize non-obvious ATS tokens: `talkdesk2` → `talkdesk`, `boxinc` → `box`.
 
-Engineering live sources use structured source objects with `industry`, `niche`, `company`, `source`, `token`/`url`, and `fetch`. V1 includes conservative live fetchers for RMK/SuccessFactors-style category pages, Tribepad, and NLX/Solr-style jobs domains, plus static engineering targets in `ENGINEERING_STATIC_COMPANIES`.
+Engineering live sources use structured source objects with `industry`, `niche`, `company`, `source`, `token`/`url`, and `fetch`. V1 includes conservative live fetchers for RMK/SuccessFactors-style category pages, Tribepad, NLX/Solr-style jobs domains, and Workday CXS JSON feeds. Initial Workday coverage includes Intel, Boeing, Airbus, Aurecon, GE Vernova, Gensler, Samsung, 3M, Rockwell Automation, and Boston Dynamics. Static engineering targets live in `ENGINEERING_STATIC_COMPANIES`.
 
 ## ATS Fetching
 
@@ -309,6 +309,7 @@ Each fetcher returns a normalized object: `{ id, title, location, url }`.
 - **RMK / SuccessFactors category pages**: HTML category listings such as Bechtel engineering jobs.
 - **Tribepad**: HTML listings such as Buro Happold vacancies.
 - **NLX / Solr-style jobs domains**: branded jobs domains such as AECOM/Stantec-style sites.
+- **Workday CXS**: `https://{host}/wday/cxs/{tenant}/{site}/jobs` — one structured page per engineering source to keep Worker subrequests bounded.
 - **Lever**: `https://api.lever.co/v0/postings/{token}?mode=json` — `allLocations` expanded into separate postings.
 - **SmartRecruiters**: `https://api.smartrecruiters.com/v1/companies/{token}/postings?limit=100&offset={offset}` — paginated up to 10 pages of 100.
 

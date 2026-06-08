@@ -26,7 +26,8 @@ function tokenFromUrl(url) {
     /boards-api\.greenhouse\.io\/v1\/boards\/([^/]+)\/jobs/,
     /posting-api\/job-board\/([^/?]+)/,
     /api\.lever\.co\/v0\/postings\/([^/?]+)/,
-    /api\.smartrecruiters\.com\/v1\/companies\/([^/]+)\/postings/
+    /api\.smartrecruiters\.com\/v1\/companies\/([^/]+)\/postings/,
+    /https:\/\/([^/]+)\/wday\/cxs\/[^/]+\/[^/]+\/jobs/
   ];
   for (const pattern of patterns) {
     const match = url.match(pattern);
@@ -40,6 +41,7 @@ function emptyPayload(url) {
   if (url.includes("ashbyhq")) return { jobs: [] };
   if (url.includes("lever.co")) return [];
   if (url.includes("smartrecruiters")) return { content: [], totalFound: 0 };
+  if (url.includes("/wday/cxs/")) return { jobPostings: [], total: 0 };
   return {};
 }
 
@@ -486,6 +488,39 @@ test("runScan maps engineering source postings with industry and niche", async t
   assert.equal(posting.niche, "AEC / Infrastructure");
   assert.equal(posting.role_family, "Engineering");
   assert.equal(posting.country, "GB");
+});
+
+test("runScan maps Workday engineering source postings", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      "intel.wd1.myworkdayjobs.com": {
+        total: 1,
+        jobPostings: [{
+          title: "Senior CPU RTL Design Engineer",
+          externalPath: "/job/US-Texas-Austin/Senior-CPU-RTL-Design-Engineer_JR123",
+          locationsText: "US, Texas, Austin",
+          bulletFields: ["JR123"]
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.source === "workday" && p.source_token === "intel");
+
+  assert.ok(posting);
+  assert.equal(posting.company, "intel");
+  assert.equal(posting.industry, "engineering");
+  assert.equal(posting.niche, "Semiconductors");
+  assert.equal(posting.role_family, "Engineering");
+  assert.equal(posting.country, "US");
+  assert.equal(posting.visa, "Strong");
+  assert.equal(posting.url, "https://intel.wd1.myworkdayjobs.com/External/job/US-Texas-Austin/Senior-CPU-RTL-Design-Engineer_JR123");
 });
 
 test("runScan excludes early-career and noisy unmatched titles", async t => {
