@@ -275,6 +275,18 @@ test("homepage exposes United States in market constants and generated country c
   assert.match(html, /company: 'Google', country: 'US', city: 'New York'/);
 });
 
+test("homepage exposes industry switch and engineering niche controls", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /data-industry="tech">Tech<\/button>/);
+  assert.match(html, /data-industry="engineering">Engineering<\/button>/);
+  assert.match(html, /id="niche-filter" hidden/);
+  assert.match(html, /const ENGINEERING_NICHES = \['AEC \/ Infrastructure'/);
+  assert.match(html, /company: 'AECOM'.*niche: 'AEC \/ Infrastructure'/);
+  assert.match(html, /company: 'NVIDIA'.*niche: 'Semiconductors'/);
+  assert.match(html, /function setIndustry\(industry\)/);
+});
+
 test("homepage silently relaxes onboarding filters when profile defaults have no active matches", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
@@ -445,6 +457,35 @@ test("runScan classifies broad professional role families", async t => {
     "People/HR",
     "Customer Success/Support"
   ]));
+});
+
+test("runScan maps engineering source postings with industry and niche", async t => {
+  t.mock.method(globalThis, "fetch", async url => {
+    const href = String(url);
+    if (href.includes("vacancies.burohappold.com/jobs/search")) {
+      return new Response(`
+        <a href="/jobs/job/Senior-Structural-Engineer/2218">Senior Structural Engineer</a>
+        <span>London, United Kingdom</span>
+      `, { headers: { "content-type": "text/html" } });
+    }
+    const token = tokenFromUrl(href);
+    return Response.json(token ? emptyPayload(href) : {});
+  });
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.source === "tribepad");
+
+  assert.ok(posting);
+  assert.equal(posting.company, "buro happold");
+  assert.equal(posting.industry, "engineering");
+  assert.equal(posting.niche, "AEC / Infrastructure");
+  assert.equal(posting.role_family, "Engineering");
+  assert.equal(posting.country, "GB");
 });
 
 test("runScan excludes early-career and noisy unmatched titles", async t => {
@@ -624,6 +665,30 @@ test("account routes require authentication without affecting public jobs", asyn
   assert.equal(meResponse.status, 401);
 });
 
+test("public jobs endpoint filters by industry query parameter", async () => {
+  const KV = createKV();
+  const tech = { ...samplePostings(1)[0], id: "tech-1", industry: "tech", niche: "Software" };
+  const engineering = {
+    ...samplePostings(1)[0],
+    id: "eng-1",
+    company: "AECOM",
+    title: "Senior Structural Engineer",
+    industry: "engineering",
+    niche: "AEC / Infrastructure",
+    role_family: "Engineering"
+  };
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: [tech, engineering] }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs?industry=engineering"), { KV });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.pagination.total, 1);
+  assert.equal(payload.postings[0].id, "eng-1");
+  assert.equal(payload.postings[0].industry, "engineering");
+  assert.equal(payload.postings[0].niche, "AEC / Infrastructure");
+});
+
 test("json responses include production security headers", async () => {
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(1) }));
@@ -677,6 +742,45 @@ test("jobs query normalizes legacy Ecosystem tier values", async () => {
   const payload = await response.json();
   assert.equal(payload.pagination.total, 1);
   assert.equal(payload.postings[0].tier, "GrowthSaaS");
+});
+
+test("jobs query filters engineering postings by niche", async () => {
+  const KV = createKV();
+  const postings = [
+    { ...samplePostings(1)[0], id: "tech-1", industry: "tech", niche: "Software" },
+    {
+      ...samplePostings(1)[0],
+      id: "eng-aec",
+      company: "WSP",
+      title: "Senior Transport Engineer",
+      industry: "engineering",
+      niche: "AEC / Infrastructure",
+      role_family: "Engineering"
+    },
+    {
+      ...samplePostings(1)[0],
+      id: "eng-semi",
+      company: "NVIDIA",
+      title: "Hardware Engineer",
+      industry: "engineering",
+      niche: "Semiconductors",
+      role_family: "Engineering"
+    }
+  ];
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    body: JSON.stringify({
+      page: 1,
+      filters: { industry: ["engineering"], niche: ["Semiconductors"] }
+    })
+  }), { KV });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.pagination.total, 1);
+  assert.equal(payload.postings[0].id, "eng-semi");
 });
 
 test("jobs query rejects anonymous page two", async () => {
@@ -1328,6 +1432,12 @@ test("manual scan persists Supabase analytics with REST upserts", async t => {
   assert.equal(jobPostingsCall.prefer, "resolution=merge-duplicates,return=minimal");
   assert.equal(snapshotsCall.prefer, "resolution=merge-duplicates,return=minimal");
   assert.equal(statsCall.prefer, "resolution=merge-duplicates,return=minimal");
+  assert.equal(jobPostingsCall.body[0].industry, "tech");
+  assert.equal(jobPostingsCall.body[0].niche, "Software");
+  assert.equal(snapshotsCall.body[0].industry, "tech");
+  assert.equal(snapshotsCall.body[0].niche, "Software");
+  assert.equal(statsCall.body[0].per_industry.tech, 1);
+  assert.equal(statsCall.body[0].per_niche.Software, 1);
 });
 
 test("session endpoint creates anonymous session cookie", async () => {

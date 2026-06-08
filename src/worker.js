@@ -23,25 +23,94 @@ const ASHBY_TOKENS = [
 const LEVER_TOKENS = ["pipedrive"];
 
 const SMARTRECRUITERS_TOKENS = ["canva", "wise"];
-const ACTIVE_SOURCES = new Set(["greenhouse", "ashby", "lever", "smartrecruiters"]);
+const INDUSTRIES = {
+  TECH: "tech",
+  ENGINEERING: "engineering"
+};
+const TECH_NICHE = "Software";
+const ENGINEERING_NICHES = {
+  AEC: "AEC / Infrastructure",
+  CONSTRUCTION: "Construction / EPC",
+  ARCHITECTURE: "Architecture / Built Environment",
+  ENERGY: "Energy / Power / Renewables",
+  WATER: "Water / Environment",
+  AEROSPACE: "Aerospace / Defense / Space",
+  SEMICONDUCTORS: "Semiconductors",
+  HARDWARE: "Hardware / Consumer Devices",
+  ROBOTICS: "Robotics / Autonomy",
+  AUTOMOTIVE: "Automotive / EV",
+  INDUSTRIAL: "Industrial Technology"
+};
+const ACTIVE_SOURCES = new Set([
+  "greenhouse",
+  "ashby",
+  "lever",
+  "smartrecruiters",
+  "rmk",
+  "tribepad",
+  "nlx"
+]);
 const FAILURE_ABORT_RATIO = 0.5;
 
+const ENGINEERING_SOURCES = [
+  {
+    source: "rmk",
+    token: "bechtel-engineering",
+    company: "bechtel",
+    url: "https://jobs.bechtel.com/go/Engineering/399431",
+    industry: INDUSTRIES.ENGINEERING,
+    niche: ENGINEERING_NICHES.CONSTRUCTION,
+    fetch: fetchRmkCategory
+  },
+  {
+    source: "tribepad",
+    token: "burohappold",
+    company: "buro happold",
+    url: "https://vacancies.burohappold.com/jobs/search",
+    industry: INDUSTRIES.ENGINEERING,
+    niche: ENGINEERING_NICHES.AEC,
+    fetch: fetchTribepad
+  },
+  {
+    source: "nlx",
+    token: "aecom",
+    company: "aecom",
+    url: "https://aecom.jobs",
+    industry: INDUSTRIES.ENGINEERING,
+    niche: ENGINEERING_NICHES.AEC,
+    fetch: fetchNlxJobs
+  },
+  {
+    source: "nlx",
+    token: "stantec",
+    company: "stantec",
+    url: "https://stantec.jobs",
+    industry: INDUSTRIES.ENGINEERING,
+    niche: ENGINEERING_NICHES.AEC,
+    fetch: fetchNlxJobs
+  }
+];
+
 const CITY_TO_COUNTRY = {
-  "London": "GB", "Manchester": "GB", "Edinburgh": "GB",
+  "London": "GB", "Manchester": "GB", "Edinburgh": "GB", "Derby": "GB",
   "Dublin": "IE", "Cork": "IE",
   "Toronto": "CA", "Vancouver": "CA", "Montreal": "CA",
-  "Sydney": "AU", "Melbourne": "AU",
+  "Sydney": "AU", "Melbourne": "AU", "Brisbane": "AU", "Perth": "AU",
   "San Francisco": "US", "San Jose": "US", "Palo Alto": "US", "Mountain View": "US",
   "Menlo Park": "US", "Bay Area": "US", "New York": "US", "Seattle": "US",
   "Bellevue": "US", "Redmond": "US", "Austin": "US", "Boston": "US",
   "Cambridge": "US", "Denver": "US", "Chicago": "US", "Atlanta": "US",
   "Los Angeles": "US", "San Diego": "US", "Washington, DC": "US",
-  "Washington DC": "US", "Raleigh": "US", "Miami": "US", "Remote US": "US",
+  "Washington DC": "US", "Raleigh": "US", "Miami": "US", "Detroit": "US",
+  "Reston": "US", "Kansas City": "US", "Phoenix": "US", "Santa Clara": "US",
+  "Cupertino": "US", "Irvine": "US", "Charlotte": "US", "Milwaukee": "US",
+  "Minneapolis": "US", "Orlando": "US", "Nashville": "US", "Honolulu": "US",
+  "Remote US": "US",
   "Remote - US": "US", "Remote (US)": "US", "US Remote": "US",
   "United States Remote": "US",
   "Singapore": "SG",
-  "Berlin": "DE", "Munich": "DE", "Hamburg": "DE", "Frankfurt": "DE",
-  "Amsterdam": "NL", "Rotterdam": "NL",
+  "Berlin": "DE", "Munich": "DE", "Hamburg": "DE", "Frankfurt": "DE", "Stuttgart": "DE",
+  "Amsterdam": "NL", "Rotterdam": "NL", "Eindhoven": "NL",
   "Zurich": "CH", "Geneva": "CH",
   "Stockholm": "SE",
   "Copenhagen": "DK", "Aarhus": "DK",
@@ -93,7 +162,14 @@ const ROLE_FAMILIES = [
       "back end engineer", "full stack engineer", "fullstack engineer", "mobile engineer",
       "ios engineer", "android engineer", "platform engineer", "infrastructure engineer",
       "site reliability", "sre", "devops", "developer", "technical lead", "engineering manager",
-      "solutions engineer", "sales engineer", "machine learning engineer", "ml engineer"
+      "solutions engineer", "sales engineer", "machine learning engineer", "ml engineer",
+      "civil engineer", "structural engineer", "mechanical engineer", "electrical engineer",
+      "transport engineer", "transportation engineer", "highway engineer", "rail engineer",
+      "water engineer", "environmental engineer", "geotechnical engineer", "fire engineer",
+      "facade engineer", "mep engineer", "bim designer", "revit designer", "design engineer",
+      "project engineer", "process engineer", "piping engineer", "substation engineer",
+      "semiconductor", "hardware engineer", "systems engineer", "aerospace engineer",
+      "manufacturing engineer", "robotics engineer", "firmware engineer", "asic", "fpga"
     ]
   },
   {
@@ -247,6 +323,17 @@ function canonicalCompany(token) {
   return COMPANY_ALIASES[token] || token;
 }
 
+function techSource(source, token, fetcher) {
+  return {
+    source,
+    token,
+    company: canonicalCompany(token),
+    industry: INDUSTRIES.TECH,
+    niche: TECH_NICHE,
+    fetch: s => fetcher(s.token)
+  };
+}
+
 // ------------------------------------------------------------------
 // Supabase service-role client (lightweight REST wrapper)
 // Used by the scheduled handler to write scan results to the DB.
@@ -310,6 +397,8 @@ async function persistScanToSupabase(env, scanResult, today) {
     company: p.company,
     title: p.title,
     url: p.url,
+    industry: p.industry || INDUSTRIES.TECH,
+    niche: p.niche || TECH_NICHE,
     first_seen_date: p.first_seen,
     last_seen_date: p.last_seen,
     last_filled_date: p.last_filled || null,
@@ -326,6 +415,8 @@ async function persistScanToSupabase(env, scanResult, today) {
     location: p.location || null,
     city: p.city || null,
     country: p.country,
+    industry: p.industry || INDUSTRIES.TECH,
+    niche: p.niche || TECH_NICHE,
     role_family: p.role_family,
     seniority: p.seniority,
     visa: p.visa,
@@ -339,6 +430,8 @@ async function persistScanToSupabase(env, scanResult, today) {
 
   // 3. Compute and upsert daily_scan_stats
   const perSource = {};
+  const perIndustry = {};
+  const perNiche = {};
   const perCountry = {};
   const perFamily = {};
   const perTier = {};
@@ -347,6 +440,10 @@ async function persistScanToSupabase(env, scanResult, today) {
 
   for (const p of postings) {
     perSource[p.source] = (perSource[p.source] || 0) + 1;
+    const industry = p.industry || INDUSTRIES.TECH;
+    const niche = p.niche || TECH_NICHE;
+    perIndustry[industry] = (perIndustry[industry] || 0) + 1;
+    perNiche[niche] = (perNiche[niche] || 0) + 1;
     perCountry[p.country] = (perCountry[p.country] || 0) + 1;
     perFamily[p.role_family] = (perFamily[p.role_family] || 0) + 1;
     perTier[p.tier] = (perTier[p.tier] || 0) + 1;
@@ -360,6 +457,8 @@ async function persistScanToSupabase(env, scanResult, today) {
     new_jobs: newJobs,
     filled_jobs: filledJobs,
     per_source: perSource,
+    per_industry: perIndustry,
+    per_niche: perNiche,
     per_country: perCountry,
     per_family: perFamily,
     per_tier: perTier,
@@ -387,6 +486,8 @@ function normalizePosting(posting, today) {
   const seniority = posting.seniority || classifySeniority(posting.title);
   const visa = posting.visa || "Unknown";
   const tier = normalizeTier(posting.tier);
+  const industry = posting.industry || INDUSTRIES.TECH;
+  const niche = posting.niche || (industry === INDUSTRIES.ENGINEERING ? "Engineering" : TECH_NICHE);
   const firstSeen = posting.first_seen || today;
   const score = calcScore({
     visa,
@@ -398,6 +499,8 @@ function normalizePosting(posting, today) {
   return {
     ...posting,
     tier,
+    industry,
+    niche,
     role_family: roleFamily,
     seniority,
     score
@@ -431,6 +534,51 @@ async function fetchJSON(url) {
   }
 }
 
+async function fetchText(url) {
+  try {
+    const r = await fetch(url, { cf: { cacheTtl: 0 } });
+    if (!r.ok) return null;
+    return await r.text();
+  } catch {
+    return null;
+  }
+}
+
+function decodeHTML(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripTags(value) {
+  return decodeHTML(String(value || "").replace(/<[^>]+>/g, " "));
+}
+
+function absoluteUrl(base, href) {
+  try {
+    return new URL(decodeHTML(href), base).toString();
+  } catch {
+    return href;
+  }
+}
+
+function uniqueJobs(jobs) {
+  const seen = new Set();
+  return jobs.filter(job => {
+    const id = String(job.id || job.url || "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return Boolean(job.title && job.url);
+  });
+}
+
 async function fetchGreenhouse(token) {
   const data = await fetchJSON(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=false`);
   if (!data) return null;
@@ -460,6 +608,80 @@ async function fetchAshby(token) {
     }));
   }
   return out;
+}
+
+async function fetchRmkCategory(source) {
+  const html = await fetchText(source.url);
+  if (!html) return null;
+  const jobs = [];
+  const rowPattern = /<a[^>]+href=["']([^"']*\/job\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for (const match of html.matchAll(rowPattern)) {
+    const url = absoluteUrl(source.url, match[1]);
+    const title = stripTags(match[2]);
+    const location = inferLocationFromText(`${title} ${url}`) || source.defaultLocation || "";
+    jobs.push({ id: url.split("/").filter(Boolean).pop(), title, location, url });
+  }
+  return uniqueJobs(jobs);
+}
+
+async function fetchTribepad(source) {
+  const out = [];
+  const base = source.url.replace(/\/$/, "");
+  for (let page = 1; page <= 5; page++) {
+    const url = page === 1 ? base : `${base}/-1/${page}`;
+    const html = await fetchText(url);
+    if (!html) return page === 1 ? null : out;
+    const before = out.length;
+    const linkPattern = /<a[^>]+href=["']([^"']*\/jobs\/job\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    for (const match of html.matchAll(linkPattern)) {
+      const jobUrl = absoluteUrl(url, match[1]);
+      const title = stripTags(match[2]);
+      const nearby = html.slice(Math.max(0, match.index - 500), Math.min(html.length, match.index + 1000));
+      out.push({
+        id: jobUrl.split("/").filter(Boolean).pop(),
+        title,
+        location: inferLocationFromText(stripTags(nearby)) || source.defaultLocation || "",
+        url: jobUrl
+      });
+    }
+    if (out.length === before || !html.includes(`/jobs/search/-1/${page + 1}`)) break;
+  }
+  return uniqueJobs(out);
+}
+
+async function fetchNlxJobs(source) {
+  const candidates = [
+    `${source.url.replace(/\/$/, "")}/locations/usa/jobs`,
+    `${source.url.replace(/\/$/, "")}/jobs`,
+    source.url
+  ];
+  const out = [];
+  for (const pageUrl of candidates) {
+    const html = await fetchText(pageUrl);
+    if (!html) continue;
+    const linkPattern = /<a[^>]+href=["']([^"']*(?:\/job\/|\/jobs\/)[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    for (const match of html.matchAll(linkPattern)) {
+      const url = absoluteUrl(pageUrl, match[1]);
+      const title = stripTags(match[2]);
+      if (!title || title.length < 4) continue;
+      const nearby = html.slice(Math.max(0, match.index - 600), Math.min(html.length, match.index + 1000));
+      out.push({
+        id: url.split("/").filter(Boolean).pop(),
+        title,
+        location: inferLocationFromText(stripTags(nearby)) || source.defaultLocation || "",
+        url
+      });
+    }
+    if (out.length) break;
+  }
+  return out.length ? uniqueJobs(out) : null;
+}
+
+function inferLocationFromText(text) {
+  const clean = decodeHTML(text);
+  const loc = matchCountry(clean);
+  if (!loc) return "";
+  return loc.city;
 }
 
 async function fetchLever(token) {
@@ -515,17 +737,18 @@ export async function runScan(env) {
   let failCount = 0;
 
   const sources = [
-    ...GREENHOUSE_TOKENS.map(t => ({ source: "greenhouse", token: t, fetch: fetchGreenhouse })),
-    ...ASHBY_TOKENS.map(t => ({ source: "ashby", token: t, fetch: fetchAshby })),
-    ...LEVER_TOKENS.map(t => ({ source: "lever", token: t, fetch: fetchLever })),
-    ...SMARTRECRUITERS_TOKENS.map(t => ({ source: "smartrecruiters", token: t, fetch: fetchSmartRecruiters }))
+    ...GREENHOUSE_TOKENS.map(t => techSource("greenhouse", t, fetchGreenhouse)),
+    ...ASHBY_TOKENS.map(t => techSource("ashby", t, fetchAshby)),
+    ...LEVER_TOKENS.map(t => techSource("lever", t, fetchLever)),
+    ...SMARTRECRUITERS_TOKENS.map(t => techSource("smartrecruiters", t, fetchSmartRecruiters)),
+    ...ENGINEERING_SOURCES
   ];
 
   for (let i = 0; i < sources.length; i += 8) {
     const batch = sources.slice(i, i + 8);
     const results = await Promise.allSettled(batch.map(async s => {
       try {
-        return { s, jobs: await s.fetch(s.token) };
+        return { s, jobs: await s.fetch(s) };
       } catch {
         return { s, jobs: null };
       }
@@ -549,21 +772,25 @@ export async function runScan(env) {
 
         const id = `${s.source}-${s.token}-${job.id}`;
         const existed = prev.postings[id];
-        const visa = classifyVisa(s.token);
+        const visa = s.visa || classifyVisa(s.token);
         const firstSeen = existed?.first_seen || today;
         const seniority = classifySeniority(job.title);
+        const industry = s.industry || INDUSTRIES.TECH;
+        const niche = s.niche || TECH_NICHE;
 
         found[id] = {
           id,
           source: s.source,
           source_token: s.token,
-          company: canonicalCompany(s.token),
+          company: s.company || canonicalCompany(s.token),
           title: job.title,
           location: job.location,
           city: loc.city,
           country: loc.country,
           url: job.url,
-          tier: classifyTier(s.token),
+          tier: s.tier || classifyTier(s.token),
+          industry,
+          niche,
           role_family: roleFamily,
           seniority,
           visa,
@@ -776,6 +1003,8 @@ function clampInteger(value, fallback, min, max) {
 
 function normalizeJobQuery(payload = {}) {
   const filters = payload.filters && typeof payload.filters === "object" ? payload.filters : {};
+  const industryFilters = cleanStringArray(filters.industry || (payload.industry ? [payload.industry] : []), 5, 40)
+    .filter(industry => Object.values(INDUSTRIES).includes(industry));
   return {
     page: clampInteger(payload.page, 1, 1, 10000),
     per_page: clampInteger(payload.per_page, JOB_PAGE_SIZE, 1, MAX_JOB_PAGE_SIZE),
@@ -783,6 +1012,8 @@ function normalizeJobQuery(payload = {}) {
     dir: payload.dir === "asc" ? "asc" : "desc",
     search: cleanString(payload.search || filters.search).toLowerCase(),
     filters: {
+      industry: industryFilters,
+      niche: cleanStringArray(filters.niche),
       country: cleanStringArray(filters.country),
       tier: cleanStringArray(filters.tier).map(normalizeTier),
       family: cleanStringArray(filters.family),
@@ -802,6 +1033,10 @@ function postingIsNew(posting) {
 function postingMatchesQuery(posting, query) {
   if (query.ids.length && !query.ids.includes(posting.id)) return false;
   const filters = query.filters;
+  const industry = posting.industry || INDUSTRIES.TECH;
+  const niche = posting.niche || (industry === INDUSTRIES.ENGINEERING ? "Engineering" : TECH_NICHE);
+  if (filters.industry.length && !filters.industry.includes(industry)) return false;
+  if (filters.niche.length && !filters.niche.includes(niche)) return false;
   if (filters.country.length && !filters.country.includes(posting.country)) return false;
   const tier = normalizeTier(posting.tier);
   if (filters.tier.length && !filters.tier.includes(tier)) return false;
@@ -818,6 +1053,8 @@ function postingMatchesQuery(posting, query) {
       posting.city,
       posting.location,
       posting.country,
+      industry,
+      niche,
       tier,
       posting.role_family,
       posting.seniority,
@@ -848,7 +1085,14 @@ function sortPostings(postings, query) {
 }
 
 function pagePostings(data, query) {
-  const all = Array.isArray(data.postings) ? data.postings.map(p => ({ ...p, tier: normalizeTier(p.tier) })) : [];
+  const all = Array.isArray(data.postings)
+    ? data.postings.map(p => ({
+      ...p,
+      tier: normalizeTier(p.tier),
+      industry: p.industry || INDUSTRIES.TECH,
+      niche: p.niche || ((p.industry || INDUSTRIES.TECH) === INDUSTRIES.ENGINEERING ? "Engineering" : TECH_NICHE)
+    }))
+    : [];
   const matching = sortPostings(all.filter(posting => postingMatchesQuery(posting, query)), query);
   const total = matching.length;
   const totalPages = Math.max(1, Math.ceil(total / query.per_page));
@@ -1715,9 +1959,18 @@ async function handleSeoPage(path, env) {
   }));
 }
 
-async function handlePublicJobs(env) {
+async function handlePublicJobs(request, env) {
+  const url = new URL(request.url);
+  const requestedIndustry = url.searchParams.get("industry") || INDUSTRIES.TECH;
+  const industry = Object.values(INDUSTRIES).includes(requestedIndustry) ? requestedIndustry : INDUSTRIES.TECH;
   const data = await readJobsPayload(env);
-  const payload = pagePostings(data, normalizeJobQuery({ page: 1, per_page: JOB_PAGE_SIZE, sort: "first_seen", dir: "desc" }));
+  const payload = pagePostings(data, normalizeJobQuery({
+    page: 1,
+    per_page: JOB_PAGE_SIZE,
+    sort: "first_seen",
+    dir: "desc",
+    industry
+  }));
   return jsonResponse(payload, {
     headers: {
       "Cache-Control": "public, max-age=300"
@@ -1933,7 +2186,7 @@ export default {
     }
 
     if (url.pathname === "/api/jobs") {
-      return handlePublicJobs(env);
+      return handlePublicJobs(request, env);
     }
 
     if (url.pathname === "/api/config" && request.method === "GET") {

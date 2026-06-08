@@ -201,6 +201,10 @@ body { margin: 0 auto; padding: 24px; background: var(--bg); color: var(--text);
 h1 { font-size: 24px; font-weight: 600; margin: 0 0 3px; letter-spacing: 0; }
 .subtitle { color: var(--text-secondary); font-size: 13px; margin: 0 0 5px; }
 .last-scan { color: var(--text-muted); font-size: 11px; margin: 0; opacity: 0.86; }
+.industry-switcher { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 0.5px solid var(--border); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow-card); flex: 0 0 auto; }
+.industry-btn { border: 0; border-radius: 7px; padding: 9px 14px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+.industry-btn:hover { background: var(--card-hover); color: var(--text); }
+.industry-btn.active { background: var(--accent); color: var(--button-primary-text); }
 .theme-toggle { background: var(--panel); border: 0.5px solid var(--border); border-radius: 999px; padding: 0; width: 32px; height: 32px; font-size: 16px; cursor: pointer; color: var(--text); line-height: 1; transition: background 0.15s, border-color 0.15s; font-family: inherit; display: inline-flex; align-items: center; justify-content: center; }
 .theme-toggle:hover { background: var(--card-hover); border-color: var(--accent); }
 .brand-switcher { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 0.5px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text-muted); font-size: 11px; }
@@ -549,6 +553,8 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 @media (max-width: 800px) {
   body { padding: 16px; }
   .header-row { align-items: flex-start; }
+  .industry-switcher { order: 3; width: 100%; justify-content: stretch; }
+  .industry-btn { flex: 1 1 0; }
   .public-nav { margin: -8px 0 20px; }
   .brand-block { align-items: center; }
   .brand-logo { width: 44px; height: 44px; border-radius: 10px; }
@@ -594,10 +600,14 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <img class="brand-logo" src="/assets/logo.svg" alt="Live Job Index logo" width="42" height="42">
       <div class="brand-copy">
         <h1>Live Job Index</h1>
-        <p class="subtitle">Explore active, real-time career opportunities at the world's leading tech enterprises.</p>
+        <p class="subtitle" id="industry-subtitle">Explore active, real-time career opportunities at the world's leading tech enterprises.</p>
         <p class="last-scan" id="last-scan">🟢 Active jobs updating today</p>
       </div>
     </a>
+  </div>
+  <div class="industry-switcher" id="industry-switcher" aria-label="Industry feed">
+    <button class="industry-btn active" type="button" data-industry="tech">Tech</button>
+    <button class="industry-btn" type="button" data-industry="engineering">Engineering</button>
   </div>
   <div class="header-actions">
     <button class="secondary-btn" id="header-login-btn" type="button">Login</button>
@@ -1107,6 +1117,10 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 <div class="stats" id="stats"></div>
 
 <div class="filter-bar">
+  <details class="filter-dropdown" data-group="niche" id="niche-filter" hidden>
+    <summary>Niche <span class="badge-count" id="bc-niche">0</span></summary>
+    <div class="filter-popup wide" id="filter-niche"></div>
+  </details>
   <details class="filter-dropdown" data-group="role">
     <summary>Role <span class="badge-count" id="bc-role">0</span></summary>
     <div class="filter-popup wide" id="filter-role"></div>
@@ -1352,9 +1366,113 @@ const STATIC_COMPANIES = [
   { id: 112, company: 'Figma', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.figma.com/careers/?location=san-francisco' }
 ];
 
+const ENGINEERING_STATIC_COMPANIES = [
+  { id: 1001, company: 'AECOM', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://aecom.jobs/' },
+  { id: 1002, company: 'WSP', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.wsp.com/en-gl/careers/job-opportunities' },
+  { id: 1003, company: 'Arup', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://careers.arup.com/earlycareers/vacancy/find/results' },
+  { id: 1004, company: 'Jacobs', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://careers.jacobs.com/en_US/careers/SearchJobs' },
+  { id: 1005, company: 'AtkinsRéalis', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://careers.atkinsrealis.com/en/jobs' },
+  { id: 1006, company: 'Mott MacDonald', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.mottmac.com/en/careers' },
+  { id: 1007, company: 'Ramboll', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.ramboll.com/en-us/careers' },
+  { id: 1008, company: 'Arcadis', country: 'NL', city: 'Amsterdam', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://jobs.arcadis.com/careers' },
+  { id: 1009, company: 'Stantec', country: 'CA', city: 'Toronto', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://stantec.jobs/' },
+  { id: 1010, company: 'COWI', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.cowi.com/your-career/open-vacancies/' },
+  { id: 1011, company: 'Sweco', country: 'SE', city: 'Stockholm', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.swecogroup.com/career/' },
+  { id: 1012, company: 'Aurecon', country: 'AU', city: 'Sydney', tier: 'Scaleup', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.aurecongroup.com/careers' },
+  { id: 1013, company: 'GHD', country: 'AU', city: 'Sydney', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.ghd.com/en/careers' },
+  { id: 1014, company: 'Tetra Tech', country: 'US', city: 'Los Angeles', tier: 'BigTech', visa: 'Likely', niche: 'Water / Environment', apply: 'https://www.tetratech.com/en/careers' },
+  { id: 1015, company: 'Systra', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Unknown', niche: 'AEC / Infrastructure', apply: 'https://www.systra.com/en/careers/' },
+  { id: 1016, company: 'Egis', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Unknown', niche: 'AEC / Infrastructure', apply: 'https://www.egis-group.com/careers' },
+  { id: 1017, company: 'Parsons', country: 'US', city: 'Washington DC', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.parsons.com/careers/' },
+  { id: 1018, company: 'HDR', country: 'US', city: 'Denver', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.hdrinc.com/careers' },
+  { id: 1019, company: 'Buro Happold', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://vacancies.burohappold.com/' },
+  { id: 1020, company: 'Thornton Tomasetti', country: 'US', city: 'New York', tier: 'Scaleup', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://careers.thorntontomasetti.com/us/en/' },
+  { id: 1021, company: 'Bechtel', country: 'US', city: 'Reston', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://jobs.bechtel.com/' },
+  { id: 1022, company: 'Fluor', country: 'US', city: 'Houston', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://www.fluor.com/careers' },
+  { id: 1023, company: 'Skanska', country: 'SE', city: 'Stockholm', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://group.skanska.com/careers/' },
+  { id: 1024, company: 'Kiewit', country: 'US', city: 'Denver', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://www.kiewit.com/careers/' },
+  { id: 1025, company: 'Turner Construction', country: 'US', city: 'New York', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://www.turnerconstruction.com/careers' },
+  { id: 1026, company: 'DPR Construction', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://www.dpr.com/careers' },
+  { id: 1027, company: 'Balfour Beatty', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://www.balfourbeattycareers.com/' },
+  { id: 1028, company: 'Laing O’Rourke', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://careers.laingorourke.com/' },
+  { id: 1029, company: 'Ferrovial', country: 'ES', city: 'Madrid', tier: 'BigTech', visa: 'Likely', niche: 'Construction / EPC', apply: 'https://www.ferrovial.com/en/careers/' },
+  { id: 1030, company: 'Vinci', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Unknown', niche: 'Construction / EPC', apply: 'https://www.vinci.com/vinci.nsf/en/careers.htm' },
+  { id: 1031, company: 'Gensler', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://www.gensler.com/careers' },
+  { id: 1032, company: 'HOK', country: 'US', city: 'New York', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://www.hok.com/careers/' },
+  { id: 1033, company: 'SOM', country: 'US', city: 'New York', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://www.som.com/careers/' },
+  { id: 1034, company: 'Perkins&Will', country: 'US', city: 'Chicago', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://perkinswill.com/careers/' },
+  { id: 1035, company: 'Foster + Partners', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://www.fosterandpartners.com/careers/' },
+  { id: 1036, company: 'Populous', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://populous.com/careers' },
+  { id: 1037, company: 'BIG', country: 'DK', city: 'Copenhagen', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://big.dk/jobs' },
+  { id: 1038, company: 'Zaha Hadid Architects', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Likely', niche: 'Architecture / Built Environment', apply: 'https://www.zaha-hadid.com/work-with-us/' },
+  { id: 1039, company: 'Worley', country: 'AU', city: 'Sydney', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://www.worley.com/careers' },
+  { id: 1040, company: 'Wood', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://www.woodplc.com/careers' },
+  { id: 1041, company: 'Black & Veatch', country: 'US', city: 'Kansas City', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://careers.bv.com/' },
+  { id: 1042, company: 'Burns & McDonnell', country: 'US', city: 'Kansas City', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://www.burnsmcd.com/careers' },
+  { id: 1043, company: 'Ørsted', country: 'DK', city: 'Copenhagen', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://orsted.com/en/careers' },
+  { id: 1044, company: 'Vestas', country: 'DK', city: 'Aarhus', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://www.vestas.com/en/careers' },
+  { id: 1045, company: 'GE Vernova', country: 'US', city: 'Boston', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://www.gevernova.com/careers' },
+  { id: 1046, company: 'Siemens Energy', country: 'DE', city: 'Munich', tier: 'BigTech', visa: 'Likely', niche: 'Energy / Power / Renewables', apply: 'https://www.siemens-energy.com/global/en/company/jobs.html' },
+  { id: 1047, company: 'Schneider Electric', country: 'DE', city: 'Frankfurt', tier: 'BigTech', visa: 'Unknown', niche: 'Industrial Technology', apply: 'https://www.se.com/ww/en/about-us/careers/overview.jsp' },
+  { id: 1048, company: 'ABB', country: 'CH', city: 'Zurich', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://careers.abb/global/en' },
+  { id: 1049, company: 'Veolia', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Unknown', niche: 'Water / Environment', apply: 'https://www.veolia.com/en/careers' },
+  { id: 1050, company: 'Suez', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Unknown', niche: 'Water / Environment', apply: 'https://www.suez.com/en/careers' },
+  { id: 1051, company: 'SpaceX', country: 'US', city: 'Los Angeles', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.spacex.com/careers/' },
+  { id: 1052, company: 'Blue Origin', country: 'US', city: 'Seattle', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.blueorigin.com/careers' },
+  { id: 1053, company: 'Rocket Lab', country: 'US', city: 'Los Angeles', tier: 'Scaleup', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.rocketlabusa.com/careers/' },
+  { id: 1054, company: 'Anduril', country: 'US', city: 'Los Angeles', tier: 'Scaleup', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.anduril.com/careers/' },
+  { id: 1055, company: 'Boeing', country: 'US', city: 'Seattle', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://jobs.boeing.com/' },
+  { id: 1056, company: 'Airbus', country: 'DE', city: 'Hamburg', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.airbus.com/en/careers' },
+  { id: 1057, company: 'Northrop Grumman', country: 'US', city: 'Los Angeles', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.northropgrumman.com/jobs/' },
+  { id: 1058, company: 'Lockheed Martin', country: 'US', city: 'Denver', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.lockheedmartinjobs.com/' },
+  { id: 1059, company: 'RTX', country: 'US', city: 'Boston', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://careers.rtx.com/global/en' },
+  { id: 1060, company: 'GE Aerospace', country: 'US', city: 'Boston', tier: 'BigTech', visa: 'Likely', niche: 'Aerospace / Defense / Space', apply: 'https://www.geaerospace.com/careers' },
+  { id: 1061, company: 'NVIDIA', country: 'US', city: 'Santa Clara', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://www.nvidia.com/en-us/about-nvidia/careers/' },
+  { id: 1062, company: 'Intel', country: 'US', city: 'San Francisco', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://jobs.intel.com/' },
+  { id: 1063, company: 'AMD', country: 'US', city: 'Austin', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://careers.amd.com/' },
+  { id: 1064, company: 'Qualcomm', country: 'US', city: 'San Diego', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://careers.qualcomm.com/' },
+  { id: 1065, company: 'Arm', country: 'GB', city: 'Cambridge', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://careers.arm.com/' },
+  { id: 1066, company: 'ASML', country: 'NL', city: 'Eindhoven', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://www.asml.com/en/careers' },
+  { id: 1067, company: 'TSMC', country: 'US', city: 'Phoenix', tier: 'BigTech', visa: 'Likely', niche: 'Semiconductors', apply: 'https://www.tsmc.com/english/careers' },
+  { id: 1068, company: 'Samsung Semiconductor', country: 'US', city: 'San Jose', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://semiconductor.samsung.com/us/careers/' },
+  { id: 1069, company: 'Micron', country: 'US', city: 'Austin', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://www.micron.com/careers' },
+  { id: 1070, company: 'Broadcom', country: 'US', city: 'San Jose', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://www.broadcom.com/company/careers' },
+  { id: 1071, company: 'Applied Materials', country: 'US', city: 'Santa Clara', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://www.appliedmaterials.com/us/en/careers.html' },
+  { id: 1072, company: 'Lam Research', country: 'US', city: 'San Francisco', tier: 'BigTech', visa: 'Strong', niche: 'Semiconductors', apply: 'https://www.lamresearch.com/careers/' },
+  { id: 1073, company: 'Apple', country: 'US', city: 'Cupertino', tier: 'BigTech', visa: 'Strong', niche: 'Hardware / Consumer Devices', apply: 'https://jobs.apple.com/' },
+  { id: 1074, company: 'Samsung', country: 'US', city: 'San Jose', tier: 'BigTech', visa: 'Likely', niche: 'Hardware / Consumer Devices', apply: 'https://www.samsung.com/us/careers/' },
+  { id: 1075, company: 'Sony', country: 'US', city: 'San Diego', tier: 'BigTech', visa: 'Likely', niche: 'Hardware / Consumer Devices', apply: 'https://www.sonyjobs.com/' },
+  { id: 1076, company: 'Dyson', country: 'SG', city: 'Singapore', tier: 'BigTech', visa: 'Likely', niche: 'Hardware / Consumer Devices', apply: 'https://careers.dyson.com/' },
+  { id: 1077, company: 'Garmin', country: 'US', city: 'Austin', tier: 'BigTech', visa: 'Likely', niche: 'Hardware / Consumer Devices', apply: 'https://careers.garmin.com/' },
+  { id: 1078, company: 'Waymo', country: 'US', city: 'Mountain View', tier: 'Scaleup', visa: 'Strong', niche: 'Robotics / Autonomy', apply: 'https://waymo.com/careers/' },
+  { id: 1079, company: 'Zoox', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Likely', niche: 'Robotics / Autonomy', apply: 'https://zoox.com/careers/' },
+  { id: 1080, company: 'Figure', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Unknown', niche: 'Robotics / Autonomy', apply: 'https://www.figure.ai/careers' },
+  { id: 1081, company: 'Boston Dynamics', country: 'US', city: 'Boston', tier: 'Scaleup', visa: 'Likely', niche: 'Robotics / Autonomy', apply: 'https://bostondynamics.com/careers/' },
+  { id: 1082, company: 'Tesla', country: 'US', city: 'Austin', tier: 'BigTech', visa: 'Strong', niche: 'Automotive / EV', apply: 'https://www.tesla.com/careers/search' },
+  { id: 1083, company: 'Rivian', country: 'US', city: 'Irvine', tier: 'Scaleup', visa: 'Likely', niche: 'Automotive / EV', apply: 'https://rivian.com/careers' },
+  { id: 1084, company: 'Lucid', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Likely', niche: 'Automotive / EV', apply: 'https://lucidmotors.com/careers' },
+  { id: 1085, company: 'BYD', country: 'US', city: 'Los Angeles', tier: 'BigTech', visa: 'Unknown', niche: 'Automotive / EV', apply: 'https://en.byd.com/careers/' },
+  { id: 1086, company: 'Ford', country: 'US', city: 'Detroit', tier: 'BigTech', visa: 'Likely', niche: 'Automotive / EV', apply: 'https://corporate.ford.com/careers.html' },
+  { id: 1087, company: 'GM', country: 'US', city: 'Detroit', tier: 'BigTech', visa: 'Likely', niche: 'Automotive / EV', apply: 'https://search-careers.gm.com/' },
+  { id: 1088, company: 'Toyota', country: 'US', city: 'Los Angeles', tier: 'BigTech', visa: 'Likely', niche: 'Automotive / EV', apply: 'https://careers.toyota.com/' },
+  { id: 1089, company: 'Siemens', country: 'DE', city: 'Munich', tier: 'BigTech', visa: 'Strong', niche: 'Industrial Technology', apply: 'https://jobs.siemens.com/' },
+  { id: 1090, company: 'Bosch', country: 'DE', city: 'Stuttgart', tier: 'BigTech', visa: 'Strong', niche: 'Industrial Technology', apply: 'https://www.bosch.com/careers/' },
+  { id: 1091, company: 'Honeywell', country: 'US', city: 'Charlotte', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://careers.honeywell.com/' },
+  { id: 1092, company: 'Caterpillar', country: 'US', city: 'Chicago', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://careers.caterpillar.com/' },
+  { id: 1093, company: 'John Deere', country: 'US', city: 'Chicago', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://www.deere.com/en/our-company/john-deere-careers/' },
+  { id: 1094, company: 'Rolls-Royce', country: 'GB', city: 'Derby', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://careers.rolls-royce.com/' },
+  { id: 1095, company: 'Emerson', country: 'US', city: 'Austin', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://www.emerson.com/en-us/careers' },
+  { id: 1096, company: 'Rockwell Automation', country: 'US', city: 'Milwaukee', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://www.rockwellautomation.com/en-us/company/careers.html' },
+  { id: 1097, company: '3M', country: 'US', city: 'Minneapolis', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://www.3m.com/3M/en_US/careers-us/' }
+];
+
 const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', US: 'United States', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand' };
 const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', US: '🇺🇸', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿' };
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
+const INDUSTRIES = { tech: 'Tech', engineering: 'Engineering' };
+const INDUSTRY_KEY = 'livejobindex_industry';
+const DEFAULT_INDUSTRY = 'tech';
+const ENGINEERING_NICHES = ['AEC / Infrastructure', 'Construction / EPC', 'Architecture / Built Environment', 'Energy / Power / Renewables', 'Water / Environment', 'Aerospace / Defense / Space', 'Semiconductors', 'Hardware / Consumer Devices', 'Robotics / Autonomy', 'Automotive / EV', 'Industrial Technology'];
 const ROLE_FAMILIES = ['Engineering', 'Product', 'Design', 'Data/Analytics', 'Security/IT', 'Sales', 'Marketing', 'Finance', 'Operations', 'Customer Success/Support', 'People/HR', 'Legal/Compliance', 'Strategy/Program', 'Other'];
 const SENIORITIES = ['Executive', 'Director/Head', 'Senior/Lead', 'Manager', 'Associate/Analyst', 'Unknown'];
 const SENIOR_PLUS = new Set(['Executive', 'Director/Head', 'Senior/Lead', 'Manager']);
@@ -1419,7 +1537,7 @@ function prettyCompany(token) {
 function inferRoleFamily(title) {
   // Display fallback for dynamic payloads and static rows; keep aligned with ROLE_FAMILIES in src/worker.js.
   const t = (title || '').toLowerCase();
-  if (/(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|site reliability|sre|devops|developer|technical lead|engineering manager|machine learning|ml engineer)/.test(t)) return 'Engineering';
+  if (/(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|site reliability|sre|devops|developer|technical lead|engineering manager|machine learning|ml engineer|civil engineer|structural engineer|mechanical engineer|electrical engineer|transport engineer|transportation engineer|highway engineer|rail engineer|water engineer|environmental engineer|geotechnical engineer|fire engineer|facade engineer|mep engineer|bim designer|revit designer|design engineer|project engineer|process engineer|piping engineer|substation engineer|semiconductor|hardware engineer|systems engineer|aerospace engineer|manufacturing engineer|robotics engineer|firmware engineer|asic|fpga)/.test(t)) return 'Engineering';
   if (/product/.test(t)) return 'Product';
   if (/(designer|design|ux|ui|user researcher|content designer)/.test(t)) return 'Design';
   if (/(data|analytics|business intelligence|bi analyst|insights)/.test(t)) return 'Data/Analytics';
@@ -1609,7 +1727,7 @@ function rebuildJobsFromCache() {
 }
 
 function activeJobCount() {
-  const loadedActive = JOBS.filter(j => !j.is_static && !j.is_filled).length;
+  const loadedActive = JOBS.filter(j => j.industry === state.industry && !j.is_static && !j.is_filled).length;
   return Math.max(loadedActive, HEADER_ACTIVE_TOTAL);
 }
 
@@ -1624,11 +1742,13 @@ function updateHeaderStatus(message) {
     el.textContent = '🟢 Active jobs updating today';
     return;
   }
-  el.textContent = `🟢 ${activeJobCount().toLocaleString()} active jobs updated today`;
+  el.textContent = `🟢 ${activeJobCount().toLocaleString()} ${INDUSTRIES[state.industry].toLowerCase()} jobs updated today`;
 }
 
 function serializedFilters() {
   return {
+    industry: [state.industry],
+    niche: [...state.niche],
     country: [...state.country],
     tier: [...state.tier].map(normalizeTier),
     family: [...state.family],
@@ -1650,9 +1770,13 @@ function dynamicQueryKey(page = state.page) {
 
 function buildJobs(dynamicPostings) {
   const seenTargets = new Set();
-  const staticMapped = STATIC_COMPANIES
+  const staticTargets = [
+    ...STATIC_COMPANIES.map(j => ({ ...j, industry: 'tech', niche: 'Software' })),
+    ...ENGINEERING_STATIC_COMPANIES.map(j => ({ ...j, industry: 'engineering' }))
+  ];
+  const staticMapped = staticTargets
     .filter(j => {
-      const key = `${j.company}|${j.country}|${j.city}`;
+      const key = `${j.industry}|${j.company}|${j.country}|${j.city}`;
       if (seenTargets.has(key)) return false;
       seenTargets.add(key);
       return true;
@@ -1661,6 +1785,8 @@ function buildJobs(dynamicPostings) {
       ...j,
       id: `static-${j.id}`,
       tier: normalizeTier(j.tier),
+      industry: j.industry || 'tech',
+      niche: j.niche || (j.industry === 'engineering' ? 'Engineering' : 'Software'),
       role: 'Company career target',
       role_family: 'Multiple',
       role_families: j.role_families || ROLE_FAMILIES.filter(f => f !== 'Other'),
@@ -1679,6 +1805,8 @@ function buildJobs(dynamicPostings) {
     country: p.country,
     city: p.city || p.location,
     tier: normalizeTier(p.tier),
+    industry: p.industry || 'tech',
+    niche: p.niche || (p.industry === 'engineering' ? 'Engineering' : 'Software'),
     role_family: p.role_family || inferRoleFamily(p.title),
     role_families: [p.role_family || inferRoleFamily(p.title)],
     seniority: p.seniority || inferSeniority(p.title),
@@ -1699,6 +1827,7 @@ function buildJobs(dynamicPostings) {
     j.location = `${COUNTRY_FLAGS[j.country]} ${j.city}`;
     j.tierLabel = TIER_LABELS[j.tier] || j.tier;
     j.familyLabel = j.is_static ? 'Multiple' : j.role_family;
+    j.nicheLabel = j.niche || '';
     j.seniorityLabel = j.seniority || 'Unknown';
   });
 }
@@ -1771,7 +1900,7 @@ async function fetchJobsPage(page, turnstileToken = '') {
   DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
   DYNAMIC_PAGINATION_QUERY_KEY = queryKey;
   LAST_SCAN = data.last_scan_at || LAST_SCAN;
-  HEADER_ACTIVE_TOTAL = Math.max(HEADER_ACTIVE_TOTAL, DYNAMIC_PAGINATION.total || 0);
+  HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || 0;
   mergeDynamicPostings(data.postings || []);
   rebuildJobsFromCache();
   PUBLIC_FEED_LOADED = true;
@@ -1906,13 +2035,63 @@ function saveStatus(id, v) { persistUserJob(id, { status: v }); }
 function saveStar(id, v) { persistUserJob(id, { starred: v }); }
 function recordViewed(id) { persistUserJob(id, { viewed: true }); }
 
+function initialIndustry() {
+  try {
+    const saved = localStorage.getItem(INDUSTRY_KEY);
+    return INDUSTRIES[saved] ? saved : DEFAULT_INDUSTRY;
+  } catch {
+    return DEFAULT_INDUSTRY;
+  }
+}
+
 const state = {
   tab: 'active',
+  industry: initialIndustry(),
+  niche: new Set(),
   country: new Set(), tier: new Set(), family: new Set(), seniority: new Set(), visa: new Set(),
   presets: new Set(),
   search: '', sort: 'first_seen', dir: 'desc',
   page: 1
 };
+
+function updateIndustryUI() {
+  document.querySelectorAll('.industry-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.industry === state.industry);
+    btn.setAttribute('aria-pressed', btn.dataset.industry === state.industry ? 'true' : 'false');
+  });
+  const subtitle = document.getElementById('industry-subtitle');
+  if (subtitle) {
+    subtitle.textContent = state.industry === 'engineering'
+      ? 'Explore active engineering roles across infrastructure, hardware, aerospace, energy, and industrial companies.'
+      : 'Explore active, real-time career opportunities at the world’s leading tech enterprises.';
+  }
+  const search = document.getElementById('search');
+  if (search) {
+    search.placeholder = state.industry === 'engineering'
+      ? 'Search engineering company, role, niche, city, notes...'
+      : 'Search company, role, family, city, notes...';
+  }
+}
+
+async function setIndustry(industry) {
+  if (!INDUSTRIES[industry] || state.industry === industry) return;
+  state.industry = industry;
+  state.niche.clear();
+  state.page = 1;
+  HEADER_ACTIVE_TOTAL = 0;
+  DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
+  try { localStorage.setItem(INDUSTRY_KEY, industry); } catch {}
+  updateIndustryUI();
+  resetPage();
+  rebuildJobsFromCache();
+  render();
+  try {
+    await fetchJobsPage(1);
+    render();
+  } catch {
+    updateHeaderStatus('🟢 Active jobs updating today');
+  }
+}
 
 function tabBucket(j) {
   const status = loadStatus(j.id);
@@ -2005,12 +2184,24 @@ function filterSection(title, items) {
 }
 
 function renderFilterOptions(countryCounts = {}) {
+  const nicheDetails = document.getElementById('niche-filter');
+  const nicheEl = document.getElementById('filter-niche');
   const countryEl = document.getElementById('filter-country');
   const roleEl = document.getElementById('filter-role');
   const experienceEl = document.getElementById('filter-experience');
   const eligibilityEl = document.getElementById('filter-eligibility');
   const quickEl = document.getElementById('filter-quick');
   if (!countryEl || !roleEl || !experienceEl || !eligibilityEl || !quickEl) return;
+
+  if (nicheDetails && nicheEl) {
+    const showNiche = state.industry === 'engineering';
+    nicheDetails.hidden = !showNiche;
+    if (!showNiche) nicheDetails.open = false;
+    nicheEl.innerHTML = '';
+    if (showNiche) {
+      nicheEl.appendChild(filterSection('Engineering niche', ENGINEERING_NICHES.map(n => filterOption('niche', n, n))));
+    }
+  }
 
   countryEl.innerHTML = '';
   Object.entries(COUNTRY_NAMES).sort((a, b) => {
@@ -2050,6 +2241,7 @@ function renderFilterOptions(countryCounts = {}) {
 
 function updateFilterBadges() {
   const counts = {
+    niche: state.industry === 'engineering' ? state.niche.size : 0,
     location: state.country.size,
     role: state.family.size,
     experience: state.seniority.size + (state.presets.has('senior') ? 1 : 0),
@@ -2074,6 +2266,8 @@ function passesPresets(j, controls = state) {
 
 function matchesControls(j, controls, opts = {}) {
   const q = controls.search.toLowerCase().trim();
+  if (j.industry !== controls.industry) return false;
+  if (controls.niche.size && !controls.niche.has(j.niche)) return false;
   if (!opts.ignoreCountry && controls.country.size && !controls.country.has(j.country)) return false;
   if (controls.tier.size && !controls.tier.has(j.tier)) return false;
   if (controls.family.size && !(j.role_families || [j.role_family]).some(f => controls.family.has(f))) return false;
@@ -2081,7 +2275,7 @@ function matchesControls(j, controls, opts = {}) {
   if (controls.visa.size && !controls.visa.has(j.visa)) return false;
   if (!passesPresets(j, controls)) return false;
   if (q) {
-    const blob = (j.company + ' ' + j.role + ' ' + j.familyLabel + ' ' + j.seniorityLabel + ' ' + j.city + ' ' + (j.notes||'') + ' ' + j.tierLabel).toLowerCase();
+    const blob = (j.company + ' ' + j.role + ' ' + j.nicheLabel + ' ' + j.familyLabel + ' ' + j.seniorityLabel + ' ' + j.city + ' ' + (j.notes||'') + ' ' + j.tierLabel).toLowerCase();
     if (!blob.includes(q)) return false;
   }
   return true;
@@ -2101,6 +2295,7 @@ function filtered() {
 function hasActiveControls() {
   return Boolean(
     state.search.trim() ||
+    state.niche.size ||
     state.country.size ||
     state.tier.size ||
     state.family.size ||
@@ -2113,6 +2308,8 @@ function hasActiveControls() {
 function profileFilterState(profile) {
   const controls = {
     country: new Set(profile.target_countries || []),
+    industry: state.industry,
+    niche: new Set(),
     tier: new Set(),
     family: new Set(profile.target_role_families || []),
     seniority: new Set(),
@@ -2133,6 +2330,8 @@ function activeMatchCountForControls(controls) {
 }
 
 function applyControlState(controls) {
+  state.industry = controls.industry || state.industry;
+  state.niche = new Set(controls.niche || []);
   state.country = new Set(controls.country);
   state.tier = new Set(controls.tier);
   state.family = new Set(controls.family);
@@ -2230,6 +2429,9 @@ function compositeBadgesHTML(j) {
     `<span class="tier-badge tier-${tier}">${escapeHTML(j.tierLabel)}</span>`,
     `<span class="family-badge" title="${escapeHTML(familyTitle)}">${escapeHTML(j.familyLabel)}</span>`
   ];
+  if (j.industry === 'engineering' && j.nicheLabel) {
+    badges.push(`<span class="family-badge">${escapeHTML(j.nicheLabel)}</span>`);
+  }
   if (j.seniorityLabel !== 'Unknown') {
     badges.push(`<span class="seniority-badge">${escapeHTML(j.seniorityLabel)}</span>`);
   }
@@ -2266,7 +2468,7 @@ function renderStats() {
   const liveCount = marketRows.filter(j => !j.is_static && !j.is_filled).length;
   const newCount = marketRows.filter(j => j.is_new).length;
   const strong = marketRows.filter(j => j.visa === 'Strong').length;
-  const pipeline = JOBS.filter(j => tabBucket(j) === 'pipeline').length;
+  const pipeline = JOBS.filter(j => j.industry === state.industry && tabBucket(j) === 'pipeline').length;
   const byCountry = {};
   countryRows.forEach(j => { byCountry[j.country] = (byCountry[j.country] || 0) + 1; });
   const counts = Object.entries(byCountry).sort((a,b) => b[1]-a[1]);
@@ -2283,7 +2485,7 @@ function renderStats() {
 
 function renderTabs() {
   const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0 };
-  JOBS.forEach(j => buckets[tabBucket(j)]++);
+  JOBS.filter(j => j.industry === state.industry).forEach(j => buckets[tabBucket(j)]++);
   document.getElementById('count-active').textContent = Math.max(buckets.active, DYNAMIC_PAGINATION.total || 0);
   document.getElementById('count-targets').textContent = buckets.targets;
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
@@ -2381,6 +2583,7 @@ function pipelineItemHTML(j, history) {
     <div class="pipeline-meta">
       <span>${escapeHTML(j.location)}</span>
       <span>${escapeHTML(j.tierLabel)}</span>
+      ${j.industry === 'engineering' && j.nicheLabel ? `<span>${escapeHTML(j.nicheLabel)}</span>` : ''}
       <span>${escapeHTML(j.familyLabel)}</span>
       <span>${escapeHTML(j.seniorityLabel)}</span>
       <span>${escapeHTML(lastEventText)}</span>
@@ -2544,7 +2747,7 @@ function wireRowHandlers() {
 }
 
 function resetAll() {
-  state.country.clear(); state.tier.clear(); state.family.clear(); state.seniority.clear(); state.visa.clear(); state.presets.clear();
+  state.niche.clear(); state.country.clear(); state.tier.clear(); state.family.clear(); state.seniority.clear(); state.visa.clear(); state.presets.clear();
   state.search = '';
   resetPage();
   document.getElementById('search').value = '';
@@ -2557,6 +2760,10 @@ function resetAll() {
 
 // Wire static handlers (called once at init)
 function wireStaticHandlers() {
+  document.querySelectorAll('.industry-btn').forEach(btn => {
+    btn.onclick = () => setIndustry(btn.dataset.industry);
+  });
+
   // Tabs
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => {
@@ -3630,6 +3837,7 @@ async function init() {
   buildOnboardingOptions();
   wireStaticHandlers();
   wireAuthHandlers();
+  updateIndustryUI();
   showPublicDashboard();
   render();
 
@@ -3637,13 +3845,13 @@ async function init() {
   const oauthError = await handleOAuthCallbackFromUrl();
 
   try {
-    const r = await fetch('/api/jobs');
+    const r = await fetch(`/api/jobs?industry=${encodeURIComponent(state.industry)}`);
     if (r.ok) {
       const data = await r.json();
       LAST_SCAN = data.last_scan_at;
       DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
       DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKey(1);
-      HEADER_ACTIVE_TOTAL = Math.max(HEADER_ACTIVE_TOTAL, DYNAMIC_PAGINATION.total || data.postings?.length || 0);
+      HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || data.postings?.length || 0;
       mergeDynamicPostings(data.postings || []);
       rebuildJobsFromCache();
       PUBLIC_FEED_LOADED = true;

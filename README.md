@@ -1,6 +1,6 @@
 # Live Job Index
 
-Live Job Index is a cloud-hosted job-search tracker for finding visa-aware technology roles abroad. It combines curated company targets with a daily automated scan of public ATS job boards, diffs against KV state, persists scan analytics to Supabase, and serves a static HTML UI that merges curated entries with the dynamic feed.
+Live Job Index is a cloud-hosted job-search tracker for finding visa-aware technology and engineering roles abroad. It combines curated company targets with a daily automated scan of public ATS job boards, diffs against KV state, persists scan analytics to Supabase, and serves a static HTML UI that merges curated entries with the dynamic feed.
 
 Built for **Sohaib "King" Kazmi** — Dubai-based BizOps Manager / RevOps consultant looking to relocate into international RevOps, BizOps, Sales Ops, Marketing Ops, GTM Ops, strategy, operations, and broader technology-company roles.
 
@@ -19,7 +19,8 @@ Instead of repeatedly checking dozens of careers pages, the tracker:
 - Scores roles using visa likelihood, seniority, and freshness.
 - Persists scan results and analytics to Supabase for trend analysis.
 - Gives one place to search, filter, save, star, and track application status.
-- Focuses on relocation-friendly countries and technology companies with a realistic sponsorship or international-hiring profile.
+- Focuses on relocation-friendly countries and technology or engineering companies with a realistic sponsorship or international-hiring profile.
+- Lets the user switch between `Tech` and `Engineering` feeds, with engineering sub-niches for infrastructure, construction, aerospace, semiconductors, hardware, robotics, automotive, and industrial technology.
 
 ## Architecture
 
@@ -36,7 +37,7 @@ Cloudflare Worker: job-tracker
 │   ├── GET /robots.txt        -> static asset
 │   ├── GET /sitemap.xml       -> static asset
 │   ├── GET /llms.txt          -> static asset
-│   ├── GET /api/jobs          -> page 1 of public job payload (KV, 300s cache)
+│   ├── GET /api/jobs          -> page 1 of public job payload, optionally filtered by industry (KV, 300s cache)
 │   ├── POST /api/jobs/query   -> paged filtered/sorted jobs (page 2+ needs auth + Turnstile)
 │   ├── GET /api/config        -> public config (Turnstile site key)
 │   ├── POST /api/session      -> create or return anonymous session cookie
@@ -80,9 +81,9 @@ Supabase
 ├── public.user_job_history             -> per-job timeline (viewed, status_changed, starred, note_added)
 ├── public.user_activity                -> behavior/event log
 ├── public.agency_feedback              -> agency feature requests and metadata
-├── public.job_postings                 -> master job posting records (upserted per scan)
-├── public.job_snapshots                -> daily snapshot of each posting (for trend analysis)
-├── public.daily_scan_stats             -> aggregated scan statistics per day
+├── public.job_postings                 -> master job posting records (upserted per scan, includes industry/niche)
+├── public.job_snapshots                -> daily snapshot of each posting (for trend analysis, includes industry/niche)
+├── public.daily_scan_stats             -> aggregated scan statistics per day, including industry/niche counts
 ├── public.job_views                    -> anonymous/authenticated job view events
 ├── public.search_queries               -> anonymous/authenticated search events
 ├── public.page_views                   -> anonymous/authenticated page view events
@@ -165,7 +166,7 @@ Serves static crawler files with correct content types and security headers.
 
 ### `GET /api/jobs`
 
-Returns the first page (15 items) of the latest dynamic job payload from KV key `jobs`, sorted by `first_seen` descending. Response shape:
+Returns the first page (15 items) of the latest dynamic job payload from KV key `jobs`, sorted by `first_seen` descending. Optional query string: `industry=tech` or `industry=engineering`; invalid values fall back to `tech`. Response shape:
 
 ```json
 {
@@ -191,8 +192,8 @@ Returns paged, filtered, sorted dynamic jobs. `per_page` capped at 15.
 
 Accepts body fields:
 - `page`, `per_page`, `sort` (`score`, `company`, `title`, `role`, `country`, `status`, `first_seen`), `dir` (`asc`/`desc`)
-- `search` — free text search across company, title, city, country, family, seniority, visa, tier
-- `filters` — object with optional arrays: `country`, `tier`, `family`, `seniority`, `visa`, `presets` (`senior`, `strong-visa`, `new`)
+- `search` — free text search across company, title, city, country, industry, niche, family, seniority, visa, tier
+- `filters` — object with optional arrays: `industry`, `niche`, `country`, `tier`, `family`, `seniority`, `visa`, `presets` (`senior`, `strong-visa`, `new`)
 - `ids` — specific posting IDs to fetch
 - `turnstile_token` — Cloudflare Turnstile token for page 2+
 
@@ -297,12 +298,17 @@ SMARTRECRUITERS_TOKENS = ["canva", "wise"]
 
 Company aliases normalize non-obvious ATS tokens: `talkdesk2` → `talkdesk`, `boxinc` → `box`.
 
+Engineering live sources use structured source objects with `industry`, `niche`, `company`, `source`, `token`/`url`, and `fetch`. V1 includes conservative live fetchers for RMK/SuccessFactors-style category pages, Tribepad, and NLX/Solr-style jobs domains, plus static engineering targets in `ENGINEERING_STATIC_COMPANIES`.
+
 ## ATS Fetching
 
 Each fetcher returns a normalized object: `{ id, title, location, url }`.
 
 - **Greenhouse**: `https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=false`
 - **Ashby**: `https://api.ashbyhq.com/posting-api/job-board/{token}` — secondary locations expanded into separate postings.
+- **RMK / SuccessFactors category pages**: HTML category listings such as Bechtel engineering jobs.
+- **Tribepad**: HTML listings such as Buro Happold vacancies.
+- **NLX / Solr-style jobs domains**: branded jobs domains such as AECOM/Stantec-style sites.
 - **Lever**: `https://api.lever.co/v0/postings/{token}?mode=json` — `allLocations` expanded into separate postings.
 - **SmartRecruiters**: `https://api.smartrecruiters.com/v1/companies/{token}/postings?limit=100&offset={offset}` — paginated up to 10 pages of 100.
 
@@ -550,6 +556,12 @@ Add an entry to `STATIC_COMPANIES` in `public/index.html`:
 
 ```js
 { id: 96, company: 'ExampleCo', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Likely', apply: 'https://example.com/careers?location=London' }
+```
+
+For engineering companies, add the entry to `ENGINEERING_STATIC_COMPANIES` and include `niche`:
+
+```js
+{ id: 1200, company: 'Example Engineering', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://example.com/careers' }
 ```
 
 ### Add a new Supabase table
