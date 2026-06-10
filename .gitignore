@@ -20,3 +20,6 @@ npm-debug.log*
 # Build artifacts
 dist/
 build/
+
+# Data exports (CSV reports for team analysis)
+/reports/
