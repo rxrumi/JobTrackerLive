@@ -1661,6 +1661,10 @@ function safeNextRoute(value) {
   return APP_ROUTES.has(value) ? value : '/';
 }
 
+function isDashboardRoute(route) {
+  return route === '/' || route === '/visa-roles';
+}
+
 function syncAuthRouteLinks() {
   document.querySelectorAll('.google-btn').forEach(button => {
     button.dataset.nextRoute = CURRENT_ROUTE;
@@ -1706,10 +1710,21 @@ async function startGoogleAuth() {
   }
 }
 
+function dashboardShareableSearch() {
+  const params = new URLSearchParams(window.location.search);
+  if (state.country.size) params.set('country', [...state.country].join(','));
+  else params.delete('country');
+  if (state.family.size) params.set('family', [...state.family].join(','));
+  else params.delete('family');
+  const search = params.toString();
+  return search ? `?${search}` : '';
+}
+
 function navigateTo(path, replace = false) {
   const route = safeRoute(path);
-  if (window.location.pathname !== route) {
-    window.history[replace ? 'replaceState' : 'pushState']({}, '', route);
+  const nextUrl = isDashboardRoute(route) ? `${route}${dashboardShareableSearch()}` : route;
+  if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+    window.history[replace ? 'replaceState' : 'pushState']({}, '', nextUrl);
   }
   CURRENT_ROUTE = route;
   trackPageView(route);
@@ -2054,6 +2069,26 @@ const state = {
   page: 1
 };
 
+function valuesFromQueryParam(params, key, allowed) {
+  const rawValues = params.getAll(key).flatMap(value => String(value || '').split(','));
+  return rawValues.map(value => value.trim()).filter(value => allowed.has(value));
+}
+
+function applyUrlFiltersToState() {
+  if (!isDashboardRoute(CURRENT_ROUTE)) return;
+  const params = new URLSearchParams(window.location.search);
+  state.country = new Set(valuesFromQueryParam(params, 'country', new Set(Object.keys(COUNTRY_NAMES))));
+  state.family = new Set(valuesFromQueryParam(params, 'family', new Set(ROLE_FAMILIES)));
+}
+
+function syncShareableFiltersToUrl() {
+  if (!isDashboardRoute(CURRENT_ROUTE)) return;
+  const nextUrl = `${window.location.pathname}${dashboardShareableSearch()}${window.location.hash}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+    window.history.replaceState({}, '', nextUrl);
+  }
+}
+
 function updateIndustryUI() {
   document.querySelectorAll('.industry-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.industry === state.industry);
@@ -2106,7 +2141,8 @@ function buildFilters() {
   renderFilterOptions();
 }
 
-function filterChanged() {
+function filterChanged(changedCat = '') {
+  if (changedCat === 'country' || changedCat === 'family') syncShareableFiltersToUrl();
   updateFilterBadges();
   resetPage();
   render();
@@ -2118,7 +2154,7 @@ function toggleFilterValue(cat, val) {
   if (cat === 'tier') val = normalizeTier(val);
   if (state[cat].has(val)) state[cat].delete(val);
   else state[cat].add(val);
-  filterChanged();
+  filterChanged(cat);
 }
 
 function togglePreset(val) {
@@ -2749,6 +2785,7 @@ function wireRowHandlers() {
 function resetAll() {
   state.niche.clear(); state.country.clear(); state.tier.clear(); state.family.clear(); state.seniority.clear(); state.visa.clear(); state.presets.clear();
   state.search = '';
+  syncShareableFiltersToUrl();
   resetPage();
   document.getElementById('search').value = '';
   document.getElementById('search-wrap').classList.remove('has-text');
@@ -2781,9 +2818,8 @@ function wireStaticHandlers() {
         return;
       }
       if (CURRENT_ROUTE !== '/') {
-        window.history.pushState({}, '', '/');
-        CURRENT_ROUTE = '/';
-        trackPageView('/');
+        navigateTo('/');
+        return;
       }
       state.tab = t.dataset.tab;
       resetPage();
@@ -3231,6 +3267,7 @@ async function applyRoute() {
   syncAuthRouteLinks();
 
   if (CURRENT_ROUTE === '/' || CURRENT_ROUTE === '/visa-roles') {
+    applyUrlFiltersToState();
     if (ME?.user?.onboarding_completed) {
       await loadUserJobs().catch(() => {});
       applyProfileFiltersOnce();
@@ -3238,11 +3275,13 @@ async function applyRoute() {
       document.getElementById('sort-select').value = 'first_seen|desc';
       showDashboard(CURRENT_ROUTE);
       render();
+      if (state.country.size || state.family.size) scheduleActiveRefresh();
     } else if (ME?.user) {
       navigateTo('/onboarding', true);
     } else {
       showPublicDashboard(CURRENT_ROUTE);
       render();
+      if (state.country.size || state.family.size) scheduleActiveRefresh();
     }
     return;
   }
@@ -3826,12 +3865,14 @@ function wireAuthHandlers() {
 
   window.addEventListener('popstate', () => {
     CURRENT_ROUTE = routeFromPath(window.location.pathname);
+    applyUrlFiltersToState();
     applyRoute();
   });
 }
 
 async function init() {
   const authError = readAuthError();
+  applyUrlFiltersToState();
   buildJobs([]);
   buildFilters();
   buildOnboardingOptions();
