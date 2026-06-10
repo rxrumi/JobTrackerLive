@@ -46,12 +46,35 @@ const ACTIVE_SOURCES = new Set([
   "ashby",
   "lever",
   "smartrecruiters",
+  "yc",
   "workday",
   "rmk",
   "tribepad",
   "nlx"
 ]);
 const FAILURE_ABORT_RATIO = 0.5;
+const YC_BASE_URL = "https://www.ycombinator.com";
+const YC_COMPANIES_URL = "https://yc-oss.github.io/api/companies/hiring.json";
+const YC_SEED_PATHS = [
+  "/jobs",
+  "/jobs/role/software-engineer",
+  "/jobs/role/product-manager",
+  "/jobs/role/operations",
+  "/jobs/role/sales-manager",
+  "/jobs/role/marketing",
+  "/jobs/role/support",
+  "/jobs/role/recruiting-hr",
+  "/jobs/role/designer",
+  "/jobs/role/software-engineer/remote",
+  "/jobs/role/product-manager/remote",
+  "/jobs/role/operations/remote",
+  "/jobs/role/sales-manager/remote",
+  "/jobs/role/marketing/remote",
+  "/jobs/location/san-francisco",
+  "/jobs/role/software-engineer/san-francisco",
+  "/jobs/role/product-manager/san-francisco",
+  "/jobs/role/operations/san-francisco"
+];
 
 const ENGINEERING_SOURCES = [
   {
@@ -182,6 +205,16 @@ const ENGINEERING_SOURCES = [
   })
 ];
 
+const YC_SOURCES = [{
+  source: "yc",
+  token: "yc-waas",
+  company: "Y Combinator",
+  industry: INDUSTRIES.TECH,
+  niche: TECH_NICHE,
+  tier: "Scaleup",
+  fetch: fetchYcStartupJobs
+}];
+
 const CITY_TO_COUNTRY = {
   "London": "GB", "Manchester": "GB", "Edinburgh": "GB", "Derby": "GB",
   "Dublin": "IE", "Cork": "IE",
@@ -189,6 +222,10 @@ const CITY_TO_COUNTRY = {
   "Sydney": "AU", "Melbourne": "AU", "Brisbane": "AU", "Perth": "AU",
   "San Francisco": "US", "San Jose": "US", "Palo Alto": "US", "Mountain View": "US",
   "Menlo Park": "US", "Bay Area": "US", "New York": "US", "Seattle": "US",
+  "San Mateo": "US", "Redwood City": "US", "Sunnyvale": "US", "Berkeley": "US",
+  "Oakland": "US", "Hayward": "US", "Fremont": "US", "Foster City": "US",
+  "South San Francisco": "US", "San Bruno": "US", "Burlingame": "US",
+  "Emeryville": "US", "Los Altos": "US", "Milpitas": "US",
   "Bellevue": "US", "Redmond": "US", "Austin": "US", "Boston": "US",
   "Cambridge": "US", "Denver": "US", "Chicago": "US", "Atlanta": "US",
   "Los Angeles": "US", "San Diego": "US", "Washington, DC": "US",
@@ -210,6 +247,12 @@ const CITY_TO_COUNTRY = {
   "Lisbon": "PT", "Porto": "PT",
   "Tallinn": "EE",
   "Auckland": "NZ", "Wellington": "NZ"
+};
+
+const LOCATION_ALIASES = {
+  "nyc": { country: "US", city: "New York" },
+  "sf": { country: "US", city: "San Francisco" },
+  "bay area": { country: "US", city: "Bay Area" }
 };
 
 const COUNTRY_HINTS = {
@@ -353,6 +396,9 @@ const SCALEUP_COMPANIES = new Set([
 function matchCountry(locationName) {
   if (!locationName) return null;
   const normalized = locationName.toLowerCase();
+  for (const [hint, loc] of Object.entries(LOCATION_ALIASES)) {
+    if (matchesLocationHint(normalized, hint)) return loc;
+  }
   for (const [city, code] of Object.entries(CITY_TO_COUNTRY)) {
     if (normalized.includes(city.toLowerCase())) return { country: code, city };
   }
@@ -651,6 +697,14 @@ async function fetchText(url) {
   }
 }
 
+function normalizeFetchResult(result) {
+  if (Array.isArray(result)) return { jobs: result, meta: null };
+  if (result && Array.isArray(result.jobs)) {
+    return { jobs: result.jobs, meta: result.meta || null };
+  }
+  return { jobs: null, meta: null };
+}
+
 function decodeHTML(value) {
   return String(value || "")
     .replace(/&amp;/g, "&")
@@ -660,6 +714,8 @@ function decodeHTML(value) {
     .replace(/&nbsp;/g, " ")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number.parseInt(dec, 10)))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -684,6 +740,156 @@ function uniqueJobs(jobs) {
     seen.add(id);
     return Boolean(job.title && job.url);
   });
+}
+
+function extractDataPage(html) {
+  const match = String(html || "").match(/data-page=(["'])([\s\S]*?)\1/);
+  if (!match) return null;
+  try {
+    return JSON.parse(decodeHTML(match[2]));
+  } catch {
+    return null;
+  }
+}
+
+function extractYcJobPostings(html) {
+  const dataPage = extractDataPage(html);
+  const jobs = dataPage?.props?.jobPostings;
+  return Array.isArray(jobs) ? jobs : null;
+}
+
+function ycCompanySlug(job) {
+  const value = job.companyUrl || job.url || "";
+  return String(value).match(/\/companies\/([^/?#]+)/)?.[1] || "";
+}
+
+function buildYcCompanyMap(companies) {
+  if (!Array.isArray(companies)) return new Map();
+  return new Map(companies
+    .filter(company => company?.slug)
+    .map(company => [company.slug, company]));
+}
+
+function normalizeCompanyKey(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function classifyYcTier(company) {
+  const companyKey = normalizeCompanyKey(company?.name);
+  if (GROWTH_SAAS_COMPANIES.has(companyKey)) return "GrowthSaaS";
+  if (SCALEUP_COMPANIES.has(companyKey)) return "Scaleup";
+
+  const teamSize = Number(company?.team_size);
+  if (company?.stage === "Growth" || (Number.isFinite(teamSize) && teamSize >= 200)) {
+    return "Scaleup";
+  }
+
+  const companyText = [
+    company?.industry,
+    company?.subindustry,
+    ...(company?.industries || []),
+    ...(company?.tags || [])
+  ].join(" ").toLowerCase();
+
+  if (/\b(b2b|saas|api|developer tools|sales|marketing|productivity|hr|human resources|fintech|analytics|data)\b/.test(companyText)) {
+    return "GrowthSaaS";
+  }
+
+  return "Scaleup";
+}
+
+function classifyYcVisa(job) {
+  const visaText = String(job.visa || "").toLowerCase();
+  if (visaText.includes("will sponsor")) return "Strong";
+  if (visaText.includes("not required") || job.askUs === true) return "Likely";
+  return "Unknown";
+}
+
+function classifyYcRoleFamily(job) {
+  const prettyRole = String(job.prettyRole || job.roleSpecificType || job.role || "").toLowerCase();
+  if (prettyRole.includes("engineer") || prettyRole === "eng" || prettyRole.includes("software")) return "Engineering";
+  if (prettyRole.includes("product")) return "Product";
+  if (prettyRole.includes("design")) return "Design";
+  if (prettyRole.includes("sales")) return "Sales";
+  if (prettyRole.includes("marketing")) return "Marketing";
+  if (prettyRole.includes("support") || prettyRole.includes("success")) return "Customer Success/Support";
+  if (prettyRole.includes("recruit") || prettyRole.includes("hr") || prettyRole.includes("people")) return "People/HR";
+  if (prettyRole.includes("operations")) return "Operations";
+  if (prettyRole.includes("science") || prettyRole.includes("data")) return "Data/Analytics";
+  return classifyRoleFamily(job.title);
+}
+
+function normalizeYcLocation(job, company) {
+  const location = String(job.location || "").trim();
+  if (location && !/^(remote|anywhere|worldwide)$/i.test(location)) return location;
+  return company?.all_locations || location;
+}
+
+function normalizeYcJob(job, companyMap) {
+  const slug = ycCompanySlug(job);
+  const company = companyMap.get(slug);
+  const title = String(job.title || "").trim();
+  const rawUrl = String(job.url || "").trim();
+  if (!job.id || !title || !rawUrl) return null;
+  const url = absoluteUrl(YC_BASE_URL, rawUrl);
+
+  return {
+    id: String(job.id),
+    title,
+    location: normalizeYcLocation(job, company),
+    url,
+    company: job.companyName || company?.name || slug,
+    tier: classifyYcTier(company || { name: job.companyName }),
+    role_family: classifyYcRoleFamily(job),
+    seniority: classifySeniority(title),
+    visa: classifyYcVisa(job),
+    industry: INDUSTRIES.TECH,
+    niche: TECH_NICHE
+  };
+}
+
+async function fetchYcStartupJobs() {
+  const [companies, pageResults] = await Promise.all([
+    fetchJSON(YC_COMPANIES_URL),
+    Promise.allSettled(YC_SEED_PATHS.map(async path => {
+      const url = absoluteUrl(YC_BASE_URL, path);
+      const html = await fetchText(url);
+      const jobPostings = extractYcJobPostings(html);
+      return { path, ok: Array.isArray(jobPostings), jobPostings: jobPostings || [] };
+    }))
+  ]);
+
+  const companyMap = buildYcCompanyMap(companies);
+  const jobs = [];
+  const failedPages = [];
+  let okPages = 0;
+
+  for (const result of pageResults) {
+    if (result.status !== "fulfilled" || !result.value.ok) {
+      failedPages.push(result.status === "fulfilled" ? result.value.path : "unknown");
+      continue;
+    }
+    okPages++;
+    for (const job of result.value.jobPostings) {
+      const normalized = normalizeYcJob(job, companyMap);
+      if (normalized) jobs.push(normalized);
+    }
+  }
+
+  if (!okPages) return null;
+
+  return {
+    jobs: uniqueJobs(jobs),
+    meta: {
+      okPages,
+      failedPages,
+      totalPages: YC_SEED_PATHS.length,
+      companiesLoaded: companyMap.size
+    }
+  };
 }
 
 async function fetchGreenhouse(token) {
@@ -870,6 +1076,7 @@ export async function runScan(env) {
   const found = {};
   const failedSources = new Set();
   const okSources = new Set();
+  const sourceMeta = {};
   let okCount = 0;
   let failCount = 0;
 
@@ -878,6 +1085,7 @@ export async function runScan(env) {
     ...ASHBY_TOKENS.map(t => techSource("ashby", t, fetchAshby)),
     ...LEVER_TOKENS.map(t => techSource("lever", t, fetchLever)),
     ...SMARTRECRUITERS_TOKENS.map(t => techSource("smartrecruiters", t, fetchSmartRecruiters)),
+    ...YC_SOURCES,
     ...ENGINEERING_SOURCES
   ];
 
@@ -885,7 +1093,8 @@ export async function runScan(env) {
     const batch = sources.slice(i, i + 8);
     const results = await Promise.allSettled(batch.map(async s => {
       try {
-        return { s, jobs: await s.fetch(s) };
+        const result = normalizeFetchResult(await s.fetch(s));
+        return { s, ...result };
       } catch {
         return { s, jobs: null };
       }
@@ -899,33 +1108,34 @@ export async function runScan(env) {
         continue;
       }
       okCount++;
-      const { s, jobs } = r.value;
+      const { s, jobs, meta } = r.value;
       okSources.add(sourceId(s));
+      if (meta) sourceMeta[sourceId(s)] = meta;
       for (const job of jobs) {
         const loc = matchCountry(job.location);
         if (!loc) continue;
-        const roleFamily = classifyRoleFamily(job.title);
+        const roleFamily = job.role_family || classifyRoleFamily(job.title);
         if (!roleFamily) continue;
 
         const id = `${s.source}-${s.token}-${job.id}`;
         const existed = prev.postings[id];
-        const visa = s.visa || classifyVisa(s.token);
+        const visa = job.visa || s.visa || classifyVisa(s.token);
         const firstSeen = existed?.first_seen || today;
-        const seniority = classifySeniority(job.title);
-        const industry = s.industry || INDUSTRIES.TECH;
-        const niche = s.niche || TECH_NICHE;
+        const seniority = job.seniority || classifySeniority(job.title);
+        const industry = job.industry || s.industry || INDUSTRIES.TECH;
+        const niche = job.niche || s.niche || TECH_NICHE;
 
         found[id] = {
           id,
           source: s.source,
           source_token: s.token,
-          company: s.company || canonicalCompany(s.token),
+          company: job.company || s.company || canonicalCompany(s.token),
           title: job.title,
           location: job.location,
           city: loc.city,
           country: loc.country,
           url: job.url,
-          tier: s.tier || classifyTier(s.token),
+          tier: job.tier || s.tier || classifyTier(s.token),
           industry,
           niche,
           role_family: roleFamily,
@@ -963,6 +1173,10 @@ export async function runScan(env) {
       merged[id] = normalizePosting(p, today);
       continue;
     }
+    if (sourceMeta[postingSourceId(p)]?.failedPages?.length) {
+      merged[id] = normalizePosting(p, today);
+      continue;
+    }
     const filledDate = p.last_filled || today;
     if (daysBetween(filledDate, today) <= 7) {
       merged[id] = normalizePosting({ ...p, last_filled: filledDate }, today);
@@ -979,7 +1193,8 @@ export async function runScan(env) {
       failCount,
       totalBoards,
       okSources: [...okSources],
-      failedSources: [...failedSources]
+      failedSources: [...failedSources],
+      sourceMeta
     }
   };
 

@@ -36,6 +36,17 @@ function tokenFromUrl(url) {
   return null;
 }
 
+function ycJobsHtml(jobPostings = []) {
+  const dataPage = {
+    component: "WaasLandingPage",
+    props: { jobPostings }
+  };
+  const encoded = JSON.stringify(dataPage)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;");
+  return `<!DOCTYPE html><div data-page="${encoded}"></div>`;
+}
+
 function emptyPayload(url) {
   if (url.includes("greenhouse")) return { jobs: [] };
   if (url.includes("ashbyhq")) return { jobs: [] };
@@ -47,6 +58,13 @@ function emptyPayload(url) {
 
 function mockFetch({ failedTokens = new Set(), jobsByToken = {} } = {}) {
   return async url => {
+    const href = String(url);
+    if (href === "https://yc-oss.github.io/api/companies/hiring.json") {
+      return Response.json([]);
+    }
+    if (href.startsWith("https://www.ycombinator.com/jobs")) {
+      return new Response(ycJobsHtml(), { headers: { "content-type": "text/html" } });
+    }
     const token = tokenFromUrl(url);
     if (failedTokens.has(token)) {
       return new Response("failed", { status: 503 });
@@ -521,6 +539,158 @@ test("runScan maps Workday engineering source postings", async t => {
   assert.equal(posting.country, "US");
   assert.equal(posting.visa, "Strong");
   assert.equal(posting.url, "https://intel.wd1.myworkdayjobs.com/External/job/US-Texas-Austin/Senior-CPU-RTL-Design-Engineer_JR123");
+});
+
+test("runScan maps broad YC startup jobs from data-page HTML", async t => {
+  const ycJobs = [{
+    id: 93960,
+    title: "Revenue Operations Manager",
+    url: "/companies/coast/jobs/revops-manager",
+    location: "SF",
+    askUs: false,
+    role: "operations",
+    prettyRole: "Operations",
+    visa: "Will sponsor",
+    companyUrl: "/companies/coast",
+    companyName: "Coast"
+  }];
+
+  t.mock.method(globalThis, "fetch", async url => {
+    const href = String(url);
+    if (href === "https://yc-oss.github.io/api/companies/hiring.json") {
+      return Response.json([{
+        slug: "coast",
+        name: "Coast",
+        all_locations: "New York, NY, USA",
+        team_size: 35,
+        industry: "B2B",
+        stage: "Early",
+        tags: ["SaaS", "API"]
+      }]);
+    }
+    if (href === "https://www.ycombinator.com/jobs") {
+      return new Response(ycJobsHtml(ycJobs), { headers: { "content-type": "text/html" } });
+    }
+    if (href.startsWith("https://www.ycombinator.com/jobs")) {
+      return new Response(ycJobsHtml(), { headers: { "content-type": "text/html" } });
+    }
+    const token = tokenFromUrl(href);
+    return Response.json(token ? emptyPayload(href) : {});
+  });
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.source === "yc");
+
+  assert.ok(posting);
+  assert.equal(posting.id, "yc-yc-waas-93960");
+  assert.equal(posting.source_token, "yc-waas");
+  assert.equal(posting.company, "Coast");
+  assert.equal(posting.city, "San Francisco");
+  assert.equal(posting.country, "US");
+  assert.equal(posting.role_family, "Operations");
+  assert.equal(posting.visa, "Strong");
+  assert.equal(posting.tier, "GrowthSaaS");
+  assert.equal(posting.url, "https://www.ycombinator.com/companies/coast/jobs/revops-manager");
+  assert.ok(payload.scan_meta.sourceMeta["yc-yc-waas"].okPages >= 1);
+});
+
+test("runScan deduplicates YC jobs and maps YC visa/location variants", async t => {
+  const ycJobs = [{
+    id: 1,
+    title: "Senior Software Engineer",
+    url: "/companies/gogograndparent/jobs/backend",
+    location: "Remote",
+    askUs: false,
+    prettyRole: "Engineering",
+    visa: "US citizenship/visa not required",
+    companyUrl: "/companies/gogograndparent",
+    companyName: "GoGoGrandparent"
+  }, {
+    id: 2,
+    title: "Staff Software Engineer, Infrastructure",
+    url: "/companies/numero/jobs/infrastructure",
+    location: "US / Remote (US)",
+    askUs: false,
+    prettyRole: "Engineering",
+    visa: "US citizen/visa only",
+    companyUrl: "/companies/numero",
+    companyName: "Numero"
+  }, {
+    id: 3,
+    title: "Strategic Accounts",
+    url: "/companies/coast/jobs/strategic-accounts",
+    location: "NYC, NY, US",
+    askUs: true,
+    prettyRole: "Sales",
+    visa: "",
+    companyUrl: "/companies/coast",
+    companyName: "Coast"
+  }];
+
+  t.mock.method(globalThis, "fetch", async url => {
+    const href = String(url);
+    if (href === "https://yc-oss.github.io/api/companies/hiring.json") {
+      return Response.json([{
+        slug: "gogograndparent",
+        name: "GoGoGrandparent",
+        all_locations: "San Francisco, CA, USA; Remote",
+        team_size: 50,
+        industry: "Consumer",
+        stage: "Early",
+        tags: []
+      }, {
+        slug: "numero",
+        name: "Numero",
+        all_locations: "San Francisco, CA, USA",
+        team_size: 220,
+        industry: "B2B",
+        stage: "Growth",
+        tags: ["Fintech"]
+      }, {
+        slug: "coast",
+        name: "Coast",
+        all_locations: "New York, NY, USA",
+        team_size: 35,
+        industry: "B2B",
+        stage: "Early",
+        tags: ["SaaS"]
+      }]);
+    }
+    if (href === "https://www.ycombinator.com/jobs") {
+      return new Response(ycJobsHtml(ycJobs), { headers: { "content-type": "text/html" } });
+    }
+    if (href.endsWith("/jobs/role/software-engineer")) {
+      return new Response(ycJobsHtml([ycJobs[0], ycJobs[1]]), { headers: { "content-type": "text/html" } });
+    }
+    if (href.startsWith("https://www.ycombinator.com/jobs")) {
+      return new Response(ycJobsHtml(), { headers: { "content-type": "text/html" } });
+    }
+    const token = tokenFromUrl(href);
+    return Response.json(token ? emptyPayload(href) : {});
+  });
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const ycPostings = payload.postings.filter(p => p.source === "yc");
+
+  assert.equal(ycPostings.length, 3);
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-1").visa, "Likely");
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-1").city, "San Francisco");
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-2").visa, "Unknown");
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-2").country, "US");
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-2").tier, "Scaleup");
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-3").visa, "Likely");
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-3").city, "New York");
+  assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-3").role_family, "Sales");
 });
 
 test("runScan excludes early-career and noisy unmatched titles", async t => {
@@ -1326,6 +1496,57 @@ test("runScan preserves previous postings from a failed active source", async t 
   assert.equal(payload.postings.length, 1);
   assert.equal(payload.postings[0].id, previousPosting.id);
   assert.equal(payload.postings[0].last_filled, null);
+});
+
+test("runScan preserves previous YC postings when YC seed pages partially fail", async t => {
+  t.mock.method(globalThis, "fetch", async url => {
+    const href = String(url);
+    if (href === "https://yc-oss.github.io/api/companies/hiring.json") {
+      return Response.json([]);
+    }
+    if (href === "https://www.ycombinator.com/jobs/role/operations") {
+      return new Response("failed", { status: 503 });
+    }
+    if (href.startsWith("https://www.ycombinator.com/jobs")) {
+      return new Response(ycJobsHtml(), { headers: { "content-type": "text/html" } });
+    }
+    const token = tokenFromUrl(href);
+    return Response.json(token ? emptyPayload(href) : {});
+  });
+
+  const previousPosting = {
+    id: "yc-yc-waas-42",
+    source: "yc",
+    source_token: "yc-waas",
+    company: "Coast",
+    title: "Revenue Operations Lead",
+    location: "San Francisco",
+    city: "San Francisco",
+    country: "US",
+    url: "https://www.ycombinator.com/companies/coast/jobs/revops",
+    tier: "GrowthSaaS",
+    industry: "tech",
+    niche: "Software",
+    role_family: "Operations",
+    seniority: "Senior/Lead",
+    visa: "Strong",
+    score: 96,
+    first_seen: "2026-05-20",
+    last_seen: "2026-05-20",
+    last_filled: null
+  };
+
+  const KV = createKV({ postings: { [previousPosting.id]: previousPosting } });
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.id === previousPosting.id);
+
+  assert.ok(posting);
+  assert.equal(posting.last_filled, null);
+  assert.deepEqual(payload.scan_meta.sourceMeta["yc-yc-waas"].failedPages, ["/jobs/role/operations"]);
 });
 
 test("runScan drops postings from retired sources", async t => {

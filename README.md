@@ -312,6 +312,9 @@ Each fetcher returns a normalized object: `{ id, title, location, url }`.
 - **Workday CXS**: `https://{host}/wday/cxs/{tenant}/{site}/jobs` — one structured page per engineering source to keep Worker subrequests bounded.
 - **Lever**: `https://api.lever.co/v0/postings/{token}?mode=json` — `allLocations` expanded into separate postings.
 - **SmartRecruiters**: `https://api.smartrecruiters.com/v1/companies/{token}/postings?limit=100&offset={offset}` — paginated up to 10 pages of 100.
+- **Y Combinator / Work at a Startup**: one logical `yc-waas` source fetches a bounded set of YC seed pages (`/jobs`, major role pages, remote role pages, and San Francisco/Silicon Valley pages), parses the server-rendered `data-page` payload, deduplicates by YC posting id, and enriches company metadata from `https://yc-oss.github.io/api/companies/hiring.json`.
+
+YC freshness uses this app's `first_seen` date, not YC's relative `createdAt` labels. If some YC seed pages fail but at least one parses, the scan keeps newly found YC jobs and preserves previous unmatched YC jobs to avoid false filled markers; page-level failures are recorded in `scan_meta.sourceMeta["yc-yc-waas"]`.
 
 ## Target Geography
 
@@ -320,6 +323,8 @@ Each fetcher returns a normalized object: `{ id, title, location, url }`.
 Location matching uses two layers:
 - `CITY_TO_COUNTRY`: specific city names (London, Dublin, Toronto, Sydney, San Francisco, New York, Seattle, Austin, Berlin, Amsterdam, etc.)
 - `COUNTRY_HINTS`: country-level text (United Kingdom, Ireland, Canada, United States, Singapore, etc.)
+
+Startup-focused aliases include `NYC`, `SF`, Bay Area cities, and country-qualified remote strings such as `US / Remote (US)`.
 
 ## Role Matching
 
@@ -339,6 +344,8 @@ Each dynamic posting gets a tier:
 - **Scaleup**: celonis, airtable, gitlab, figma, linear, ramp, brex, mercury, vercel, travelperk, glovo, feedzai, unbabel, klarna, templafy, remote, monday, contentful, n26, cognite, wise, bolt, canva, asana, shopify
 - **BigTech**: default for larger or uncategorized technology companies
 
+YC jobs default to `Scaleup`; early B2B/SaaS-style YC companies are classified as `GrowthSaaS`, while larger or growth-stage YC companies stay `Scaleup`.
+
 ## Visa Classification
 
 Visa likelihood is company-level (not per-posting):
@@ -348,6 +355,8 @@ Visa likelihood is company-level (not per-posting):
 - **Unknown**: all others
 
 This is a prioritization heuristic, not a sponsorship guarantee.
+
+YC jobs use posting-level visa text where available: `Will sponsor` maps to `Strong`, `US citizenship/visa not required` or YC `askUs` maps to `Likely`, and US-only or missing text maps to `Unknown`.
 
 ## Scoring
 
