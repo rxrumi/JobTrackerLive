@@ -1,0 +1,19 @@
+name = "job-tracker"
+main = "src/worker.js"
+compatibility_date = "2026-06-04"
+workers_dev = false
+
+[[kv_namespaces]]
+binding = "KV"
+id = "8cf95c7c04054745bff09d88ea57d707"
+
+[triggers]
+crons = ["0 3 * * *"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[observability]
+enabled = true
