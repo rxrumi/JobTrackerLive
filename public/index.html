@@ -1471,6 +1471,7 @@ const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '�
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
 const INDUSTRIES = { tech: 'Tech', engineering: 'Engineering' };
 const INDUSTRY_KEY = 'livejobindex_industry';
+const INDUSTRY_FILTERS_KEY = 'livejobindex_industry_filters';
 const DEFAULT_INDUSTRY = 'tech';
 const ENGINEERING_NICHES = ['AEC / Infrastructure', 'Construction / EPC', 'Architecture / Built Environment', 'Energy / Power / Renewables', 'Water / Environment', 'Aerospace / Defense / Space', 'Semiconductors', 'Hardware / Consumer Devices', 'Robotics / Autonomy', 'Automotive / EV', 'Industrial Technology'];
 const ROLE_FAMILIES = ['Engineering', 'Product', 'Design', 'Data/Analytics', 'Security/IT', 'Sales', 'Marketing', 'Finance', 'Operations', 'Customer Success/Support', 'People/HR', 'Legal/Compliance', 'Strategy/Program', 'Other'];
@@ -2059,13 +2060,81 @@ function initialIndustry() {
   }
 }
 
+function allowedFilterValues(cat, industry = DEFAULT_INDUSTRY) {
+  const values = {
+    niche: industry === 'engineering' ? ENGINEERING_NICHES : [],
+    country: Object.keys(COUNTRY_NAMES),
+    tier: ['BigTech', 'Scaleup', 'GrowthSaaS', 'Ecosystem'],
+    family: ROLE_FAMILIES,
+    seniority: SENIORITIES,
+    visa: ['Strong', 'Likely', 'Unknown'],
+    presets: ['senior', 'strong-visa', 'new', 'starred']
+  };
+  return new Set(values[cat] || []);
+}
+
+function sanitizeFilterArray(values, cat, industry = DEFAULT_INDUSTRY) {
+  const allowed = allowedFilterValues(cat, industry);
+  return [...new Set((Array.isArray(values) ? values : []).map(value => {
+    const cleaned = String(value || '').trim();
+    return cat === 'tier' ? normalizeTier(cleaned) : cleaned;
+  }).filter(value => allowed.has(value)))];
+}
+
+function emptyFilterSnapshot() {
+  return {
+    niche: [],
+    country: [],
+    tier: [],
+    family: [],
+    seniority: [],
+    visa: [],
+    presets: [],
+    search: ''
+  };
+}
+
+function normalizeFilterSnapshot(snapshot = {}, industry = DEFAULT_INDUSTRY) {
+  return {
+    niche: sanitizeFilterArray(snapshot.niche, 'niche', industry),
+    country: sanitizeFilterArray(snapshot.country, 'country', industry),
+    tier: sanitizeFilterArray(snapshot.tier, 'tier', industry),
+    family: sanitizeFilterArray(snapshot.family, 'family', industry),
+    seniority: sanitizeFilterArray(snapshot.seniority, 'seniority', industry),
+    visa: sanitizeFilterArray(snapshot.visa, 'visa', industry),
+    presets: sanitizeFilterArray(snapshot.presets, 'presets', industry),
+    search: String(snapshot.search || '')
+  };
+}
+
+function loadIndustryFilterSnapshots() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(INDUSTRY_FILTERS_KEY) || '{}');
+    return Object.fromEntries(Object.keys(INDUSTRIES).map(industry => [
+      industry,
+      normalizeFilterSnapshot(parsed[industry], industry)
+    ]));
+  } catch {
+    return Object.fromEntries(Object.keys(INDUSTRIES).map(industry => [industry, emptyFilterSnapshot()]));
+  }
+}
+
+let INDUSTRY_FILTER_SNAPSHOTS = loadIndustryFilterSnapshots();
+const INITIAL_INDUSTRY = initialIndustry();
+const INITIAL_FILTER_SNAPSHOT = INDUSTRY_FILTER_SNAPSHOTS[INITIAL_INDUSTRY] || emptyFilterSnapshot();
+
 const state = {
   tab: 'active',
-  industry: initialIndustry(),
-  niche: new Set(),
-  country: new Set(), tier: new Set(), family: new Set(), seniority: new Set(), visa: new Set(),
-  presets: new Set(),
-  search: '', sort: 'first_seen', dir: 'desc',
+  industry: INITIAL_INDUSTRY,
+  niche: new Set(INITIAL_FILTER_SNAPSHOT.niche),
+  country: new Set(INITIAL_FILTER_SNAPSHOT.country),
+  tier: new Set(INITIAL_FILTER_SNAPSHOT.tier),
+  family: new Set(INITIAL_FILTER_SNAPSHOT.family),
+  seniority: new Set(INITIAL_FILTER_SNAPSHOT.seniority),
+  visa: new Set(INITIAL_FILTER_SNAPSHOT.visa),
+  presets: new Set(INITIAL_FILTER_SNAPSHOT.presets),
+  search: INITIAL_FILTER_SNAPSHOT.search,
+  sort: 'first_seen', dir: 'desc',
   page: 1
 };
 
@@ -2074,11 +2143,61 @@ function valuesFromQueryParam(params, key, allowed) {
   return rawValues.map(value => value.trim()).filter(value => allowed.has(value));
 }
 
+function currentFilterSnapshot() {
+  return normalizeFilterSnapshot({
+    niche: [...state.niche],
+    country: [...state.country],
+    tier: [...state.tier],
+    family: [...state.family],
+    seniority: [...state.seniority],
+    visa: [...state.visa],
+    presets: [...state.presets],
+    search: state.search
+  }, state.industry);
+}
+
+function persistIndustryFilterSnapshots() {
+  try {
+    localStorage.setItem(INDUSTRY_FILTERS_KEY, JSON.stringify(INDUSTRY_FILTER_SNAPSHOTS));
+  } catch {}
+}
+
+function saveCurrentIndustryFilters() {
+  if (!INDUSTRIES[state.industry]) return;
+  INDUSTRY_FILTER_SNAPSHOTS[state.industry] = currentFilterSnapshot();
+  persistIndustryFilterSnapshots();
+}
+
+function applyFilterSnapshotToState(snapshot = emptyFilterSnapshot(), industry = state.industry) {
+  const normalized = normalizeFilterSnapshot(snapshot, industry);
+  state.niche = new Set(normalized.niche);
+  state.country = new Set(normalized.country);
+  state.tier = new Set(normalized.tier);
+  state.family = new Set(normalized.family);
+  state.seniority = new Set(normalized.seniority);
+  state.visa = new Set(normalized.visa);
+  state.presets = new Set(normalized.presets);
+  state.search = normalized.search;
+}
+
+function syncSearchInput() {
+  const search = document.getElementById('search');
+  const wrap = document.getElementById('search-wrap');
+  if (!search) return;
+  search.value = state.search;
+  if (wrap) wrap.classList.toggle('has-text', state.search.length > 0);
+}
+
 function applyUrlFiltersToState() {
   if (!isDashboardRoute(CURRENT_ROUTE)) return;
   const params = new URLSearchParams(window.location.search);
-  state.country = new Set(valuesFromQueryParam(params, 'country', new Set(Object.keys(COUNTRY_NAMES))));
-  state.family = new Set(valuesFromQueryParam(params, 'family', new Set(ROLE_FAMILIES)));
+  if (params.has('country')) {
+    state.country = new Set(valuesFromQueryParam(params, 'country', allowedFilterValues('country', state.industry)));
+  }
+  if (params.has('family')) {
+    state.family = new Set(valuesFromQueryParam(params, 'family', allowedFilterValues('family', state.industry)));
+  }
+  saveCurrentIndustryFilters();
 }
 
 function syncShareableFiltersToUrl() {
@@ -2110,13 +2229,17 @@ function updateIndustryUI() {
 
 async function setIndustry(industry) {
   if (!INDUSTRIES[industry] || state.industry === industry) return;
+  saveCurrentIndustryFilters();
   state.industry = industry;
-  state.niche.clear();
+  applyFilterSnapshotToState(INDUSTRY_FILTER_SNAPSHOTS[industry], industry);
   state.page = 1;
   HEADER_ACTIVE_TOTAL = 0;
   DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
   try { localStorage.setItem(INDUSTRY_KEY, industry); } catch {}
+  saveCurrentIndustryFilters();
+  syncShareableFiltersToUrl();
   updateIndustryUI();
+  syncSearchInput();
   resetPage();
   rebuildJobsFromCache();
   render();
@@ -2142,6 +2265,7 @@ function buildFilters() {
 }
 
 function filterChanged(changedCat = '') {
+  saveCurrentIndustryFilters();
   if (changedCat === 'country' || changedCat === 'family') syncShareableFiltersToUrl();
   updateFilterBadges();
   resetPage();
@@ -2375,6 +2499,8 @@ function applyControlState(controls) {
   state.visa = new Set(controls.visa);
   state.presets = new Set(controls.presets);
   state.search = controls.search;
+  saveCurrentIndustryFilters();
+  syncSearchInput();
 }
 
 function relaxedProfileFilterStates(profile) {
@@ -2785,10 +2911,10 @@ function wireRowHandlers() {
 function resetAll() {
   state.niche.clear(); state.country.clear(); state.tier.clear(); state.family.clear(); state.seniority.clear(); state.visa.clear(); state.presets.clear();
   state.search = '';
+  saveCurrentIndustryFilters();
   syncShareableFiltersToUrl();
   resetPage();
-  document.getElementById('search').value = '';
-  document.getElementById('search-wrap').classList.remove('has-text');
+  syncSearchInput();
   document.querySelectorAll('.chip.active, .filter-option.active').forEach(c => c.classList.remove('active'));
   updateFilterBadges();
   render();
@@ -2833,6 +2959,7 @@ function wireStaticHandlers() {
   const searchWrap = document.getElementById('search-wrap');
   searchEl.oninput = (e) => {
     state.search = e.target.value;
+    saveCurrentIndustryFilters();
     searchWrap.classList.toggle('has-text', e.target.value.length > 0);
     resetPage();
     render();
@@ -2842,6 +2969,7 @@ function wireStaticHandlers() {
   document.getElementById('search-clear').onclick = () => {
     searchEl.value = '';
     state.search = '';
+    saveCurrentIndustryFilters();
     searchWrap.classList.remove('has-text');
     searchEl.focus();
     resetPage();
@@ -3879,6 +4007,7 @@ async function init() {
   wireStaticHandlers();
   wireAuthHandlers();
   updateIndustryUI();
+  syncSearchInput();
   showPublicDashboard();
   render();
 
