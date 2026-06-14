@@ -278,25 +278,30 @@ The cron trigger runs daily at `0 3 * * *` UTC (7 AM Dubai). The `scheduled()` h
 
 ## Dynamic Sources
 
-The scanner supports four public ATS APIs:
+The scanner supports reliable public ATS APIs plus a small set of bounded custom parsers for popular tech companies:
 - Greenhouse
 - Ashby
 - Lever
 - SmartRecruiters
+- Amazon Jobs search JSON
+- Apple Careers server-rendered search data
+- Netflix Eightfold `smartApplyData.positions`
 
 Source tokens in `src/worker.js`:
 
 ```js
-GREENHOUSE_TOKENS = ["gongio", "klaviyo", "datadog", "cloudflare", "hubspot", "pleo", "celonis", "airtable", "gitlab", "figma", "brex", "mercury", "vercel", "typeform", "feedzai", "mentimeter", "trustpilot", "twilio", "asana", "databricks", "mongodb", "elastic", "remote", "sumologic", "contentful", "n26", "cognite", "talkdesk2", "boxinc"]
+GREENHOUSE_TOKENS = ["gongio", "klaviyo", "datadog", "cloudflare", "hubspot", "pleo", "celonis", "airtable", "gitlab", "figma", "brex", "mercury", "vercel", "typeform", "feedzai", "mentimeter", "trustpilot", "twilio", "asana", "databricks", "mongodb", "elastic", "remote", "sumologic", "contentful", "n26", "cognite", "talkdesk2", "boxinc", "anthropic", "stripe", "pinterest", "linkedin"]
 
-ASHBY_TOKENS = ["confluent", "deel", "linear", "mollie", "notion", "ramp", "snowflake", "xero"]
+ASHBY_TOKENS = ["confluent", "deel", "linear", "mollie", "notion", "ramp", "snowflake", "xero", "openai", "cursor", "perplexity"]
 
 LEVER_TOKENS = ["pipedrive"]
 
 SMARTRECRUITERS_TOKENS = ["canva", "wise"]
 ```
 
-Company aliases normalize non-obvious ATS tokens: `talkdesk2` → `talkdesk`, `boxinc` → `box`.
+Company aliases normalize non-obvious ATS tokens: `talkdesk2` → `talkdesk`, `boxinc` → `box`, `aws` → `amazon`.
+
+Popular-tech custom sources are defined through structured source objects with `source`, `token`, `company`, `industry`, `niche`, `tier`, `visa`, and `fetch`. They remain bounded by fixed country/page/result caps and failures are isolated by source so one fragile parser does not abort the whole scan.
 
 Engineering live sources use structured source objects with `industry`, `niche`, `company`, `source`, `token`/`url`, and `fetch`. V1 includes conservative live fetchers for RMK/SuccessFactors-style category pages, Tribepad, NLX/Solr-style jobs domains, and Workday CXS JSON feeds. Initial Workday coverage includes Intel, Boeing, Airbus, Aurecon, GE Vernova, Gensler, Samsung, 3M, Rockwell Automation, and Boston Dynamics. Static engineering targets live in `ENGINEERING_STATIC_COMPANIES`.
 
@@ -312,17 +317,22 @@ Each fetcher returns a normalized object: `{ id, title, location, url }`.
 - **Workday CXS**: `https://{host}/wday/cxs/{tenant}/{site}/jobs` — one structured page per engineering source to keep Worker subrequests bounded.
 - **Lever**: `https://api.lever.co/v0/postings/{token}?mode=json` — `allLocations` expanded into separate postings.
 - **SmartRecruiters**: `https://api.smartrecruiters.com/v1/companies/{token}/postings?limit=100&offset={offset}` — paginated up to 10 pages of 100.
+- **Amazon Jobs**: `https://www.amazon.jobs/en/search.json` — searches a bounded list of target countries with a fixed per-location result limit.
+- **Apple Careers**: `https://jobs.apple.com/{locale}/search?sort=newest` — parses server-rendered search data and expands multi-location roles into stable per-location postings.
+- **Netflix Careers**: `https://explore.jobs.netflix.net/careers` — parses Eightfold `smartApplyData.positions`, including `canonicalPositionUrl` and expanded locations.
 - **Y Combinator / Work at a Startup**: one logical `yc-waas` source fetches a bounded set of YC seed pages (`/jobs`, major role pages, remote role pages, and San Francisco/Silicon Valley pages), parses the server-rendered `data-page` payload, deduplicates by YC posting id, and enriches company metadata from `https://yc-oss.github.io/api/companies/hiring.json`.
 
 YC freshness uses this app's `first_seen` date, not YC's relative `createdAt` labels. If some YC seed pages fail but at least one parses, the scan keeps newly found YC jobs and preserves previous unmatched YC jobs to avoid false filled markers; page-level failures are recorded in `scan_meta.sourceMeta["yc-yc-waas"]`.
 
+Meta, Google, Microsoft, and other proprietary, browser-bound, GraphQL-heavy, login-gated, or bot-protected boards stay static unless a stable public endpoint is verified and covered by fixtures. Static rows remain company-location targets, not confirmed live postings. Live postings take precedence where live coverage exists.
+
 ## Target Geography
 
-16 countries: `GB`, `IE`, `CA`, `AU`, `US`, `SG`, `DE`, `NL`, `CH`, `SE`, `DK`, `NO`, `ES`, `PT`, `EE`, `NZ`.
+26 focused relocation and tech-hub countries: `GB`, `IE`, `CA`, `AU`, `US`, `SG`, `DE`, `NL`, `CH`, `SE`, `DK`, `NO`, `ES`, `PT`, `EE`, `NZ`, `FR`, `IT`, `PL`, `BE`, `FI`, `AT`, `JP`, `KR`, `IN`, `TW`.
 
 Location matching uses two layers:
-- `CITY_TO_COUNTRY`: specific city names (London, Dublin, Toronto, Sydney, San Francisco, New York, Seattle, Austin, Berlin, Amsterdam, etc.)
-- `COUNTRY_HINTS`: country-level text (United Kingdom, Ireland, Canada, United States, Singapore, etc.)
+- `CITY_TO_COUNTRY`: specific city names (London, Dublin, Toronto, Sydney, San Francisco, New York, Seattle, Austin, Berlin, Amsterdam, Paris, Milan, Warsaw, Brussels, Helsinki, Vienna, Tokyo, Seoul, Bengaluru, Hyderabad, Mumbai, Taipei, etc.)
+- `COUNTRY_HINTS`: country-level text (United Kingdom, Ireland, Canada, United States, Singapore, France, Japan, South Korea, India, Taiwan, etc.)
 
 Startup-focused aliases include `NYC`, `SF`, Bay Area cities, and country-qualified remote strings such as `US / Remote (US)`.
 
@@ -437,7 +447,7 @@ Clicking `Apply` on a live dynamic job auto-moves status from `Not started` or `
 
 `STATIC_COMPANIES` in `public/index.html` contains ~95 curated company-location entries for companies with proprietary, JS-rendered, login-gated, or bot-protected careers pages. These are not live postings — they are careers-search targets.
 
-Examples: Stripe, Salesforce, Google, Meta, AWS/Amazon, Microsoft, Adobe, ServiceNow, Atlassian, Shopify, Personio, Miro, Klarna, Spotify, Zendesk, Pinterest, LinkedIn, and many more across all 16 target countries.
+Examples: Salesforce, Google, Meta, Microsoft, Adobe, ServiceNow, Atlassian, Shopify, Personio, Miro, Klarna, Spotify, Zendesk, NVIDIA, Tesla, and other companies whose careers pages are not safely fetchable live. Some companies may appear in both static targets and live feeds; confirmed live postings take precedence in the Live jobs tab.
 
 Static rows use `role: "Company career target"`, `role_family: "Multiple"`, `seniority: "Any"`. Deduplicated by `company | country | city`.
 
@@ -545,6 +555,8 @@ npx wrangler deploy --dry-run
 2. Add a `COMPANY_ALIASES` entry if the token differs from the display name.
 3. Add to `GROWTH_SAAS_COMPANIES`, `SCALEUP_COMPANIES`, `STRONG_VISA_COMPANIES`, or `LIKELY_VISA_COMPANIES` if applicable.
 4. Run tests, deploy.
+
+For a bounded custom source, add a structured entry with `source`, `token`, `company`, `industry`, `niche`, `tier`, `visa`, and `fetch`, plus fixture-backed tests for the parser shape and failure isolation.
 
 ### Add a new target country or city
 

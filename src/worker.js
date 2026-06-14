@@ -12,12 +12,14 @@ const GREENHOUSE_TOKENS = [
   "mentimeter", "trustpilot", "twilio", "asana",
   "databricks", "mongodb", "elastic", "remote",
   "sumologic", "contentful", "n26", "cognite",
-  "talkdesk2", "boxinc"
+  "talkdesk2", "boxinc", "anthropic", "stripe",
+  "pinterest", "linkedin"
 ];
 
 const ASHBY_TOKENS = [
   "confluent", "deel", "linear", "mollie",
-  "notion", "ramp", "snowflake", "xero"
+  "notion", "ramp", "snowflake", "xero",
+  "openai", "cursor", "perplexity"
 ];
 
 const LEVER_TOKENS = ["pipedrive"];
@@ -28,6 +30,7 @@ const INDUSTRIES = {
   ENGINEERING: "engineering"
 };
 const TECH_NICHE = "Software";
+const FRONTIER_AI_NICHE = "AI / Frontier";
 const ENGINEERING_NICHES = {
   AEC: "AEC / Infrastructure",
   CONSTRUCTION: "Construction / EPC",
@@ -50,9 +53,34 @@ const ACTIVE_SOURCES = new Set([
   "workday",
   "rmk",
   "tribepad",
-  "nlx"
+  "nlx",
+  "amazon",
+  "apple",
+  "eightfold"
 ]);
 const FAILURE_ABORT_RATIO = 0.5;
+const CUSTOM_SOURCE_LIMIT = 120;
+const AMAZON_SEARCH_LOCATIONS = [
+  "United States", "United Kingdom", "Ireland", "Canada", "Australia", "Singapore",
+  "Germany", "Netherlands", "Switzerland", "Sweden", "Denmark", "Norway", "Spain",
+  "Portugal", "Estonia", "New Zealand", "France", "Italy", "Poland", "Belgium",
+  "Finland", "Austria", "Japan", "South Korea", "India", "Taiwan"
+];
+const APPLE_SEARCH_PATHS = [
+  "/en-us/search?sort=newest",
+  "/en-gb/search?sort=newest",
+  "/en-ie/search?sort=newest",
+  "/en-ca/search?sort=newest",
+  "/en-au/search?sort=newest",
+  "/en-sg/search?sort=newest",
+  "/de-de/search?sort=newest",
+  "/fr-fr/search?sort=newest",
+  "/it-it/search?sort=newest",
+  "/nl-nl/search?sort=newest",
+  "/ja-jp/search?sort=newest",
+  "/ko-kr/search?sort=newest",
+  "/en-in/search?sort=newest"
+];
 const YC_BASE_URL = "https://www.ycombinator.com";
 const YC_COMPANIES_URL = "https://yc-oss.github.io/api/companies/hiring.json";
 const YC_SEED_PATHS = [
@@ -77,6 +105,15 @@ const YC_SEED_PATHS = [
 ];
 
 const ENGINEERING_SOURCES = [
+  engineeringAtsSource({
+    source: "greenhouse",
+    token: "spacex",
+    company: "spacex",
+    niche: ENGINEERING_NICHES.AEROSPACE,
+    tier: "BigTech",
+    visa: "Likely",
+    fetcher: fetchGreenhouse
+  }),
   {
     source: "rmk",
     token: "bechtel-engineering",
@@ -215,6 +252,34 @@ const YC_SOURCES = [{
   fetch: fetchYcStartupJobs
 }];
 
+const POPULAR_TECH_SOURCES = [
+  customTechSource({
+    source: "amazon",
+    token: "amazon",
+    company: "amazon",
+    tier: "BigTech",
+    visa: "Strong",
+    fetch: fetchAmazonJobs
+  }),
+  customTechSource({
+    source: "apple",
+    token: "apple",
+    company: "apple",
+    tier: "BigTech",
+    visa: "Strong",
+    niche: ENGINEERING_NICHES.HARDWARE,
+    fetch: fetchAppleJobs
+  }),
+  customTechSource({
+    source: "eightfold",
+    token: "netflix",
+    company: "netflix",
+    tier: "BigTech",
+    visa: "Likely",
+    fetch: fetchNetflixJobs
+  })
+];
+
 const CITY_TO_COUNTRY = {
   "London": "GB", "Manchester": "GB", "Edinburgh": "GB", "Derby": "GB",
   "Dublin": "IE", "Cork": "IE",
@@ -233,6 +298,8 @@ const CITY_TO_COUNTRY = {
   "Reston": "US", "Kansas City": "US", "Phoenix": "US", "Santa Clara": "US",
   "Cupertino": "US", "Irvine": "US", "Charlotte": "US", "Milwaukee": "US",
   "Minneapolis": "US", "Orlando": "US", "Nashville": "US", "Honolulu": "US",
+  "Hawthorne": "US", "Brownsville": "US", "Cape Canaveral": "US",
+  "Starbase": "US", "McGregor": "US", "Bastrop": "US",
   "Remote US": "US",
   "Remote - US": "US", "Remote (US)": "US", "US Remote": "US",
   "United States Remote": "US",
@@ -246,7 +313,18 @@ const CITY_TO_COUNTRY = {
   "Barcelona": "ES", "Madrid": "ES",
   "Lisbon": "PT", "Porto": "PT",
   "Tallinn": "EE",
-  "Auckland": "NZ", "Wellington": "NZ"
+  "Auckland": "NZ", "Wellington": "NZ",
+  "Paris": "FR", "Lyon": "FR",
+  "Milan": "IT", "Rome": "IT",
+  "Warsaw": "PL", "Krakow": "PL", "Kraków": "PL",
+  "Brussels": "BE",
+  "Helsinki": "FI",
+  "Vienna": "AT",
+  "Tokyo": "JP", "Osaka": "JP",
+  "Seoul": "KR",
+  "Bengaluru": "IN", "Bangalore": "IN", "Hyderabad": "IN", "Mumbai": "IN",
+  "Gurugram": "IN", "Gurgaon": "IN",
+  "Taipei": "TW", "Hsinchu": "TW"
 };
 
 const LOCATION_ALIASES = {
@@ -279,7 +357,18 @@ const COUNTRY_HINTS = {
   "spain": { country: "ES", city: "Spain" },
   "portugal": { country: "PT", city: "Portugal" },
   "estonia": { country: "EE", city: "Estonia" },
-  "new zealand": { country: "NZ", city: "New Zealand" }
+  "new zealand": { country: "NZ", city: "New Zealand" },
+  "france": { country: "FR", city: "France" },
+  "italy": { country: "IT", city: "Italy" },
+  "poland": { country: "PL", city: "Poland" },
+  "belgium": { country: "BE", city: "Belgium" },
+  "finland": { country: "FI", city: "Finland" },
+  "austria": { country: "AT", city: "Austria" },
+  "japan": { country: "JP", city: "Japan" },
+  "south korea": { country: "KR", city: "South Korea" },
+  "korea, republic of": { country: "KR", city: "South Korea" },
+  "india": { country: "IN", city: "India" },
+  "taiwan": { country: "TW", city: "Taiwan" }
 };
 
 const EXCLUDED_TITLE_KEYWORDS = [
@@ -303,7 +392,8 @@ const ROLE_FAMILIES = [
       "facade engineer", "mep engineer", "bim designer", "revit designer", "design engineer",
       "project engineer", "process engineer", "piping engineer", "substation engineer",
       "semiconductor", "hardware engineer", "systems engineer", "aerospace engineer",
-      "manufacturing engineer", "robotics engineer", "firmware engineer", "asic", "fpga"
+      "propulsion engineer", "manufacturing engineer", "robotics engineer",
+      "firmware engineer", "asic", "fpga"
     ]
   },
   {
@@ -363,7 +453,9 @@ const ROLE_FALLBACK_KEYWORDS = [
 
 const COMPANY_ALIASES = {
   talkdesk2: "talkdesk",
-  boxinc: "box"
+  boxinc: "box",
+  aws: "amazon",
+  "aws / amazon": "amazon"
 };
 
 const GROWTH_SAAS_COMPANIES = new Set([
@@ -376,14 +468,18 @@ const GROWTH_SAAS_COMPANIES = new Set([
 const STRONG_VISA_COMPANIES = new Set([
   "hubspot", "datadog", "cloudflare", "gitlab", "figma", "twilio",
   "databricks", "mongodb", "elastic", "confluent", "deel", "snowflake",
-  "xero", "canva", "wise"
+  "xero", "canva", "wise", "google", "meta", "amazon", "apple",
+  "microsoft", "linkedin", "stripe", "salesforce", "adobe", "servicenow",
+  "atlassian", "shopify", "pinterest", "nvidia", "tesla", "openai",
+  "anthropic", "cursor", "perplexity"
 ]);
 
 const LIKELY_VISA_COMPANIES = new Set([
   "gongio", "klaviyo", "pleo", "celonis", "airtable", "brex", "mercury",
   "vercel", "typeform", "feedzai", "mentimeter", "trustpilot", "asana",
   "remote", "sumologic", "contentful", "n26", "cognite", "linear",
-  "mollie", "notion", "ramp", "pipedrive", "talkdesk", "box"
+  "mollie", "notion", "ramp", "pipedrive", "talkdesk", "box",
+  "netflix", "spacex"
 ]);
 
 const SCALEUP_COMPANIES = new Set([
@@ -444,6 +540,12 @@ function classifyTier(token) {
   return "BigTech";
 }
 
+function classifyNiche(token) {
+  const company = canonicalCompany(token);
+  if (["openai", "anthropic", "cursor", "perplexity"].includes(company)) return FRONTIER_AI_NICHE;
+  return TECH_NICHE;
+}
+
 function normalizeTier(tier) {
   if (tier === "Ecosystem") return "GrowthSaaS";
   return tier || "BigTech";
@@ -466,7 +568,33 @@ function techSource(source, token, fetcher) {
     token,
     company: canonicalCompany(token),
     industry: INDUSTRIES.TECH,
-    niche: TECH_NICHE,
+    niche: classifyNiche(token),
+    fetch: s => fetcher(s.token)
+  };
+}
+
+function customTechSource({ source, token, company, tier = "BigTech", visa, niche = TECH_NICHE, fetch }) {
+  return {
+    source,
+    token,
+    company,
+    industry: INDUSTRIES.TECH,
+    niche,
+    tier,
+    visa,
+    fetch
+  };
+}
+
+function engineeringAtsSource({ source, token, company, niche, tier = "BigTech", visa, fetcher }) {
+  return {
+    source,
+    token,
+    company,
+    industry: INDUSTRIES.ENGINEERING,
+    niche,
+    tier,
+    visa,
     fetch: s => fetcher(s.token)
   };
 }
@@ -485,6 +613,31 @@ function workdaySource({ token, company, host, tenant, site, niche, visa }) {
     visa,
     fetch: fetchWorkday
   };
+}
+
+function scanSources() {
+  return [
+    ...GREENHOUSE_TOKENS.map(t => techSource("greenhouse", t, fetchGreenhouse)),
+    ...ASHBY_TOKENS.map(t => techSource("ashby", t, fetchAshby)),
+    ...LEVER_TOKENS.map(t => techSource("lever", t, fetchLever)),
+    ...SMARTRECRUITERS_TOKENS.map(t => techSource("smartrecruiters", t, fetchSmartRecruiters)),
+    ...POPULAR_TECH_SOURCES,
+    ...YC_SOURCES,
+    ...ENGINEERING_SOURCES
+  ];
+}
+
+export function scanSourceInventory() {
+  return scanSources().map(source => ({
+    id: sourceId(source),
+    source: source.source,
+    token: source.token,
+    company: source.company || canonicalCompany(source.token),
+    industry: source.industry || INDUSTRIES.TECH,
+    niche: source.niche || TECH_NICHE,
+    tier: source.tier || classifyTier(source.token),
+    visa: source.visa || classifyVisa(source.token)
+  }));
 }
 
 // ------------------------------------------------------------------
@@ -758,6 +911,72 @@ function extractYcJobPostings(html) {
   return Array.isArray(jobs) ? jobs : null;
 }
 
+function extractBalancedJson(text, start) {
+  if (start < 0 || text[start] !== "{") return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+    if (ch === "\"") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function parseEmbeddedJsonObject(text, marker) {
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const objectStart = text.lastIndexOf("{", markerIndex);
+  const json = extractBalancedJson(text, objectStart);
+  if (!json) return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function extractAppleSearchData(html) {
+  const decoded = decodeHTML(html);
+  const candidates = [
+    decoded,
+    decoded.replace(/\\"/g, "\"")
+  ];
+  for (const text of candidates) {
+    const direct = parseEmbeddedJsonObject(text, "\"searchResults\":");
+    if (Array.isArray(direct?.searchResults)) return direct;
+    if (Array.isArray(direct?.search?.searchResults)) return direct.search;
+  }
+  return null;
+}
+
+function extractNetflixSmartApplyData(html) {
+  const match = String(html || "").match(/<code[^>]+id=["']smartApplyData["'][^>]*>([\s\S]*?)<\/code>/i);
+  if (!match) return null;
+  try {
+    return JSON.parse(decodeHTML(match[1]));
+  } catch {
+    return null;
+  }
+}
+
 function ycCompanySlug(job) {
   const value = job.companyUrl || job.url || "";
   return String(value).match(/\/companies\/([^/?#]+)/)?.[1] || "";
@@ -923,6 +1142,118 @@ async function fetchAshby(token) {
   return out;
 }
 
+async function fetchAmazonJobs() {
+  const out = [];
+  let okPages = 0;
+  const failedPages = [];
+  for (const loc of AMAZON_SEARCH_LOCATIONS) {
+    const params = new URLSearchParams({
+      base_query: "",
+      loc_query: loc,
+      result_limit: "10",
+      offset: "0"
+    });
+    const url = `https://www.amazon.jobs/en/search.json?${params.toString()}`;
+    const data = await fetchJSON(url);
+    if (!data) {
+      failedPages.push(loc);
+      continue;
+    }
+    okPages++;
+    for (const job of data.jobs || []) {
+      const id = job.id || job.id_icims || job.job_path;
+      const title = job.title;
+      const location = job.normalized_location || job.location || [job.city, job.state, job.country_code].filter(Boolean).join(", ");
+      const jobUrl = job.job_path ? absoluteUrl("https://www.amazon.jobs", job.job_path) : job.url_next_step;
+      out.push({ id: String(id), title, location, url: jobUrl });
+      if (out.length >= CUSTOM_SOURCE_LIMIT) break;
+    }
+    if (out.length >= CUSTOM_SOURCE_LIMIT) break;
+  }
+  if (!okPages) return null;
+  return {
+    jobs: uniqueJobs(out),
+    meta: {
+      okPages,
+      failedPages,
+      totalPages: AMAZON_SEARCH_LOCATIONS.length,
+      truncated: out.length >= CUSTOM_SOURCE_LIMIT
+    }
+  };
+}
+
+async function fetchAppleJobs() {
+  const out = [];
+  const failedPages = [];
+  let okPages = 0;
+  for (const path of APPLE_SEARCH_PATHS) {
+    const url = absoluteUrl("https://jobs.apple.com", path);
+    const html = await fetchText(url);
+    const data = html ? extractAppleSearchData(html) : null;
+    if (!data || !Array.isArray(data.searchResults)) {
+      failedPages.push(path);
+      continue;
+    }
+    okPages++;
+    for (const job of data.searchResults) {
+      const locations = Array.isArray(job.locations) && job.locations.length ? job.locations : [null];
+      locations.forEach((loc, i) => {
+        const location = loc ? [loc.name, loc.city, loc.stateProvince, loc.countryName].filter(Boolean).join(", ") : "";
+        const titleSlug = job.transformedPostingTitle || "";
+        const urlPath = `/en-us/details/${job.positionId}/${titleSlug}`;
+        out.push({
+          id: `${job.positionId || job.id}-${loc?.postLocationId || i}`,
+          title: job.postingTitle,
+          location,
+          url: absoluteUrl("https://jobs.apple.com", urlPath)
+        });
+      });
+      if (out.length >= CUSTOM_SOURCE_LIMIT) break;
+    }
+    if (out.length >= CUSTOM_SOURCE_LIMIT) break;
+  }
+  if (!okPages) return null;
+  return {
+    jobs: uniqueJobs(out),
+    meta: {
+      okPages,
+      failedPages,
+      totalPages: APPLE_SEARCH_PATHS.length,
+      truncated: out.length >= CUSTOM_SOURCE_LIMIT
+    }
+  };
+}
+
+async function fetchNetflixJobs() {
+  const url = "https://explore.jobs.netflix.net/careers";
+  const html = await fetchText(url);
+  const data = html ? extractNetflixSmartApplyData(html) : null;
+  if (!data || !Array.isArray(data.positions)) return null;
+  const out = [];
+  for (const job of data.positions) {
+    const locations = Array.isArray(job.locations) && job.locations.length ? job.locations : [job.location];
+    locations.filter(Boolean).forEach((loc, i) => {
+      out.push({
+        id: `${job.id || job.ats_job_id}-${i}`,
+        title: job.posting_name || job.name,
+        location: loc,
+        url: job.canonicalPositionUrl || absoluteUrl(url, `/careers/job/${job.id}`)
+      });
+    });
+    if (out.length >= CUSTOM_SOURCE_LIMIT) break;
+  }
+  return {
+    jobs: uniqueJobs(out),
+    meta: {
+      okPages: 1,
+      failedPages: [],
+      totalPages: 1,
+      parsedCount: data.positions.length,
+      truncated: out.length >= CUSTOM_SOURCE_LIMIT
+    }
+  };
+}
+
 async function fetchRmkCategory(source) {
   const html = await fetchText(source.url);
   if (!html) return null;
@@ -1080,14 +1411,7 @@ export async function runScan(env) {
   let okCount = 0;
   let failCount = 0;
 
-  const sources = [
-    ...GREENHOUSE_TOKENS.map(t => techSource("greenhouse", t, fetchGreenhouse)),
-    ...ASHBY_TOKENS.map(t => techSource("ashby", t, fetchAshby)),
-    ...LEVER_TOKENS.map(t => techSource("lever", t, fetchLever)),
-    ...SMARTRECRUITERS_TOKENS.map(t => techSource("smartrecruiters", t, fetchSmartRecruiters)),
-    ...YC_SOURCES,
-    ...ENGINEERING_SOURCES
-  ];
+  const sources = scanSources();
 
   for (let i = 0; i < sources.length; i += 8) {
     const batch = sources.slice(i, i + 8);
@@ -1245,7 +1569,17 @@ const COUNTRY_NAMES = {
   ES: "Spain",
   PT: "Portugal",
   EE: "Estonia",
-  NZ: "New Zealand"
+  NZ: "New Zealand",
+  FR: "France",
+  IT: "Italy",
+  PL: "Poland",
+  BE: "Belgium",
+  FI: "Finland",
+  AT: "Austria",
+  JP: "Japan",
+  KR: "South Korea",
+  IN: "India",
+  TW: "Taiwan"
 };
 const SEO_PAGES = {
   "/jobs": {

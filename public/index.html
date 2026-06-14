@@ -1210,7 +1210,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 
 <section class="methodology-note" aria-labelledby="methodology-title">
   <h2 id="methodology-title">Tracking Methodology</h2>
-  <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the United States, UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, and New Zealand, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
+  <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the United States, UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, New Zealand, France, Italy, Poland, Belgium, Finland, Austria, Japan, South Korea, India, and Taiwan, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
 </section>
 </main>
 
@@ -1466,8 +1466,8 @@ const ENGINEERING_STATIC_COMPANIES = [
   { id: 1097, company: '3M', country: 'US', city: 'Minneapolis', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://www.3m.com/3M/en_US/careers-us/' }
 ];
 
-const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', US: 'United States', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand' };
-const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', US: '🇺🇸', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿' };
+const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', US: 'United States', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand', FR: 'France', IT: 'Italy', PL: 'Poland', BE: 'Belgium', FI: 'Finland', AT: 'Austria', JP: 'Japan', KR: 'South Korea', IN: 'India', TW: 'Taiwan' };
+const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', US: '🇺🇸', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿', FR: '🇫🇷', IT: '🇮🇹', PL: '🇵🇱', BE: '🇧🇪', FI: '🇫🇮', AT: '🇦🇹', JP: '🇯🇵', KR: '🇰🇷', IN: '🇮🇳', TW: '🇹🇼' };
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
 const INDUSTRIES = { tech: 'Tech', engineering: 'Engineering' };
 const INDUSTRY_KEY = 'livejobindex_industry';
@@ -1538,7 +1538,7 @@ function prettyCompany(token) {
 function inferRoleFamily(title) {
   // Display fallback for dynamic payloads and static rows; keep aligned with ROLE_FAMILIES in src/worker.js.
   const t = (title || '').toLowerCase();
-  if (/(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|site reliability|sre|devops|developer|technical lead|engineering manager|machine learning|ml engineer|civil engineer|structural engineer|mechanical engineer|electrical engineer|transport engineer|transportation engineer|highway engineer|rail engineer|water engineer|environmental engineer|geotechnical engineer|fire engineer|facade engineer|mep engineer|bim designer|revit designer|design engineer|project engineer|process engineer|piping engineer|substation engineer|semiconductor|hardware engineer|systems engineer|aerospace engineer|manufacturing engineer|robotics engineer|firmware engineer|asic|fpga)/.test(t)) return 'Engineering';
+  if (/(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|site reliability|sre|devops|developer|technical lead|engineering manager|machine learning|ml engineer|civil engineer|structural engineer|mechanical engineer|electrical engineer|transport engineer|transportation engineer|highway engineer|rail engineer|water engineer|environmental engineer|geotechnical engineer|fire engineer|facade engineer|mep engineer|bim designer|revit designer|design engineer|project engineer|process engineer|piping engineer|substation engineer|semiconductor|hardware engineer|systems engineer|aerospace engineer|propulsion engineer|manufacturing engineer|robotics engineer|firmware engineer|asic|fpga)/.test(t)) return 'Engineering';
   if (/product/.test(t)) return 'Product';
   if (/(designer|design|ux|ui|user researcher|content designer)/.test(t)) return 'Design';
   if (/(data|analytics|business intelligence|bi analyst|insights)/.test(t)) return 'Data/Analytics';

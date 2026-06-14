@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import worker, { runScan } from "../src/worker.js";
+import worker, { runScan, scanSourceInventory } from "../src/worker.js";
 
 function createKV(initialState = { postings: {} }, initialJobs = null) {
   const store = new Map([["state", JSON.stringify(initialState)]]);
@@ -22,6 +22,8 @@ function createKV(initialState = { postings: {} }, initialJobs = null) {
 }
 
 function tokenFromUrl(url) {
+  const href = String(url);
+  if (href.startsWith("https://www.amazon.jobs/en/search.json")) return "amazon";
   const patterns = [
     /boards-api\.greenhouse\.io\/v1\/boards\/([^/]+)\/jobs/,
     /posting-api\/job-board\/([^/?]+)/,
@@ -30,10 +32,18 @@ function tokenFromUrl(url) {
     /https:\/\/([^/]+)\/wday\/cxs\/[^/]+\/[^/]+\/jobs/
   ];
   for (const pattern of patterns) {
-    const match = url.match(pattern);
+    const match = href.match(pattern);
     if (match) return match[1];
   }
   return null;
+}
+
+function encodeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function ycJobsHtml(jobPostings = []) {
@@ -41,10 +51,16 @@ function ycJobsHtml(jobPostings = []) {
     component: "WaasLandingPage",
     props: { jobPostings }
   };
-  const encoded = JSON.stringify(dataPage)
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;");
+  const encoded = encodeHtml(JSON.stringify(dataPage));
   return `<!DOCTYPE html><div data-page="${encoded}"></div>`;
+}
+
+function appleJobsHtml(searchResults = []) {
+  return `<!DOCTYPE html><script>window.__APPLE_JOBS__=${JSON.stringify({ searchResults })};</script>`;
+}
+
+function netflixJobsHtml(positions = []) {
+  return `<!DOCTYPE html><code id="smartApplyData">${encodeHtml(JSON.stringify({ positions }))}</code>`;
 }
 
 function emptyPayload(url) {
@@ -64,6 +80,22 @@ function mockFetch({ failedTokens = new Set(), jobsByToken = {} } = {}) {
     }
     if (href.startsWith("https://www.ycombinator.com/jobs")) {
       return new Response(ycJobsHtml(), { headers: { "content-type": "text/html" } });
+    }
+    if (href.startsWith("https://www.amazon.jobs/en/search.json")) {
+      if (failedTokens.has("amazon")) return new Response("failed", { status: 503 });
+      return Response.json(jobsByToken.amazon || { jobs: [] });
+    }
+    if (href.startsWith("https://jobs.apple.com/")) {
+      if (failedTokens.has("apple")) return new Response("failed", { status: 503 });
+      const payload = jobsByToken.apple;
+      const html = typeof payload === "string" ? payload : appleJobsHtml(payload?.searchResults || []);
+      return new Response(html, { headers: { "content-type": "text/html" } });
+    }
+    if (href === "https://explore.jobs.netflix.net/careers") {
+      if (failedTokens.has("netflix")) return new Response("failed", { status: 503 });
+      const payload = jobsByToken.netflix;
+      const html = typeof payload === "string" ? payload : netflixJobsHtml(payload?.positions || []);
+      return new Response(html, { headers: { "content-type": "text/html" } });
     }
     const token = tokenFromUrl(url);
     if (failedTokens.has(token)) {
@@ -381,6 +413,55 @@ test("runScan matches United States city and remote country-hint locations", asy
   assert.equal(byTitle.get("Sales Operations Manager").country, "US");
 });
 
+test("runScan matches expanded EU and APAC hub locations", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      hubspot: {
+        jobs: [{
+          id: 321,
+          title: "Revenue Operations Manager",
+          location: { name: "Paris, France" },
+          absolute_url: "https://example.com/hubspot-321"
+        }, {
+          id: 322,
+          title: "Sales Operations Manager",
+          location: { name: "Bengaluru, India" },
+          absolute_url: "https://example.com/hubspot-322"
+        }, {
+          id: 323,
+          title: "Business Operations Manager",
+          location: { name: "Taipei, Taiwan" },
+          absolute_url: "https://example.com/hubspot-323"
+        }, {
+          id: 324,
+          title: "Marketing Operations Manager",
+          location: { name: "Kraków, Poland" },
+          absolute_url: "https://example.com/hubspot-324"
+        }, {
+          id: 325,
+          title: "Customer Success Manager",
+          location: { name: "Seoul, South Korea" },
+          absolute_url: "https://example.com/hubspot-325"
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const countries = new Map(payload.postings.map(p => [p.city, p.country]));
+
+  assert.equal(countries.get("Paris"), "FR");
+  assert.equal(countries.get("Bengaluru"), "IN");
+  assert.equal(countries.get("Taipei"), "TW");
+  assert.equal(countries.get("Kraków"), "PL");
+  assert.equal(countries.get("Seoul"), "KR");
+});
+
 test("runScan applies company aliases for display and classification", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     jobsByToken: {
@@ -539,6 +620,288 @@ test("runScan maps Workday engineering source postings", async t => {
   assert.equal(posting.country, "US");
   assert.equal(posting.visa, "Strong");
   assert.equal(posting.url, "https://intel.wd1.myworkdayjobs.com/External/job/US-Texas-Austin/Senior-CPU-RTL-Design-Engineer_JR123");
+});
+
+test("runScan maps SpaceX Greenhouse postings as engineering aerospace jobs", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      spacex: {
+        jobs: [{
+          id: 8399574002,
+          title: "Senior Propulsion Engineer",
+          location: { name: "Hawthorne, CA" },
+          absolute_url: "https://boards.greenhouse.io/spacex/jobs/8399574002"
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.source === "greenhouse" && p.source_token === "spacex");
+
+  assert.ok(posting);
+  assert.equal(posting.company, "spacex");
+  assert.equal(posting.industry, "engineering");
+  assert.equal(posting.niche, "Aerospace / Defense / Space");
+  assert.equal(posting.role_family, "Engineering");
+  assert.equal(posting.country, "US");
+  assert.equal(posting.tier, "BigTech");
+  assert.equal(posting.visa, "Likely");
+});
+
+test("runScan maps Anthropic Greenhouse postings as frontier AI jobs", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      anthropic: {
+        jobs: [{
+          id: 7001,
+          title: "Revenue Operations Manager",
+          location: { name: "San Francisco, United States" },
+          absolute_url: "https://boards.greenhouse.io/anthropic/jobs/7001"
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.source === "greenhouse" && p.source_token === "anthropic");
+
+  assert.ok(posting);
+  assert.equal(posting.company, "anthropic");
+  assert.equal(posting.niche, "AI / Frontier");
+  assert.equal(posting.tier, "BigTech");
+  assert.equal(posting.visa, "Strong");
+  assert.equal(posting.country, "US");
+});
+
+test("runScan maps OpenAI Ashby postings as frontier AI jobs", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      openai: {
+        jobs: [{
+          id: "openai-ops-1",
+          title: "Business Operations Manager",
+          location: "London, United Kingdom",
+          jobUrl: "https://jobs.ashbyhq.com/openai/openai-ops-1",
+          isListed: true
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.source === "ashby" && p.source_token === "openai");
+
+  assert.ok(posting);
+  assert.equal(posting.company, "openai");
+  assert.equal(posting.niche, "AI / Frontier");
+  assert.equal(posting.visa, "Strong");
+  assert.equal(posting.role_family, "Operations");
+  assert.equal(posting.country, "GB");
+});
+
+test("runScan maps Amazon search JSON postings", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      amazon: {
+        jobs: [{
+          id: "amz-1",
+          title: "Senior Partner Manager",
+          normalized_location: "London, England, United Kingdom",
+          job_path: "/en/jobs/123/senior-partner-manager"
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.source === "amazon");
+
+  assert.ok(posting);
+  assert.equal(posting.id, "amazon-amazon-amz-1");
+  assert.equal(posting.company, "amazon");
+  assert.equal(posting.title, "Senior Partner Manager");
+  assert.equal(posting.location, "London, England, United Kingdom");
+  assert.equal(posting.url, "https://www.amazon.jobs/en/jobs/123/senior-partner-manager");
+  assert.equal(posting.country, "GB");
+  assert.equal(posting.visa, "Strong");
+  assert.ok(payload.scan_meta.sourceMeta["amazon-amazon"].okPages >= 1);
+});
+
+test("runScan maps Apple embedded search data with stable multi-location ids", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      apple: {
+        searchResults: [{
+          positionId: "200600100",
+          postingTitle: "AIML - Machine Learning Engineer",
+          transformedPostingTitle: "aiml-machine-learning-engineer",
+          locations: [{
+            postLocationId: "cupertino",
+            name: "Cupertino",
+            city: "Cupertino",
+            stateProvince: "California",
+            countryName: "United States"
+          }, {
+            postLocationId: "tokyo",
+            name: "Tokyo",
+            city: "Tokyo",
+            countryName: "Japan"
+          }]
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const applePostings = payload.postings.filter(p => p.source === "apple");
+
+  assert.equal(applePostings.length, 2);
+  assert.deepEqual(new Set(applePostings.map(p => p.id)), new Set([
+    "apple-apple-200600100-cupertino",
+    "apple-apple-200600100-tokyo"
+  ]));
+  assert.equal(applePostings.find(p => p.country === "US")?.city, "Cupertino");
+  assert.equal(applePostings.find(p => p.country === "JP")?.city, "Tokyo");
+  assert.ok(applePostings.every(p => p.url === "https://jobs.apple.com/en-us/details/200600100/aiml-machine-learning-engineer"));
+  assert.ok(applePostings.every(p => p.role_family === "Engineering"));
+  assert.ok(payload.scan_meta.sourceMeta["apple-apple"].okPages >= 1);
+});
+
+test("runScan maps Netflix Eightfold positions", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      netflix: {
+        positions: [{
+          id: "790",
+          ats_job_id: "netflix-790",
+          posting_name: "Partner Integration Manager",
+          canonicalPositionUrl: "https://explore.jobs.netflix.net/careers/job/790",
+          locations: ["Singapore, Singapore", "Amsterdam, Netherlands"]
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const netflixPostings = payload.postings.filter(p => p.source === "eightfold" && p.source_token === "netflix");
+
+  assert.equal(netflixPostings.length, 2);
+  assert.deepEqual(new Set(netflixPostings.map(p => p.id)), new Set([
+    "eightfold-netflix-790-0",
+    "eightfold-netflix-790-1"
+  ]));
+  assert.ok(netflixPostings.every(p => p.company === "netflix"));
+  assert.ok(netflixPostings.every(p => p.url === "https://explore.jobs.netflix.net/careers/job/790"));
+  assert.equal(netflixPostings.find(p => p.country === "SG")?.city, "Singapore");
+  assert.equal(netflixPostings.find(p => p.country === "NL")?.city, "Amsterdam");
+  assert.equal(payload.scan_meta.sourceMeta["eightfold-netflix"].parsedCount, 1);
+});
+
+test("engineering source inventory includes SpaceX and existing live source types", () => {
+  const inventory = scanSourceInventory();
+  const byId = new Map(inventory.map(source => [source.id, source]));
+
+  assert.deepEqual(byId.get("greenhouse-spacex"), {
+    id: "greenhouse-spacex",
+    source: "greenhouse",
+    token: "spacex",
+    company: "spacex",
+    industry: "engineering",
+    niche: "Aerospace / Defense / Space",
+    tier: "BigTech",
+    visa: "Likely"
+  });
+
+  for (const id of ["rmk-bechtel-engineering", "tribepad-burohappold", "nlx-aecom", "nlx-stantec", "workday-intel", "workday-boeing", "workday-bostondynamics"]) {
+    assert.equal(byId.get(id)?.industry, "engineering", `${id} should remain an engineering source`);
+  }
+});
+
+test("popular tech source inventory includes new live sources and classification metadata", () => {
+  const inventory = scanSourceInventory();
+  const byId = new Map(inventory.map(source => [source.id, source]));
+
+  assert.deepEqual(byId.get("greenhouse-anthropic"), {
+    id: "greenhouse-anthropic",
+    source: "greenhouse",
+    token: "anthropic",
+    company: "anthropic",
+    industry: "tech",
+    niche: "AI / Frontier",
+    tier: "BigTech",
+    visa: "Strong"
+  });
+  assert.deepEqual(byId.get("ashby-openai"), {
+    id: "ashby-openai",
+    source: "ashby",
+    token: "openai",
+    company: "openai",
+    industry: "tech",
+    niche: "AI / Frontier",
+    tier: "BigTech",
+    visa: "Strong"
+  });
+  assert.deepEqual(byId.get("amazon-amazon"), {
+    id: "amazon-amazon",
+    source: "amazon",
+    token: "amazon",
+    company: "amazon",
+    industry: "tech",
+    niche: "Software",
+    tier: "BigTech",
+    visa: "Strong"
+  });
+  assert.deepEqual(byId.get("apple-apple"), {
+    id: "apple-apple",
+    source: "apple",
+    token: "apple",
+    company: "apple",
+    industry: "tech",
+    niche: "Hardware / Consumer Devices",
+    tier: "BigTech",
+    visa: "Strong"
+  });
+  assert.deepEqual(byId.get("eightfold-netflix"), {
+    id: "eightfold-netflix",
+    source: "eightfold",
+    token: "netflix",
+    company: "netflix",
+    industry: "tech",
+    niche: "Software",
+    tier: "BigTech",
+    visa: "Likely"
+  });
 });
 
 test("runScan maps broad YC startup jobs from data-page HTML", async t => {
@@ -1496,6 +1859,45 @@ test("runScan preserves previous postings from a failed active source", async t 
   assert.equal(payload.postings.length, 1);
   assert.equal(payload.postings[0].id, previousPosting.id);
   assert.equal(payload.postings[0].last_filled, null);
+});
+
+test("runScan preserves previous postings when a custom parser source fails", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    failedTokens: new Set(["netflix"])
+  }));
+
+  const previousPosting = {
+    id: "eightfold-netflix-790-0",
+    source: "eightfold",
+    source_token: "netflix",
+    company: "netflix",
+    title: "Partner Integration Manager",
+    location: "Singapore, Singapore",
+    city: "Singapore",
+    country: "SG",
+    url: "https://explore.jobs.netflix.net/careers/job/790",
+    tier: "BigTech",
+    industry: "tech",
+    niche: "Software",
+    role_family: "Sales",
+    seniority: "Manager",
+    visa: "Likely",
+    score: 88,
+    first_seen: "2026-05-20",
+    last_seen: "2026-05-20",
+    last_filled: null
+  };
+  const KV = createKV({ postings: { [previousPosting.id]: previousPosting } });
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const posting = payload.postings.find(p => p.id === previousPosting.id);
+
+  assert.ok(posting);
+  assert.equal(posting.last_filled, null);
+  assert.ok(payload.scan_meta.failedSources.includes("eightfold-netflix"));
 });
 
 test("runScan preserves previous YC postings when YC seed pages partially fail", async t => {
