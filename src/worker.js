@@ -1886,6 +1886,16 @@ function isLowBotScore(request) {
   return Number.isFinite(score) && score > 0 && score < 30;
 }
 
+function hostnameMatches(hostname, expected) {
+  if (!hostname || !expected) return true;
+  const h = hostname.toLowerCase();
+  const e = expected.toLowerCase();
+  if (h === e) return true;
+  if (h === `www.${e}`) return true;
+  if (e === `www.${h}`) return true;
+  return false;
+}
+
 async function validateTurnstile(request, env, token) {
   if (!env.TURNSTILE_SECRET || !token) return false;
   const result = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
@@ -1899,9 +1909,15 @@ async function validateTurnstile(request, env, token) {
   });
   if (!result.ok) return false;
   const data = await result.json();
-  if (!data.success) return false;
+  if (!data.success) {
+    console.error("Turnstile siteverify failed:", data["error-codes"]);
+    return false;
+  }
   const expectedHostname = new URL(env.APP_ORIGIN || SITE_ORIGIN).hostname;
-  if (data.hostname && data.hostname !== expectedHostname) return false;
+  if (data.hostname && !hostnameMatches(data.hostname, expectedHostname)) {
+    console.error("Turnstile hostname mismatch:", data.hostname, "expected:", expectedHostname);
+    return false;
+  }
   if (data.action && data.action !== "jobs_page_access") return false;
   return true;
 }
