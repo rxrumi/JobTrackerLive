@@ -309,6 +309,7 @@ test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk J
   const end = html.indexOf("async function signOutClerk", start);
   const source = html.slice(start, end);
 
+  assert.match(html, /script\.setAttribute\('data-clerk-publishable-key', CLERK_PUBLISHABLE_KEY\);/);
   assert.match(source, /if \(!CLERK_SIGN_IN_URL && !CLERK_PUBLISHABLE_KEY\) await loadPublicConfig\(\);/);
   assert.match(source, /if \(!CLERK_SIGN_UP_URL && !CLERK_PUBLISHABLE_KEY\) await loadPublicConfig\(\);/);
   assert.ok(source.indexOf("if (CLERK_SIGN_IN_URL)") < source.lastIndexOf("const clerk = await getClerkClient();"));
@@ -1757,7 +1758,7 @@ test("public config exposes browser auth settings", async () => {
   });
 
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("Cache-Control"), "public, max-age=300");
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
   const payload = await response.json();
   assert.deepEqual(payload, {
     turnstile_site_key: "turnstile-public-key",

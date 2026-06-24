@@ -1664,6 +1664,9 @@ function loadScriptOnce(src, marker) {
     script.async = true;
     script.defer = true;
     script.setAttribute(marker, 'true');
+    if (marker === 'data-clerkjs' && CLERK_PUBLISHABLE_KEY) {
+      script.setAttribute('data-clerk-publishable-key', CLERK_PUBLISHABLE_KEY);
+    }
     script.onload = () => {
       script.dataset.loaded = 'true';
       resolve();

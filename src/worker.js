@@ -2860,7 +2860,7 @@ function handlePublicConfig(env) {
     clerk_sign_up_url: env.CLERK_SIGN_UP_URL || ""
   }, {
     headers: {
-      "Cache-Control": "public, max-age=300"
+      "Cache-Control": "no-store"
     }
   });
 }
