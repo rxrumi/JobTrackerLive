@@ -7,6 +7,11 @@ workers_dev = false
 binding = "KV"
 id = "8cf95c7c04054745bff09d88ea57d707"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "job-tracker-app-db"
+database_id = "d0b81077-9b5d-425a-a821-979375f63e89"
+
 [triggers]
 crons = ["0 3 * * *"]
 
@@ -19,9 +24,11 @@ not_found_handling = "single-page-application"
 enabled = true
 
 # Required secrets (set via `npx wrangler secret put <name>`):
-# - SUPABASE_URL              (e.g. https://<ref>.supabase.co)
-# - SUPABASE_PUBLISHABLE_KEY  (public anon key for auth / user-facing queries)
-# - SUPABASE_SERVICE_ROLE_KEY (service role key for scan persistence & tracking writes)
+# - CLERK_PUBLISHABLE_KEY     (public Clerk browser key)
+# - CLERK_SECRET_KEY          (server-side Clerk API key for user lookup)
+# - CLERK_JWT_KEY             (Clerk JWT verification public key)
+# - CLERK_SIGN_IN_URL         (hosted Clerk sign-in URL)
+# - CLERK_SIGN_UP_URL         (hosted Clerk sign-up URL)
 # - SCAN_KEY                  (secret for manual scan trigger via /api/scan-now)
 # - TURNSTILE_SECRET          (Cloudflare Turnstile server-side secret)
 # - TURNSTILE_SITE_KEY        (Cloudflare Turnstile site key, exposed to frontend)

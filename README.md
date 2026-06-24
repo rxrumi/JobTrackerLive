@@ -1,6 +1,6 @@
 # Live Job Index
 
-Live Job Index is a cloud-hosted job-search tracker for finding visa-aware technology and engineering roles abroad. It combines curated company targets with a daily automated scan of public ATS job boards, diffs against KV state, persists scan analytics to Supabase, and serves a static HTML UI that merges curated entries with the dynamic feed.
+Live Job Index is a cloud-hosted job-search tracker for finding visa-aware technology and engineering roles abroad. It combines curated company targets with a daily automated scan of public ATS job boards, diffs against KV state, persists app data and scan analytics to Cloudflare D1, and serves a static HTML UI that merges curated entries with the dynamic feed.
 
 Built for **Sohaib "King" Kazmi** — Dubai-based BizOps Manager / RevOps consultant looking to relocate into international RevOps, BizOps, Sales Ops, Marketing Ops, GTM Ops, strategy, operations, and broader technology-company roles.
 
@@ -17,7 +17,7 @@ Instead of repeatedly checking dozens of careers pages, the tracker:
 - Keeps historical state so newly discovered jobs and recently filled jobs are visible.
 - Merges live postings with hand-curated company targets that cannot be reliably scanned.
 - Scores roles using visa likelihood, seniority, and freshness.
-- Persists scan results and analytics to Supabase for trend analysis.
+- Persists account data, saved jobs, tracking events, and scan analytics to Cloudflare D1.
 - Gives one place to search, filter, save, star, and track application status.
 - Focuses on relocation-friendly countries and technology or engineering companies with a realistic sponsorship or international-hiring profile.
 - Lets the user switch between `Tech` and `Engineering` feeds, with engineering sub-niches for infrastructure, construction, aerospace, semiconductors, hardware, robotics, automotive, and industrial technology.
@@ -39,15 +39,15 @@ Cloudflare Worker: job-tracker
 │   ├── GET /llms.txt          -> static asset
 │   ├── GET /api/jobs          -> page 1 of public job payload, optionally filtered by industry (KV, 300s cache)
 │   ├── POST /api/jobs/query   -> paged filtered/sorted jobs (page 2+ needs auth + Turnstile)
-│   ├── GET /api/config        -> public config (Turnstile site key)
+│   ├── GET /api/config        -> public config (Turnstile + Clerk hosted auth URLs)
 │   ├── POST /api/session      -> create or return anonymous session cookie
 │   ├── POST /api/track        -> event tracking (job_view, search, page_view)
-│   ├── POST /api/signup       -> email/password registration
-│   ├── POST /api/login        -> email/password login
-│   ├── GET /api/auth/google   -> legacy route, redirects to frontend auth error
-│   ├── GET /auth/callback     -> serves app shell for browser-side Supabase OAuth completion
-│   ├── POST /api/auth/session -> validates browser OAuth tokens and sets HttpOnly session cookies
-│   ├── POST /api/logout       -> sign out
+│   ├── POST /api/signup       -> legacy route, returns 410 Clerk migration message
+│   ├── POST /api/login        -> legacy route, returns 410 Clerk migration message
+│   ├── GET /api/auth/google   -> legacy route, redirects to Clerk hosted sign-in
+│   ├── GET /auth/callback     -> serves app shell
+│   ├── POST /api/auth/session -> legacy route, returns 410 Clerk migration message
+│   ├── POST /api/logout       -> returns ok; frontend signs out through Clerk
 │   ├── GET /api/me            -> authenticated user + profile + access
 │   ├── PATCH /api/onboarding/account-type     -> set individual or agency
 │   ├── PATCH /api/onboarding/individual-profile -> save individual profile
@@ -69,25 +69,27 @@ Cloudflare Worker: job-tracker
 │   └── www.livejobindex.com -> livejobindex.com (301)
 │
 └── scheduled handler (cron: 0 3 * * * UTC)
-    └── runScan(env) -> scan ATS feeds -> filter + score -> diff KV state -> KV write -> persistScanToSupabase()
+    └── runScan(env) -> scan ATS feeds -> filter + score -> diff KV state -> KV write -> persistScanToD1()
 
-Supabase
-├── auth.users                          -> email/password and Google OAuth identity
-├── public.users                        -> account type, brand theme, onboarding state
-├── public.user_profiles                -> individual job-seeker profile
-├── public.agency_profiles              -> agency/data-user profile
-├── public.account_access               -> plan and gated feature access
-├── public.user_jobs                    -> per-user status, star, notes, timestamps
-├── public.user_job_history             -> per-job timeline (viewed, status_changed, starred, note_added)
-├── public.user_activity                -> behavior/event log
-├── public.agency_feedback              -> agency feature requests and metadata
-├── public.job_postings                 -> master job posting records (upserted per scan, includes industry/niche)
-├── public.job_snapshots                -> daily snapshot of each posting (for trend analysis, includes industry/niche)
-├── public.daily_scan_stats             -> aggregated scan statistics per day, including industry/niche counts
-├── public.job_views                    -> anonymous/authenticated job view events
-├── public.search_queries               -> anonymous/authenticated search events
-├── public.page_views                   -> anonymous/authenticated page view events
-└── public.anonymous_sessions           -> anonymous session tokens
+Clerk
+└── hosted sign-in/sign-up              -> Google and email/password identity
+
+Cloudflare D1: job-tracker-app-db
+├── users                               -> Clerk user id, account type, brand theme, onboarding state
+├── user_profiles                       -> individual job-seeker profile
+├── agency_profiles                     -> agency/data-user profile
+├── account_access                      -> plan and gated feature access
+├── user_jobs                           -> per-user status, star, notes, timestamps
+├── user_job_history                    -> per-job timeline (viewed, status_changed, starred, note_added)
+├── user_activity                       -> behavior/event log
+├── agency_feedback                     -> agency feature requests and metadata
+├── job_postings                        -> master job posting records (upserted per scan, includes industry/niche)
+├── job_snapshots                       -> daily snapshot of each posting (for trend analysis, includes industry/niche)
+├── daily_scan_stats                    -> aggregated scan statistics per day, including industry/niche counts
+├── job_views                           -> anonymous/authenticated job view events
+├── search_queries                      -> anonymous/authenticated search events
+├── page_views                          -> anonymous/authenticated page view events
+└── anonymous_sessions                  -> anonymous session tokens
 
 KV namespace: job-tracker-state
 ├── state -> full scan state + posting history (prev postings, filled markers, scan_meta)
@@ -101,6 +103,7 @@ Configured Cloudflare resources live in `wrangler.toml`:
 - Compatibility date: `2026-06-05`
 - Static assets directory: `./public` (with SPA fallback for `/profile`, `/onboarding`)
 - KV binding: `KV` (namespace ID `8cf95c7c04054745bff09d88ea57d707`)
+- D1 binding: `DB` (`job-tracker-app-db`, database ID `d0b81077-9b5d-425a-a821-979375f63e89`)
 - Cron: `0 3 * * *`
 - Custom domains: `livejobindex.com` and `www.livejobindex.com`
 - Observability: enabled
@@ -111,8 +114,9 @@ Configured Cloudflare resources live in `wrangler.toml`:
 .
 ├── AGENTS.md              # Codex working context for this repo
 ├── README.md              # Full app documentation
-├── package.json           # npm scripts, Wrangler, Supabase dependencies
-├── wrangler.toml          # Cloudflare Worker, assets, KV, cron, routes
+├── package.json           # npm scripts, Wrangler, Clerk dependency
+├── wrangler.toml          # Cloudflare Worker, assets, KV, D1, cron, routes
+├── migrations/            # D1 migrations
 ├── public/
 │   ├── index.html         # Self-contained HTML, CSS, and browser JS (SPA)
 │   ├── privacy.html       # Privacy policy page
@@ -134,13 +138,13 @@ Configured Cloudflare resources live in `wrangler.toml`:
 - Cloudflare Workers for compute.
 - Cloudflare Workers Assets for the static HTML UI and static files.
 - Cloudflare KV for persistent scan state and public job payload.
-- Supabase Auth (email/password + Google OAuth) for account identity.
-- Supabase Postgres for accounts, profiles, onboarding, user job state, job history, activity, scan analytics, event tracking.
+- Clerk hosted auth (email/password + Google OAuth) for account identity.
+- Cloudflare D1 for accounts, profiles, onboarding, user job state, job history, activity, scan analytics, event tracking.
 - Cloudflare Turnstile for human verification on pagination gate.
 - Wrangler for local development, dry-run validation, deployment, secrets, logs, and KV inspection.
 - Plain HTML, CSS, and JavaScript for the frontend SPA.
 - Node's built-in `node:test` runner for tests.
-- `@supabase/ssr` and `@supabase/supabase-js` for server-side auth client.
+- `@clerk/backend` for Worker-side Clerk session verification.
 
 There is no separate backend server, frontend build step, or local scanner.
 
@@ -197,7 +201,7 @@ Accepts body fields:
 - `ids` — specific posting IDs to fetch
 - `turnstile_token` — Cloudflare Turnstile token for page 2+
 
-Page 1 is public. Page 2+ requires an authenticated Supabase session AND either a valid `job_page_access` HMAC-signed cookie or a fresh Turnstile token. Low bot score requests (`cf.botManagement.score < 30`, non-verified) are rejected before processing.
+Page 1 is public. Page 2+ requires an authenticated Clerk session token AND either a valid `job_page_access` HMAC-signed cookie or a fresh Turnstile token. Low bot score requests (`cf.botManagement.score < 30`, non-verified) are rejected before processing.
 
 Legacy `Ecosystem` tier values are normalized to `GrowthSaaS`.
 
@@ -206,18 +210,23 @@ Legacy `Ecosystem` tier values are normalized to `GrowthSaaS`.
 Returns public config:
 
 ```json
-{ "turnstile_site_key": "" }
+{
+  "turnstile_site_key": "",
+  "clerk_publishable_key": "",
+  "clerk_sign_in_url": "",
+  "clerk_sign_up_url": ""
+}
 ```
 
 Cacheable for 300 seconds.
 
 ### `POST /api/session`
 
-Creates an anonymous session cookie (`lji_session`, HttpOnly, 365-day TTL) if one does not already exist. Returns the session token. Optionally persists the token to Supabase `anonymous_sessions` if the service role key is configured.
+Creates an anonymous session cookie (`lji_session`, HttpOnly, 365-day TTL) if one does not already exist. Returns the session token and writes it to D1 `anonymous_sessions` when the `DB` binding is available.
 
 ### `POST /api/track`
 
-Records anonymous or authenticated events to Supabase. Accepts:
+Records anonymous or authenticated events to D1. Accepts:
 - `type`: `job_view`, `search`, `page_view` (required)
 - Event-specific fields: `job_id`, `source`, `query_text`, `filters`, `result_count`, `page_path`, `referrer`
 
@@ -225,16 +234,16 @@ Silently ignores errors so tracking never breaks the UX.
 
 ### Account routes
 
-Supabase-backed account routes use `@supabase/ssr` with HttpOnly session cookies. Routes:
+Clerk-backed account routes verify `Authorization: Bearer <Clerk session token>` in the Worker. Routes:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/signup` | Email/password registration. Returns 201 or `confirmation_required` if email confirmation is enabled. |
-| POST | `/api/login` | Email/password login. Updates `last_login_at`, records activity, returns `fetchMe()` payload. |
-| GET | `/api/auth/google` | Legacy route. Redirects to `/?auth_error=google_frontend_required`; Google OAuth is initiated by the browser Supabase client. |
-| GET | `/auth/callback` | Serves the frontend app shell so the browser can complete Supabase OAuth. |
-| POST | `/api/auth/session` | Accepts browser Supabase `access_token` and `refresh_token`, validates them server-side, sets HttpOnly session cookies, ensures account rows, updates `last_login_at`, and records activity. |
-| POST | `/api/logout` | Signs out, clears session cookies. |
+| POST | `/api/signup` | Legacy route. Returns `410` with `clerk_auth_required`. |
+| POST | `/api/login` | Legacy route. Returns `410` with `clerk_auth_required`. |
+| GET | `/api/auth/google` | Legacy route. Redirects to the configured Clerk hosted sign-in URL. |
+| GET | `/auth/callback` | Serves the frontend app shell. Clerk hosted auth returns to normal app routes. |
+| POST | `/api/auth/session` | Legacy route. Returns `410` with `clerk_auth_required`. |
+| POST | `/api/logout` | Returns `{ ok: true }`; frontend calls `Clerk.signOut()` first. |
 | GET | `/api/me` | Returns auth_user, user, profiles, account_access. Auto-creates account rows if missing. |
 | PATCH | `/api/onboarding/account-type` | Sets `individual` or `agency`, resets onboarding. |
 | PATCH | `/api/onboarding/individual-profile` | Saves individual profile (name, title, experience, target families/countries, etc.). |
@@ -247,9 +256,9 @@ Supabase-backed account routes use `@supabase/ssr` with HttpOnly session cookies
 | GET | `/api/user-jobs/:job_id/history` | Returns job timeline (viewed, status_changed, starred, note_added). |
 | POST | `/api/activity` | Logs a user activity event to `user_activity`. |
 
-These routes require `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the Worker environment.
+These routes require Clerk keys/secrets and the `DB` D1 binding in the Worker environment.
 
-Google sign-in uses the browser Supabase client loaded from jsDelivr. Supabase redirects back to `https://livejobindex.com/auth/callback`; the frontend exchanges the OAuth code with Supabase, then posts the resulting tokens to `/api/auth/session` so the Worker can set HttpOnly session cookies.
+Google and email/password sign-in use Clerk hosted pages. The frontend loads ClerkJS, redirects via Clerk hosted sign-in/sign-up, then attaches a Clerk session token to authenticated API calls.
 
 ### Analytics endpoints
 
@@ -262,7 +271,7 @@ Owner-only authenticated GET endpoints. The signed-in user's email must be prese
 
 ### `GET /api/scan-now`
 
-Runs the scanner manually. Requires `X-Scan-Key` header matching the `SCAN_KEY` secret. No query-string key accepted. On success, also persists scan results to Supabase via `ctx.waitUntil`:
+Runs the scanner manually. Requires `X-Scan-Key` header matching the `SCAN_KEY` secret. No query-string key accepted. On success, also persists scan results to D1 via `ctx.waitUntil`:
 
 ```json
 { "okCount": 40, "failCount": 0, "total": 26 }
@@ -274,7 +283,7 @@ Error responses:
 
 ## Scheduled Scan
 
-The cron trigger runs daily at `0 3 * * *` UTC (7 AM Dubai). The `scheduled()` handler calls `runScan(env)` and on success persists to Supabase via `ctx.waitUntil(persistScanToSupabase(...))`.
+The cron trigger runs daily at `0 3 * * *` UTC (7 AM Dubai). The `scheduled()` handler calls `runScan(env)` and on success persists to D1 via `ctx.waitUntil(persistScanToD1(...))`.
 
 ## Dynamic Sources
 
@@ -393,9 +402,9 @@ The scanner compares current scan results against previous `state.postings`:
 - **All sources fail** → returns `all_fetch_failed`, KV not written.
 - **Retired sources** (`ACTIVE_SOURCES`) → postings from non-active sources are dropped.
 
-## Supabase Persistence
+## D1 Persistence
 
-After each successful scan, `persistScanToSupabase()` writes three data sets:
+After each successful scan, `persistScanToD1()` writes three data sets:
 
 1. **job_postings** — upsert by `id`: master record with `first_seen_date`, `last_seen_date`, `last_filled_date`, `is_active`.
 2. **job_snapshots** — upsert by `(job_id, scan_date)`: daily snapshot with title, location, city, country, role_family, seniority, visa, score, tier, `is_new`, `is_filled`.
@@ -409,7 +418,7 @@ The entire SPA lives in `public/index.html`. Features:
 
 - **Header**: logo, title, subtitle, last-scan status, login/signup buttons, profile pill (when signed in), theme toggle button.
 - **Brand themes**: Cobalt, Graphite (default), Aurora — selectable per-account via profile settings or header toggle.
-- **Auth modal**: Google OAuth button + email/password login and signup forms.
+- **Auth modal**: Clerk hosted sign-in/sign-up redirects for Google and email/password.
 - **Onboarding flow**: account type choice (individual/agency), then profile form with target countries/role families.
 - **Profile panel**: brand theme switcher, editable individual or agency profile.
 - **Tabs**: Live jobs, Visa Roles (SEO route), Targets, My pipeline, Archive, Market Insights (SEO route).
@@ -420,7 +429,7 @@ The entire SPA lives in `public/index.html`. Features:
 - **Mobile cards**: responsive card layout replaces table on screens <800px.
 - **Pagination**: page buttons with Turnstile human verification gate for page 2+.
 - **Pipeline view**: timeline history with event dots (viewed, status_changed, starred, note_added) and time formatting.
-- **Anonymous session + tracking**: `lji_session` cookie, event tracking (job_view, search, page_view) to Supabase.
+- **Anonymous session + tracking**: `lji_session` cookie, event tracking (job_view, search, page_view) to D1.
 - **Agency banner**: feedback form for agency users.
 - **Legend**: score breakdown, badge meanings.
 - **Methodology note**: tracking methodology disclaimer.
@@ -437,7 +446,7 @@ The entire SPA lives in `public/index.html`. Features:
 
 ## Personal State
 
-Job state (status, star, notes) and brand theme sync across devices via Supabase after sign-in. Theme also caches in localStorage (`livejobindex_brand_theme`) for immediate apply on page load.
+Job state (status, star, notes) and brand theme sync across devices via D1 after Clerk sign-in. Theme also caches in localStorage (`livejobindex_brand_theme`) for immediate apply on page load.
 
 Statuses: Not started, Saved, Applied, Recruiter screen, Interview, Final round, Offer, Rejected, On hold.
 
@@ -474,9 +483,11 @@ npm run deploy
 2. Set required secrets:
 ```bash
 npx wrangler secret put SCAN_KEY
-npx wrangler secret put SUPABASE_URL
-npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
-npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+npx wrangler secret put CLERK_PUBLISHABLE_KEY
+npx wrangler secret put CLERK_SECRET_KEY
+npx wrangler secret put CLERK_JWT_KEY
+npx wrangler secret put CLERK_SIGN_IN_URL
+npx wrangler secret put CLERK_SIGN_UP_URL
 npx wrangler secret put TURNSTILE_SECRET
 npx wrangler secret put TURNSTILE_SITE_KEY
 npx wrangler secret put PAGE_ACCESS_SECRET
@@ -488,9 +499,10 @@ npx wrangler secret put ANALYTICS_ALLOWED_EMAILS
 curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
 ```
 
-For Supabase schema migrations (if changing tables):
+For D1 schema migrations (if changing tables):
 ```bash
-npx supabase migration up
+npx wrangler d1 migrations apply job-tracker-app-db --local
+npx wrangler d1 migrations apply job-tracker-app-db --remote
 ```
 
 ## Operational Commands
@@ -527,12 +539,12 @@ The test suite (~80 tests, 1260 lines) covers:
 - Account route authentication gate
 - Jobs query pagination, tier normalization, bot score rejection
 - Turnstile verification and page access cookie flow
-- Auth callback OAuth exchange with `next` parameter preservation
+- Clerk legacy auth endpoint behavior
 - Onboarding completion validation (individual + agency)
 - User job upsert with derived timestamps
 - Settings brand theme validation
 - Agency feedback auth, validation, and metadata collection
-- Supabase scan persistence (upserts to job_postings, job_snapshots, daily_scan_stats)
+- D1 scan persistence (upserts to job_postings, job_snapshots, daily_scan_stats)
 - Anonymous session creation and existing token return
 - Event tracking (job_view, search, page_view) and invalid event rejection
 - Analytics endpoint auth requirements
@@ -586,11 +598,11 @@ For engineering companies, add the entry to `ENGINEERING_STATIC_COMPANIES` and i
 { id: 1200, company: 'Example Engineering', country: 'GB', city: 'London', tier: 'Scaleup', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://example.com/careers' }
 ```
 
-### Add a new Supabase table
+### Add a new D1 table
 
-1. Create a migration file and apply it: `npx supabase migration new <name>`.
+1. Create a migration file under `migrations/`.
 2. Update the schema diagram in Architecture section of this README.
-3. If the scanner writes to it, add upsert logic in `persistScanToSupabase()` in `src/worker.js`.
+3. If the scanner writes to it, add upsert logic in `persistScanToD1()` in `src/worker.js`.
 4. If it has an API endpoint, add the route handler and wire it in the fetch handler.
 
 ### Debug scans

@@ -643,45 +643,21 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <path fill="#FBBC05" d="M3.97 10.72A5.41 5.41 0 0 1 3.69 9c0-.6.1-1.18.28-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.05l3.01-2.33z"/>
       <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.43 1.35l2.59-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
     </svg>
-    Continue with Google
+    Continue with Google or email
   </button>
-  <div class="auth-divider">or use email</div>
+  <div class="auth-divider">hosted sign-in</div>
   <div class="auth-tabs">
     <button class="auth-tab active" id="show-login" type="button">Login</button>
     <button class="auth-tab" id="show-signup" type="button">Create account</button>
   </div>
   <form id="login-form">
-    <div class="form-grid">
-      <div class="form-field">
-        <label for="login-email">Email</label>
-        <input id="login-email" name="email" type="email" autocomplete="email" required>
-      </div>
-      <div class="form-field">
-        <label for="login-password">Password</label>
-        <input id="login-password" name="password" type="password" autocomplete="current-password" required>
-      </div>
-    </div>
     <div class="form-actions">
-      <button class="primary-btn" type="submit">Log in</button>
+      <button class="primary-btn" type="submit">Continue to sign in</button>
     </div>
   </form>
   <form id="signup-form" hidden>
-    <div class="form-grid">
-      <div class="form-field">
-        <label for="signup-name">Full name</label>
-        <input id="signup-name" name="full_name" type="text" autocomplete="name" required>
-      </div>
-      <div class="form-field">
-        <label for="signup-email">Email</label>
-        <input id="signup-email" name="email" type="email" autocomplete="email" required>
-      </div>
-      <div class="form-field">
-        <label for="signup-password">Password</label>
-        <input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="8" required>
-      </div>
-    </div>
     <div class="form-actions">
-      <button class="primary-btn" type="submit">Create account</button>
+      <button class="primary-btn" type="submit">Continue to account creation</button>
     </div>
   </form>
   <div class="form-message" id="auth-message"></div>
@@ -1577,10 +1553,11 @@ let AUTH_MODE = 'login';
 let ONBOARDING_ACCOUNT_TYPE = 'individual';
 let ONBOARDING_STEP = 0;
 let TURNSTILE_SITE_KEY = '';
-let SUPABASE_URL = '';
-let SUPABASE_PUBLISHABLE_KEY = '';
-let SUPABASE_BROWSER_CLIENT = null;
-let SUPABASE_MODULE_PROMISE = null;
+let CLERK_PUBLISHABLE_KEY = '';
+let CLERK_SIGN_IN_URL = '';
+let CLERK_SIGN_UP_URL = '';
+let CLERK_CLIENT = null;
+let CLERK_READY_PROMISE = null;
 let TURNSTILE_WIDGET_ID = null;
 let PENDING_PAGE = null;
 let PAGE_ACCESS_VERIFIED = false;
@@ -1590,8 +1567,7 @@ let PROFILE_FILTERS_RELAXED = false;
 const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
-const SUPABASE_JS_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.106.2/+esm';
-const OAUTH_NEXT_KEY = 'livejobindex_oauth_next';
+const CLERK_JS_URL = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
 
 // ------------------------------------------------------------------
 // Lightweight anonymous session & event tracking
@@ -1672,43 +1648,91 @@ function syncAuthRouteLinks() {
   });
 }
 
-async function getSupabaseBrowserClient() {
-  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    throw new Error('Google sign-in is unavailable right now. Try email sign-in or try again shortly.');
-  }
-  if (SUPABASE_BROWSER_CLIENT) return SUPABASE_BROWSER_CLIENT;
-  if (!SUPABASE_MODULE_PROMISE) SUPABASE_MODULE_PROMISE = import(SUPABASE_JS_URL);
-  const { createClient } = await SUPABASE_MODULE_PROMISE;
-  SUPABASE_BROWSER_CLIENT = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    auth: {
-      flowType: 'pkce',
-      detectSessionInUrl: false,
-      persistSession: true,
-      autoRefreshToken: true
+function loadScriptOnce(src, marker) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[${marker}]`);
+    if (existing) {
+      if (existing.dataset.loaded === 'true') resolve();
+      else {
+        existing.addEventListener('load', resolve, { once: true });
+        existing.addEventListener('error', reject, { once: true });
+      }
+      return;
     }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.setAttribute(marker, 'true');
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
+    script.onerror = reject;
+    document.head.appendChild(script);
   });
-  return SUPABASE_BROWSER_CLIENT;
 }
 
-async function startGoogleAuth() {
-  setMessage('auth-message', 'Opening Google sign-in...');
-  const next = safeNextRoute(CURRENT_ROUTE);
-  try { sessionStorage.setItem(OAUTH_NEXT_KEY, next); } catch (e) {}
-  try {
-    const supabase = await getSupabaseBrowserClient();
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        scopes: 'openid email profile'
-      }
-    });
-    if (error) throw error;
-    if (!data?.url) throw new Error('Google sign-in could not be started. Try again.');
-    window.location.assign(data.url);
-  } catch (err) {
-    setMessage('auth-message', err.message || 'Google sign-in could not be started. Try again.', true);
+async function getClerkClient() {
+  if (!CLERK_PUBLISHABLE_KEY) {
+    throw new Error('Sign-in is unavailable right now. Try again shortly.');
   }
+  if (CLERK_CLIENT) return CLERK_CLIENT;
+  if (!CLERK_READY_PROMISE) {
+    CLERK_READY_PROMISE = (async () => {
+      await loadScriptOnce(CLERK_JS_URL, 'data-clerkjs');
+      if (!window.Clerk) throw new Error('Sign-in could not be loaded. Try again.');
+      const clerk = new window.Clerk(CLERK_PUBLISHABLE_KEY);
+      await clerk.load();
+      CLERK_CLIENT = clerk;
+      return clerk;
+    })();
+  }
+  return CLERK_READY_PROMISE;
+}
+
+async function getClerkToken() {
+  try {
+    const clerk = await getClerkClient();
+    return await clerk.session?.getToken();
+  } catch {
+    return null;
+  }
+}
+
+async function startClerkAuth(mode = AUTH_MODE) {
+  const isSignup = mode === 'signup';
+  setMessage('auth-message', isSignup ? 'Opening account creation...' : 'Opening sign-in...');
+  const redirectUrl = `${window.location.origin}${safeNextRoute(CURRENT_ROUTE)}`;
+  try {
+    const clerk = await getClerkClient();
+    if (isSignup) {
+      if (CLERK_SIGN_UP_URL) {
+        const url = new URL(CLERK_SIGN_UP_URL, window.location.origin);
+        url.searchParams.set('redirect_url', redirectUrl);
+        window.location.assign(url.toString());
+        return;
+      }
+      await clerk.redirectToSignUp({ redirectUrl });
+      return;
+    }
+    if (CLERK_SIGN_IN_URL) {
+      const url = new URL(CLERK_SIGN_IN_URL, window.location.origin);
+      url.searchParams.set('redirect_url', redirectUrl);
+      window.location.assign(url.toString());
+      return;
+    }
+    await clerk.redirectToSignIn({ redirectUrl });
+  } catch (err) {
+    setMessage('auth-message', err.message || 'Sign-in could not be started. Try again.', true);
+  }
+}
+
+async function signOutClerk() {
+  try {
+    const clerk = await getClerkClient();
+    await clerk.signOut();
+  } catch {}
 }
 
 function dashboardShareableSearch() {
@@ -1851,13 +1875,9 @@ function buildJobs(dynamicPostings) {
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-  if (!headers.Authorization && SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) {
-    try {
-      const supabase = await getSupabaseBrowserClient();
-      const { data } = await supabase.auth.getSession();
-      const accessToken = data?.session?.access_token;
-      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-    } catch (e) {}
+  if (!headers.Authorization && CLERK_PUBLISHABLE_KEY) {
+    const token = await getClerkToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
   }
   const r = await fetch(path, { ...options, headers });
   const text = await r.text();
@@ -1870,12 +1890,14 @@ async function loadPublicConfig() {
   try {
     const data = await api('/api/config');
     TURNSTILE_SITE_KEY = data.turnstile_site_key || '';
-    SUPABASE_URL = data.supabase_url || '';
-    SUPABASE_PUBLISHABLE_KEY = data.supabase_publishable_key || '';
+    CLERK_PUBLISHABLE_KEY = data.clerk_publishable_key || '';
+    CLERK_SIGN_IN_URL = data.clerk_sign_in_url || '';
+    CLERK_SIGN_UP_URL = data.clerk_sign_up_url || '';
   } catch {
     TURNSTILE_SITE_KEY = '';
-    SUPABASE_URL = '';
-    SUPABASE_PUBLISHABLE_KEY = '';
+    CLERK_PUBLISHABLE_KEY = '';
+    CLERK_SIGN_IN_URL = '';
+    CLERK_SIGN_UP_URL = '';
   }
 }
 
@@ -3151,8 +3173,10 @@ function showAuth(message = '', asPage = false) {
   updateAuthTabs();
   if (message) setMessage('auth-message', message, true);
   queueMicrotask(() => {
-    const field = AUTH_MODE === 'login' ? document.getElementById('login-email') : document.getElementById('signup-name');
-    field?.focus({ preventScroll: true });
+    const button = AUTH_MODE === 'login'
+      ? document.querySelector('#login-form .primary-btn')
+      : document.querySelector('#signup-form .primary-btn');
+    button?.focus({ preventScroll: true });
   });
 }
 
@@ -3678,7 +3702,7 @@ function readAuthError() {
   return messages[code] || 'Sign-in could not be completed. Try again.';
 }
 
-function readOAuthProviderError() {
+function readAuthProviderError() {
   const query = new URLSearchParams(window.location.search);
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
   const source = query.get('error') || hash.get('error');
@@ -3688,64 +3712,12 @@ function readOAuthProviderError() {
   return description || `Google sign-in could not be completed (${code}).`;
 }
 
-function storedOAuthNext() {
-  const params = new URLSearchParams(window.location.search);
-  let next = params.get('next') || '/';
-  try {
-    next = sessionStorage.getItem(OAUTH_NEXT_KEY) || next;
-    sessionStorage.removeItem(OAUTH_NEXT_KEY);
-  } catch (e) {}
-  return safeNextRoute(next);
-}
-
-function replaceAuthCallbackUrl(next = '/') {
-  const route = safeNextRoute(next);
-  window.history.replaceState({}, '', route);
-  CURRENT_ROUTE = route;
-}
-
 async function handleOAuthCallbackFromUrl() {
-  if (window.location.pathname !== '/auth/callback') return '';
-
-  const next = storedOAuthNext();
-  const providerError = readOAuthProviderError();
+  const providerError = readAuthProviderError();
   if (providerError) {
-    replaceAuthCallbackUrl('/');
     return providerError;
   }
-
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  if (!code) {
-    replaceAuthCallbackUrl('/');
-    return 'Google sign-in did not return a valid login code. Try again.';
-  }
-
-  try {
-    const supabase = await getSupabaseBrowserClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) throw error;
-
-    const { data, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) throw sessionError;
-    const session = data?.session;
-    if (!session?.access_token || !session?.refresh_token) {
-      throw new Error('Google sign-in completed, but the account session could not be loaded.');
-    }
-
-    ME = await api('/api/auth/session', {
-      method: 'POST',
-      body: JSON.stringify({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token
-      })
-    });
-    replaceAuthCallbackUrl(next);
-    return '';
-  } catch (err) {
-    replaceAuthCallbackUrl('/');
-    return err.message || 'Google sign-in could not be completed. Try again.';
-  }
+  return '';
 }
 
 function wireAuthHandlers() {
@@ -3782,59 +3754,21 @@ function wireAuthHandlers() {
     AUTH_MODE = 'signup';
     updateAuthTabs();
   };
-  document.getElementById('google-auth-btn').onclick = startGoogleAuth;
+  document.getElementById('google-auth-btn').onclick = () => startClerkAuth(AUTH_MODE);
 
   document.getElementById('login-form').onsubmit = async (e) => {
     e.preventDefault();
-    setMessage('auth-message', 'Signing in...');
-    const form = new FormData(e.currentTarget);
-    try {
-      ME = await api('/api/login', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: form.get('email'),
-          password: form.get('password')
-        })
-      });
-      if (ME.user?.onboarding_completed) {
-        await applyRoute();
-      } else {
-        navigateTo('/onboarding');
-      }
-    } catch (err) {
-      setMessage('auth-message', err.message, true);
-    }
+    await startClerkAuth('login');
   };
 
   document.getElementById('signup-form').onsubmit = async (e) => {
     e.preventDefault();
-    setMessage('auth-message', 'Creating account...');
-    const form = new FormData(e.currentTarget);
-    try {
-      const data = await api('/api/signup', {
-        method: 'POST',
-        body: JSON.stringify({
-          full_name: form.get('full_name'),
-          email: form.get('email'),
-          password: form.get('password')
-        })
-      });
-      if (data.confirmation_required) {
-        AUTH_MODE = 'login';
-        updateAuthTabs();
-        setMessage('auth-message', 'Check your email to confirm your account, then log in.');
-      } else {
-        AUTH_MODE = 'login';
-        updateAuthTabs();
-        setMessage('auth-message', 'Account created. You can log in now.');
-      }
-    } catch (err) {
-      setMessage('auth-message', err.message, true);
-    }
+    await startClerkAuth('signup');
   };
 
   document.getElementById('logout-btn').onclick = async () => {
     closeProfileDropdown();
+    await signOutClerk();
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     ME = null;
     USER_JOBS = new Map();

@@ -18,25 +18,21 @@ Cloudflare Worker (job-tracker)
 KV namespace: job-tracker-state (id 8cf95c7c04054745bff09d88ea57d707)
 ├── "state" -> { last_scan, postings: { [id]: { first_seen, last_seen, last_filled? } } }
 └── "jobs"  -> flattened public payload (what /api/jobs returns)
+
+D1 database: job-tracker-app-db (id d0b81077-9b5d-425a-a821-979375f63e89)
+└── App data for Clerk users, onboarding, saved jobs, job history, activity, tracking, and scan analytics.
 ```
 
-Supabase MCP project for this app:
-
-- Organization: `SysBlue Supa Org` (`vjqmcajdibrllgtgefjs`)
-- Project name: `LiveJobTracker`
-- Project ref / project_id: `rjdlgvltsszkjrixifim`
-- Region: `eu-west-3`
-- Status observed: `ACTIVE_HEALTHY`
-
-When using the Supabase MCP for this repository, use project id `rjdlgvltsszkjrixifim` by default. Do not use the other project in the same organization (`CallBricks App`, ref `thusksxvvecwepulvgdb`) for JobTrackerLive work unless explicitly instructed.
+Auth is Clerk hosted sign-in/sign-up. Runtime data is Cloudflare D1, not Supabase. Do not add new Supabase runtime code for this repository unless explicitly instructed.
 
 The local scanner has been removed. The app is cloud-only. On load, `public/index.html` fetches `/api/jobs` and merges dynamic postings on top of curated static company-location targets, with `NEW` (within 7 days of `first_seen`) and `FILLED` (no longer listed) badges.
 
 ## Files
 
-- `wrangler.toml` — Worker config: KV binding, cron trigger, static asset binding, custom domains
+- `wrangler.toml` — Worker config: KV/D1 bindings, cron trigger, static asset binding, custom domains
 - `src/worker.js` — fetch + scheduled handlers, ATS fetchers, country matching, role-family matching, seniority, visa, scoring
 - `public/index.html` — self-contained tracker UI (HTML + CSS + JS in one file)
+- `migrations/` — D1 SQL migrations
 - `package.json` — wrangler dev dependency and test script
 - `test/worker.test.mjs` — scan behavior tests
 - `README.md` — full app documentation
@@ -94,12 +90,18 @@ Logic lives in both `src/worker.js` for dynamic jobs and `public/index.html` for
 ```bash
 npm install
 npx wrangler login
+npx wrangler d1 migrations apply job-tracker-app-db --remote
 npx wrangler deploy
 ```
 
 Then provision the manual-scan secret and trigger the first scan:
 
 ```bash
+npx wrangler secret put CLERK_PUBLISHABLE_KEY
+npx wrangler secret put CLERK_SECRET_KEY
+npx wrangler secret put CLERK_JWT_KEY
+npx wrangler secret put CLERK_SIGN_IN_URL
+npx wrangler secret put CLERK_SIGN_UP_URL
 npx wrangler secret put SCAN_KEY
 curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
 ```

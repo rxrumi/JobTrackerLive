@@ -7,6 +7,11 @@ workers_dev = false
 binding = "KV"
 id = "8cf95c7c04054745bff09d88ea57d707"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "job-tracker-app-db"
+database_id = "d0b81077-9b5d-425a-a821-979375f63e89"
+
 [triggers]
 crons = ["0 3 * * *"]
 

@@ -1097,9 +1097,8 @@ test("runScan excludes early-career and noisy unmatched titles", async t => {
   assert.equal(payload.postings[0].role_family, "Legal/Compliance");
 });
 
-function createSupabaseFake({ user, exchangeUser, exchangeError = null, sessionUser, sessionError = null, oauthUrl = "https://supabase.example/auth/v1/authorize", rows = {} } = {}) {
+function createD1Fake({ user, rows = {} } = {}) {
   const calls = [];
-  let currentUser = user || null;
   const data = {
     users: [],
     user_profiles: [],
@@ -1112,106 +1111,193 @@ function createSupabaseFake({ user, exchangeUser, exchangeError = null, sessionU
     job_postings: [],
     job_snapshots: [],
     daily_scan_stats: [],
+    anonymous_sessions: [],
+    job_views: [],
+    search_queries: [],
+    page_views: [],
     ...rows
   };
 
-  function matches(row, filters) {
-    return filters.every(([col, value]) => row[col] === value);
+  function clone(row) {
+    return row ? { ...row } : row;
   }
 
-  function chain(table) {
-    const filters = [];
-    const api = {
-      select() {
-        return api;
-      },
-      eq(col, value) {
-        filters.push([col, value]);
-        return api;
-      },
-      maybeSingle() {
-        return Promise.resolve({
-          data: (data[table] || []).find(row => matches(row, filters)) || null,
-          error: null
-        });
-      },
-      single() {
-        return Promise.resolve({
-          data: (data[table] || []).find(row => matches(row, filters)) || null,
-          error: null
-        });
-      },
-      order() {
-        return Promise.resolve({
-          data: (data[table] || []).filter(row => matches(row, filters)),
-          error: null
-        });
-      },
-      insert(payload) {
-        const row = Array.isArray(payload) ? payload[0] : payload;
-        calls.push({ table, action: "insert", payload: row });
-        data[table].push(row);
-        return Promise.resolve({ data: row, error: null });
-      },
-      update(payload) {
-        return {
-          eq(col, value) {
-            calls.push({ table, action: "update", payload, filter: [col, value] });
-            for (const row of data[table]) {
-              if (row[col] === value) Object.assign(row, payload);
-            }
-            return Promise.resolve({ data: null, error: null });
-          }
-        };
-      },
-      upsert(payload, options = {}) {
-        const row = { ...payload };
-        calls.push({ table, action: "upsert", payload: row, options });
-        const conflictCols = (options.onConflict || "").split(",").filter(Boolean);
-        const existing = conflictCols.length
-          ? data[table].find(item => conflictCols.every(col => item[col] === row[col]))
-          : null;
-        let saved = row;
-        if (existing) {
-          if (!options.ignoreDuplicates) Object.assign(existing, row);
-          saved = existing;
-        } else {
-          data[table].push(row);
-        }
-        const promise = Promise.resolve({ data: saved, error: null });
-        promise.select = () => ({
-          single: () => Promise.resolve({ data: saved, error: null })
-        });
-        return promise;
+  function upsert(table, row, conflictCols, { ignore = false } = {}) {
+    calls.push({ table, action: "upsert", payload: clone(row), options: { conflictCols, ignore } });
+    const existing = data[table].find(item => conflictCols.every(col => item[col] === row[col]));
+    if (existing) {
+      if (!ignore) Object.assign(existing, row);
+      return existing;
+    }
+    data[table].push(row);
+    return row;
+  }
+
+  function insert(table, row) {
+    calls.push({ table, action: "insert", payload: clone(row) });
+    data[table].push(row);
+    return row;
+  }
+
+  function update(table, payload, predicate) {
+    calls.push({ table, action: "update", payload: clone(payload) });
+    for (const row of data[table]) {
+      if (predicate(row)) Object.assign(row, payload);
+    }
+  }
+
+  function run(sql, params) {
+    const q = sql.toLowerCase().replace(/\s+/g, " ").trim();
+    if (q.startsWith("insert into users")) {
+      const [id, email, full_name, account_type, created_at, updated_at] = params;
+      const existing = data.users.find(row => row.id === id);
+      if (existing) {
+        existing.email = email;
+        if (full_name) existing.full_name = full_name;
+        existing.updated_at = updated_at;
+        calls.push({ table: "users", action: "upsert", payload: clone(existing) });
+      } else {
+        upsert("users", {
+          id,
+          email,
+          full_name,
+          last_login_at: null,
+          onboarding_completed: 0,
+          account_type,
+          brand_theme: "graphite",
+          created_at,
+          updated_at
+        }, ["id"]);
       }
-    };
-    return api;
+    } else if (q.startsWith("update users set last_login_at")) {
+      const [last_login_at, email, updated_at, id] = params;
+      update("users", { last_login_at, email, updated_at }, row => row.id === id);
+    } else if (q.startsWith("update users set account_type")) {
+      const [account_type, updated_at, id] = params;
+      update("users", { account_type, onboarding_completed: 0, updated_at }, row => row.id === id);
+    } else if (q.startsWith("update users set onboarding_completed")) {
+      const [updated_at, id] = params;
+      update("users", { onboarding_completed: 1, updated_at }, row => row.id === id);
+    } else if (q.startsWith("update users set brand_theme")) {
+      const [brand_theme, updated_at, id] = params;
+      update("users", { brand_theme, updated_at }, row => row.id === id);
+    } else if (q.startsWith("insert into account_access")) {
+      const [user_id, account_type, export_enabled, created_at, updated_at] = params;
+      const row = {
+        user_id,
+        plan: "free",
+        account_type,
+        api_access_enabled: 0,
+        integrations_enabled: 0,
+        export_enabled,
+        rate_limit_tier: "free",
+        created_at,
+        updated_at
+      };
+      if (q.includes("do nothing")) upsert("account_access", row, ["user_id"], { ignore: true });
+      else upsert("account_access", row, ["user_id"]);
+    } else if (q.startsWith("insert into user_profiles")) {
+      const [user_id, full_name, current_title, years_experience, target_role_families, target_seniority, target_countries, visa_needed, preferred_work_mode, salary_min_usd, linkedin_url, resume_url, created_at, updated_at] = params;
+      upsert("user_profiles", { user_id, full_name, current_title, years_experience, target_role_families, target_seniority, target_countries, visa_needed, preferred_work_mode, salary_min_usd, linkedin_url, resume_url, created_at, updated_at }, ["user_id"]);
+    } else if (q.startsWith("insert into agency_profiles")) {
+      const [user_id, agency_name, agency_type, target_markets, target_role_families, target_countries, use_case, integration_interest, monthly_data_volume, created_at, updated_at] = params;
+      upsert("agency_profiles", { user_id, agency_name, agency_type, target_markets, target_role_families, target_countries, use_case, integration_interest, monthly_data_volume, created_at, updated_at }, ["user_id"]);
+    } else if (q.startsWith("insert into user_activity")) {
+      const [id, user_id, event_type, entity_type, entity_id, metadata, created_at] = params;
+      insert("user_activity", { id, user_id, event_type, entity_type, entity_id, metadata, created_at });
+    } else if (q.startsWith("insert into agency_feedback")) {
+      const [id, user_id, agency_name, message, metadata, created_at] = params;
+      insert("agency_feedback", { id, user_id, agency_name, message, metadata, created_at });
+    } else if (q.startsWith("insert into user_jobs")) {
+      const [id, user_id, job_id, status, starred, notes, applied_at, saved_at, archived_at, viewed_at, created_at, updated_at] = params;
+      upsert("user_jobs", { id, user_id, job_id, status, starred, notes, applied_at, saved_at, archived_at, viewed_at, created_at, updated_at }, ["user_id", "job_id"]);
+    } else if (q.startsWith("insert into user_job_history")) {
+      const [id, user_id, job_id, event_type, from_status, to_status, created_at] = params;
+      insert("user_job_history", { id, user_id, job_id, event_type, from_status, to_status, created_at });
+    } else if (q.startsWith("insert into anonymous_sessions")) {
+      const [id, session_token, created_at, last_seen_at] = params;
+      upsert("anonymous_sessions", { id, session_token, ip_hash: null, user_agent_fingerprint: null, created_at, last_seen_at }, ["session_token"]);
+    } else if (q.startsWith("insert into job_views")) {
+      const [user_id, session_id, job_id, source, viewed_at] = params;
+      insert("job_views", { id: data.job_views.length + 1, user_id, session_id, job_id, source, viewed_at });
+    } else if (q.startsWith("insert into search_queries")) {
+      const [user_id, session_id, query_text, filters, result_count, created_at] = params;
+      insert("search_queries", { id: data.search_queries.length + 1, user_id, session_id, query_text, filters, result_count, created_at });
+    } else if (q.startsWith("insert into page_views")) {
+      const [user_id, session_id, page_path, referrer, created_at] = params;
+      insert("page_views", { id: data.page_views.length + 1, user_id, session_id, page_path, referrer, created_at });
+    } else if (q.startsWith("insert into job_postings")) {
+      const [id, source, source_token, company, title, url, industry, niche, first_seen_date, last_seen_date, last_filled_date, is_active, created_at, updated_at] = params;
+      upsert("job_postings", { id, source, source_token, company, title, url, industry, niche, first_seen_date, last_seen_date, last_filled_date, is_active, created_at, updated_at }, ["id"]);
+    } else if (q.startsWith("insert into job_snapshots")) {
+      const [job_id, scan_date, title, location, city, country, industry, niche, role_family, seniority, visa, score, tier, is_new, is_filled, created_at] = params;
+      upsert("job_snapshots", { id: data.job_snapshots.length + 1, job_id, scan_date, title, location, city, country, industry, niche, role_family, seniority, visa, score, tier, is_new, is_filled, created_at }, ["job_id", "scan_date"]);
+    } else if (q.startsWith("insert into daily_scan_stats")) {
+      const [scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at] = params;
+      upsert("daily_scan_stats", { scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at }, ["scan_date"]);
+    } else {
+      throw new Error(`Unhandled D1 run: ${sql}`);
+    }
+    return { success: true };
+  }
+
+  function select(sql, params) {
+    const q = sql.toLowerCase().replace(/\s+/g, " ").trim();
+    let rows;
+    if (q === "select * from users where id = ?") {
+      rows = data.users.filter(row => row.id === params[0]);
+    } else if (q === "select * from user_profiles where user_id = ?") {
+      rows = data.user_profiles.filter(row => row.user_id === params[0]);
+    } else if (q === "select * from agency_profiles where user_id = ?") {
+      rows = data.agency_profiles.filter(row => row.user_id === params[0]);
+    } else if (q === "select * from account_access where user_id = ?") {
+      rows = data.account_access.filter(row => row.user_id === params[0]);
+    } else if (q === "select * from user_jobs where user_id = ? order by updated_at desc") {
+      rows = data.user_jobs.filter(row => row.user_id === params[0]).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    } else if (q === "select * from user_jobs where user_id = ? and job_id = ?") {
+      rows = data.user_jobs.filter(row => row.user_id === params[0] && row.job_id === params[1]);
+    } else if (q === "select * from user_job_history where user_id = ? and job_id = ? order by created_at desc") {
+      rows = data.user_job_history.filter(row => row.user_id === params[0] && row.job_id === params[1]).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    } else if (q === "select * from daily_scan_stats where scan_date >= ? order by scan_date desc") {
+      rows = data.daily_scan_stats.filter(row => row.scan_date >= params[0]).sort((a, b) => String(b.scan_date || "").localeCompare(String(a.scan_date || "")));
+    } else if (q === "select * from search_queries where created_at >= ? order by created_at desc") {
+      rows = data.search_queries.filter(row => row.created_at >= params[0]).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    } else if (q === "select * from job_views where viewed_at >= ? order by viewed_at desc") {
+      rows = data.job_views.filter(row => row.viewed_at >= params[0]).sort((a, b) => String(b.viewed_at || "").localeCompare(String(a.viewed_at || "")));
+    } else {
+      throw new Error(`Unhandled D1 select: ${sql}`);
+    }
+    return rows.map(clone);
   }
 
   return {
     calls,
     rows: data,
-    auth: {
-      getUser: async () => currentUser ? { data: { user: currentUser }, error: null } : { data: { user: null }, error: { message: "unauthorized" } },
-      signInWithOAuth: async options => {
-        calls.push({ table: "auth", action: "signInWithOAuth", payload: options });
-        return { data: { url: oauthUrl }, error: null };
+    user,
+    DB: {
+      prepare(sql) {
+        return {
+          sql,
+          params: [],
+          bind(...params) {
+            this.params = params;
+            return this;
+          },
+          run() {
+            return Promise.resolve(run(this.sql, this.params));
+          },
+          first() {
+            return Promise.resolve(select(this.sql, this.params)[0] || null);
+          },
+          all() {
+            return Promise.resolve({ results: select(this.sql, this.params) });
+          }
+        };
       },
-      exchangeCodeForSession: async code => {
-        calls.push({ table: "auth", action: "exchangeCodeForSession", payload: code });
-        if (exchangeError) return { data: null, error: exchangeError };
-        currentUser = exchangeUser || currentUser;
-        return { data: { user: currentUser }, error: null };
-      },
-      setSession: async session => {
-        calls.push({ table: "auth", action: "setSession", payload: session });
-        if (sessionError) return { data: null, error: sessionError };
-        currentUser = sessionUser || currentUser;
-        return { data: { session, user: currentUser }, error: null };
-      },
-      signOut: async () => ({ error: null })
+      batch(statements) {
+        return Promise.all(statements.map(statement => statement.run()));
+      }
     },
-    from: chain
   };
 }
 
@@ -1365,7 +1451,7 @@ test("jobs query rejects anonymous page two", async () => {
 
 test("jobs query requires human verification for authenticated page two", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000020", email: "king@example.com" };
-  const fake = createSupabaseFake({ user });
+  const fake = createD1Fake({ user });
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
 
@@ -1375,7 +1461,7 @@ test("jobs query requires human verification for authenticated page two", async 
     body: JSON.stringify({ page: 2 })
   }), {
     KV,
-    SUPABASE_CLIENT: fake,
+    DB: fake.DB, CLERK_USER: fake.user,
     PAGE_ACCESS_SECRET: "page-secret",
     TURNSTILE_SECRET: "turnstile-secret"
   });
@@ -1390,7 +1476,7 @@ test("jobs query allows authenticated page two with valid Turnstile and sets cle
     return Response.json({ success: true });
   });
   const user = { id: "00000000-0000-4000-8000-000000000021", email: "king@example.com" };
-  const fake = createSupabaseFake({ user });
+  const fake = createD1Fake({ user });
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
 
@@ -1400,7 +1486,7 @@ test("jobs query allows authenticated page two with valid Turnstile and sets cle
     body: JSON.stringify({ page: 2, turnstile_token: "token" })
   }), {
     KV,
-    SUPABASE_CLIENT: fake,
+    DB: fake.DB, CLERK_USER: fake.user,
     PAGE_ACCESS_SECRET: "page-secret",
     TURNSTILE_SECRET: "turnstile-secret"
   });
@@ -1419,7 +1505,7 @@ test("jobs query rejects Turnstile tokens for the wrong hostname or action", asy
     action: "jobs_page_access"
   }));
   const user = { id: "00000000-0000-4000-8000-000000000023", email: "king@example.com" };
-  const fake = createSupabaseFake({ user });
+  const fake = createD1Fake({ user });
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
 
@@ -1429,7 +1515,7 @@ test("jobs query rejects Turnstile tokens for the wrong hostname or action", asy
     body: JSON.stringify({ page: 2, turnstile_token: "token" })
   }), {
     KV,
-    SUPABASE_CLIENT: fake,
+    DB: fake.DB, CLERK_USER: fake.user,
     PAGE_ACCESS_SECRET: "page-secret",
     TURNSTILE_SECRET: "turnstile-secret"
   });
@@ -1441,7 +1527,7 @@ test("jobs query rejects Turnstile tokens for the wrong hostname or action", asy
 test("jobs query clamps out-of-range pages", async t => {
   t.mock.method(globalThis, "fetch", async () => Response.json({ success: true }));
   const user = { id: "00000000-0000-4000-8000-000000000022", email: "king@example.com" };
-  const fake = createSupabaseFake({ user });
+  const fake = createD1Fake({ user });
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
 
@@ -1451,7 +1537,7 @@ test("jobs query clamps out-of-range pages", async t => {
     body: JSON.stringify({ page: 99, turnstile_token: "token" })
   }), {
     KV,
-    SUPABASE_CLIENT: fake,
+    DB: fake.DB, CLERK_USER: fake.user,
     PAGE_ACCESS_SECRET: "page-secret",
     TURNSTILE_SECRET: "turnstile-secret"
   });
@@ -1478,7 +1564,7 @@ test("jobs query rejects low bot scores when Cloudflare bot data is present", as
 
 test("complete onboarding requires an individual profile for individual accounts", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000001", email: "king@example.com" };
-  const fake = createSupabaseFake({
+  const fake = createD1Fake({
     user,
     rows: {
       users: [{ id: user.id, email: user.email, account_type: "individual", onboarding_completed: false }],
@@ -1489,7 +1575,7 @@ test("complete onboarding requires an individual profile for individual accounts
   const response = await worker.fetch(new Request("https://example.com/api/onboarding/complete", {
     method: "POST",
     headers: { Cookie: "session=1" }
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error, "individual profile is required");
@@ -1507,7 +1593,7 @@ test("agency feedback requires authentication", async () => {
 test("agency feedback rejects non-agency and incomplete accounts", async () => {
   const individualUser = { id: "00000000-0000-4000-8000-000000000031", email: "individual@example.com" };
   const incompleteAgencyUser = { id: "00000000-0000-4000-8000-000000000032", email: "agency@example.com" };
-  const individualFake = createSupabaseFake({
+  const individualFake = createD1Fake({
     user: individualUser,
     rows: {
       users: [{ id: individualUser.id, email: individualUser.email, account_type: "individual", onboarding_completed: true }],
@@ -1523,7 +1609,7 @@ test("agency feedback rejects non-agency and incomplete accounts", async () => {
       account_access: [{ user_id: individualUser.id, account_type: "individual", plan: "free" }]
     }
   });
-  const incompleteAgencyFake = createSupabaseFake({
+  const incompleteAgencyFake = createD1Fake({
     user: incompleteAgencyUser,
     rows: {
       users: [{ id: incompleteAgencyUser.id, email: incompleteAgencyUser.email, account_type: "agency", onboarding_completed: false }],
@@ -1544,12 +1630,12 @@ test("agency feedback rejects non-agency and incomplete accounts", async () => {
     method: "POST",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ message: "Need an API." })
-  }), { KV: createKV(), SUPABASE_CLIENT: individualFake });
+  }), { KV: createKV(), DB: individualFake.DB, CLERK_USER: individualFake.user });
   const incompleteResponse = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
     method: "POST",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ message: "Need an API." })
-  }), { KV: createKV(), SUPABASE_CLIENT: incompleteAgencyFake });
+  }), { KV: createKV(), DB: incompleteAgencyFake.DB, CLERK_USER: incompleteAgencyFake.user });
 
   assert.equal(individualResponse.status, 403);
   assert.equal(incompleteResponse.status, 403);
@@ -1557,7 +1643,7 @@ test("agency feedback rejects non-agency and incomplete accounts", async () => {
 
 test("agency feedback validates message length", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000033", email: "agency@example.com" };
-  const fake = createSupabaseFake({
+  const fake = createD1Fake({
     user,
     rows: {
       users: [{ id: user.id, email: user.email, account_type: "agency", onboarding_completed: true }],
@@ -1578,12 +1664,12 @@ test("agency feedback validates message length", async () => {
     method: "POST",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ message: "   " })
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
   const longResponse = await worker.fetch(new Request("https://example.com/api/agency-feedback", {
     method: "POST",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ message: "x".repeat(2001) })
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(blankResponse.status, 400);
   assert.equal((await blankResponse.json()).error, "message is required");
@@ -1593,7 +1679,7 @@ test("agency feedback validates message length", async () => {
 
 test("agency feedback saves completed agency feedback with profile metadata", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000034", email: "agency@example.com" };
-  const fake = createSupabaseFake({
+  const fake = createD1Fake({
     user,
     rows: {
       users: [{ id: user.id, email: user.email, account_type: "agency", onboarding_completed: true }],
@@ -1615,7 +1701,7 @@ test("agency feedback saves completed agency feedback with profile metadata", as
     method: "POST",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ message: "Please add API keys and Clay export support." })
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 201);
   assert.deepEqual(await response.json(), { ok: true });
@@ -1623,7 +1709,7 @@ test("agency feedback saves completed agency feedback with profile metadata", as
   assert.equal(feedbackCall.payload.user_id, user.id);
   assert.equal(feedbackCall.payload.agency_name, "Lead Forge");
   assert.equal(feedbackCall.payload.message, "Please add API keys and Clay export support.");
-  assert.deepEqual(feedbackCall.payload.metadata, {
+  assert.deepEqual(JSON.parse(feedbackCall.payload.metadata), {
     agency_type: "lead_gen_agency",
     use_case: "lead_generation",
     integration_interest: "clay",
@@ -1636,13 +1722,13 @@ test("me exposes signup full name from auth metadata", async () => {
   const user = {
     id: "00000000-0000-4000-8000-000000000010",
     email: "king@example.com",
-    user_metadata: { full_name: "Sohaib Kazmi" }
+    full_name: "Sohaib Kazmi"
   };
-  const fake = createSupabaseFake({ user });
+  const fake = createD1Fake({ user });
 
   const response = await worker.fetch(new Request("https://example.com/api/me", {
     headers: { Cookie: "session=1" }
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 200);
   const payload = await response.json();
@@ -1652,8 +1738,9 @@ test("me exposes signup full name from auth metadata", async () => {
 test("public config exposes browser auth settings", async () => {
   const response = await worker.fetch(new Request("https://livejobindex.com/api/config"), {
     TURNSTILE_SITE_KEY: "turnstile-public-key",
-    SUPABASE_URL: "https://rjdlgvltsszkjrixifim.supabase.co",
-    SUPABASE_PUBLISHABLE_KEY: "sb_publishable_public"
+    CLERK_PUBLISHABLE_KEY: "pk_test_livejobindex",
+    CLERK_SIGN_IN_URL: "https://accounts.livejobindex.com/sign-in",
+    CLERK_SIGN_UP_URL: "https://accounts.livejobindex.com/sign-up"
   });
 
   assert.equal(response.status, 200);
@@ -1661,22 +1748,22 @@ test("public config exposes browser auth settings", async () => {
   const payload = await response.json();
   assert.deepEqual(payload, {
     turnstile_site_key: "turnstile-public-key",
-    supabase_url: "https://rjdlgvltsszkjrixifim.supabase.co",
-    supabase_publishable_key: "sb_publishable_public"
+    clerk_publishable_key: "pk_test_livejobindex",
+    clerk_sign_in_url: "https://accounts.livejobindex.com/sign-in",
+    clerk_sign_up_url: "https://accounts.livejobindex.com/sign-up"
   });
 });
 
-test("legacy google auth route redirects to frontend auth error", async () => {
-  const fake = createSupabaseFake();
-
+test("legacy google auth route redirects to Clerk sign-in", async () => {
   const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/google?next=/profile"), {
     KV: createKV(),
-    SUPABASE_CLIENT: fake
+    CLERK_SIGN_IN_URL: "https://accounts.livejobindex.com/sign-in"
   });
 
   assert.equal(response.status, 303);
-  assert.equal(response.headers.get("Location"), "/?auth_error=google_frontend_required");
-  assert.equal(fake.calls.some(item => item.action === "signInWithOAuth"), false);
+  const location = new URL(response.headers.get("Location"));
+  assert.equal(location.origin + location.pathname, "https://accounts.livejobindex.com/sign-in");
+  assert.equal(location.searchParams.get("redirect_url"), "https://livejobindex.com/profile");
 });
 
 test("auth callback serves the frontend app shell", async () => {
@@ -1693,70 +1780,20 @@ test("auth callback serves the frontend app shell", async () => {
   assert.deepEqual(ASSETS.requests, ["/auth/callback"]);
 });
 
-test("auth session bridge validates tokens, ensures account rows, records activity, and returns me", async () => {
-  const user = {
-    id: "00000000-0000-4000-8000-000000000011",
-    email: "king@example.com",
-    user_metadata: { name: "Sohaib Kazmi" }
-  };
-  const fake = createSupabaseFake({ sessionUser: user });
-
+test("legacy auth session bridge is gone", async () => {
   const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/session", {
     method: "POST",
     body: JSON.stringify({ access_token: "access-token", refresh_token: "refresh-token" })
-  }), {
-    KV: createKV(),
-    SUPABASE_CLIENT: fake
-  });
+  }), { KV: createKV() });
 
-  assert.equal(response.status, 200);
-  assert.deepEqual(fake.calls.find(item => item.action === "setSession").payload, {
-    access_token: "access-token",
-    refresh_token: "refresh-token"
-  });
-  assert.ok(fake.calls.some(item => item.table === "users" && item.action === "upsert" && item.payload.id === user.id));
-  assert.ok(fake.calls.some(item => item.table === "users" && item.action === "upsert" && item.payload.brand_theme === "graphite"));
-  assert.ok(fake.calls.some(item => item.table === "account_access" && item.action === "upsert" && item.payload.user_id === user.id));
-  assert.ok(fake.calls.some(item => item.table === "users" && item.action === "update" && item.payload.email === user.email));
-  assert.ok(fake.calls.some(item => item.table === "user_activity" && item.action === "insert" && item.payload.event_type === "login_google"));
+  assert.equal(response.status, 410);
   const payload = await response.json();
-  assert.equal(payload.auth_user.id, user.id);
-  assert.equal(payload.auth_user.full_name, "Sohaib Kazmi");
-});
-
-test("auth session bridge rejects missing tokens", async () => {
-  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/session", {
-    method: "POST",
-    body: JSON.stringify({ access_token: "access-token" })
-  }), {
-    KV: createKV(),
-    SUPABASE_CLIENT: createSupabaseFake()
-  });
-
-  assert.equal(response.status, 400);
-  const payload = await response.json();
-  assert.equal(payload.error, "access_token and refresh_token are required");
-});
-
-test("auth session bridge rejects invalid sessions", async () => {
-  const fake = createSupabaseFake({ sessionError: { message: "invalid token" } });
-
-  const response = await worker.fetch(new Request("https://livejobindex.com/api/auth/session", {
-    method: "POST",
-    body: JSON.stringify({ access_token: "bad-access-token", refresh_token: "bad-refresh-token" })
-  }), {
-    KV: createKV(),
-    SUPABASE_CLIENT: fake
-  });
-
-  assert.equal(response.status, 401);
-  const payload = await response.json();
-  assert.equal(payload.error, "invalid_session");
+  assert.equal(payload.error, "clerk_auth_required");
 });
 
 test("complete onboarding requires an agency profile for agency accounts", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000002", email: "agency@example.com" };
-  const fake = createSupabaseFake({
+  const fake = createD1Fake({
     user,
     rows: {
       users: [{ id: user.id, email: user.email, account_type: "agency", onboarding_completed: false }],
@@ -1767,7 +1804,7 @@ test("complete onboarding requires an agency profile for agency accounts", async
   const response = await worker.fetch(new Request("https://example.com/api/onboarding/complete", {
     method: "POST",
     headers: { Cookie: "session=1" }
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error, "agency profile is required");
@@ -1775,13 +1812,13 @@ test("complete onboarding requires an agency profile for agency accounts", async
 
 test("user job upsert stores status, star, and derived timestamps", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000003", email: "king@example.com" };
-  const fake = createSupabaseFake({ user });
+  const fake = createD1Fake({ user });
 
   const response = await worker.fetch(new Request("https://example.com/api/user-jobs/greenhouse-hubspot-101", {
     method: "PUT",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ status: "Applied", starred: true, notes: "High fit" })
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 200);
   const payload = await response.json();
@@ -1797,7 +1834,7 @@ test("user job upsert stores status, star, and derived timestamps", async () => 
 
 test("settings route stores per-user brand theme", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000004", email: "king@example.com" };
-  const fake = createSupabaseFake({
+  const fake = createD1Fake({
     user,
     rows: {
       users: [{ id: user.id, email: user.email, account_type: "individual", onboarding_completed: true, brand_theme: "cobalt" }],
@@ -1809,7 +1846,7 @@ test("settings route stores per-user brand theme", async () => {
     method: "PATCH",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ brand_theme: "aurora" })
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 200);
   const payload = await response.json();
@@ -1821,7 +1858,7 @@ test("settings route stores per-user brand theme", async () => {
     method: "PATCH",
     headers: { Cookie: "session=1" },
     body: JSON.stringify({ brand_theme: "sepia" })
-  }), { KV: createKV(), SUPABASE_CLIENT: fake });
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(invalid.status, 400);
   assert.equal((await invalid.json()).error, "brand_theme must be cobalt, graphite, or aurora");
@@ -2031,20 +2068,9 @@ test("manual scan uses json security responses for wrong keys", async t => {
   assert.equal((await response.json()).error, "unauthorized");
 });
 
-test("manual scan persists Supabase analytics with REST upserts", async t => {
-  const supabaseCalls = [];
-  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+test("manual scan persists D1 analytics", async t => {
+  t.mock.method(globalThis, "fetch", async url => {
     const href = String(url);
-    if (href.startsWith("https://supabase.example/rest/v1/")) {
-      supabaseCalls.push({
-        url: href,
-        method: init.method,
-        prefer: init.headers?.Prefer || init.headers?.prefer,
-        body: init.body ? JSON.parse(init.body) : null
-      });
-      return new Response(null, { status: 201 });
-    }
-
     const token = tokenFromUrl(href);
     if (token === "hubspot") {
       return Response.json({
@@ -2060,14 +2086,14 @@ test("manual scan persists Supabase analytics with REST upserts", async t => {
   });
 
   const KV = createKV();
+  const fake = createD1Fake();
   const waitUntil = [];
   const response = await worker.fetch(new Request("https://example.com/api/scan-now", {
     headers: { "X-Scan-Key": "scan-secret" }
   }), {
     KV,
     SCAN_KEY: "scan-secret",
-    SUPABASE_URL: "https://supabase.example",
-    SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
+    DB: fake.DB
   }, {
     waitUntil(promise) {
       waitUntil.push(promise);
@@ -2077,25 +2103,15 @@ test("manual scan persists Supabase analytics with REST upserts", async t => {
   assert.equal(response.status, 200);
   await Promise.all(waitUntil);
 
-  const jobPostingsCall = supabaseCalls.find(call => call.url.includes("/job_postings?"));
-  const snapshotsCall = supabaseCalls.find(call => call.url.includes("/job_snapshots?"));
-  const statsCall = supabaseCalls.find(call => call.url.includes("/daily_scan_stats?"));
-
-  assert.ok(jobPostingsCall);
-  assert.ok(snapshotsCall);
-  assert.ok(statsCall);
-  assert.match(jobPostingsCall.url, /on_conflict=id/);
-  assert.match(snapshotsCall.url, /on_conflict=job_id%2Cscan_date/);
-  assert.match(statsCall.url, /on_conflict=scan_date/);
-  assert.equal(jobPostingsCall.prefer, "resolution=merge-duplicates,return=minimal");
-  assert.equal(snapshotsCall.prefer, "resolution=merge-duplicates,return=minimal");
-  assert.equal(statsCall.prefer, "resolution=merge-duplicates,return=minimal");
-  assert.equal(jobPostingsCall.body[0].industry, "tech");
-  assert.equal(jobPostingsCall.body[0].niche, "Software");
-  assert.equal(snapshotsCall.body[0].industry, "tech");
-  assert.equal(snapshotsCall.body[0].niche, "Software");
-  assert.equal(statsCall.body[0].per_industry.tech, 1);
-  assert.equal(statsCall.body[0].per_niche.Software, 1);
+  assert.ok(fake.rows.job_postings.length > 0);
+  assert.ok(fake.rows.job_snapshots.length > 0);
+  assert.equal(fake.rows.job_postings[0].industry, "tech");
+  assert.equal(fake.rows.job_postings[0].niche, "Software");
+  assert.equal(fake.rows.job_snapshots[0].industry, "tech");
+  assert.equal(fake.rows.job_snapshots[0].niche, "Software");
+  const stats = fake.rows.daily_scan_stats[0];
+  assert.equal(JSON.parse(stats.per_industry).tech, 1);
+  assert.equal(JSON.parse(stats.per_niche).Software, 1);
 });
 
 test("session endpoint creates anonymous session cookie", async () => {
@@ -2152,34 +2168,50 @@ test("analytics endpoints require authentication", async () => {
   }
 });
 
-test("analytics endpoints require owner allowlist", async t => {
-  t.mock.method(globalThis, "fetch", async url => {
-    assert.match(String(url), /\/rest\/v1\/daily_scan_stats/);
-    return Response.json([{ scan_date: "2026-06-05", total_jobs: 3 }]);
-  });
-
-  const nonOwner = createSupabaseFake({ user: { id: "00000000-0000-4000-8000-000000000040", email: "user@example.com" } });
+test("analytics endpoints require owner allowlist", async () => {
+  const nonOwner = createD1Fake({ user: { id: "00000000-0000-4000-8000-000000000040", email: "user@example.com" } });
   const denied = await worker.fetch(new Request("https://livejobindex.com/api/analytics/jobs", {
     headers: { Cookie: "session=1" }
   }), {
-    SUPABASE_CLIENT: nonOwner,
-    SUPABASE_URL: "https://supabase.example",
-    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    DB: nonOwner.DB, CLERK_USER: nonOwner.user,
     ANALYTICS_ALLOWED_EMAILS: "owner@example.com"
   });
   assert.equal(denied.status, 403);
 
-  const owner = createSupabaseFake({ user: { id: "00000000-0000-4000-8000-000000000041", email: "owner@example.com" } });
+  const owner = createD1Fake({
+    user: { id: "00000000-0000-4000-8000-000000000041", email: "owner@example.com" },
+    rows: {
+      daily_scan_stats: [{
+        scan_date: "2026-06-05",
+        total_jobs: 3,
+        per_source: "{}",
+        per_industry: "{}",
+        per_niche: "{}",
+        per_country: "{}",
+        per_family: "{}",
+        per_tier: "{}"
+      }]
+    }
+  });
   const allowed = await worker.fetch(new Request("https://livejobindex.com/api/analytics/jobs", {
     headers: { Cookie: "session=1" }
   }), {
-    SUPABASE_CLIENT: owner,
-    SUPABASE_URL: "https://supabase.example",
-    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    DB: owner.DB, CLERK_USER: owner.user,
     ANALYTICS_ALLOWED_EMAILS: "owner@example.com"
   });
   assert.equal(allowed.status, 200);
-  assert.deepEqual(await allowed.json(), { stats: [{ scan_date: "2026-06-05", total_jobs: 3 }] });
+  assert.deepEqual(await allowed.json(), {
+    stats: [{
+      scan_date: "2026-06-05",
+      total_jobs: 3,
+      per_source: {},
+      per_industry: {},
+      per_niche: {},
+      per_country: {},
+      per_family: {},
+      per_tier: {}
+    }]
+  });
 });
 
 test("homepage render helpers escape dynamic job HTML and constrain apply URLs", () => {

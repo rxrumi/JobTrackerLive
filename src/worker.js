@@ -1,9 +1,9 @@
-import { createServerClient, parseCookieHeader, serializeCookieHeader } from "@supabase/ssr";
+import { createClerkClient, verifyToken } from "@clerk/backend";
 
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
 // Cron handler (0 3 * * * UTC = 7 AM Dubai) scans supported ATS APIs daily.
-// After each scan, results are persisted to Supabase for trend analysis.
+// After each scan, results are persisted to D1 for trend analysis.
 
 const GREENHOUSE_TOKENS = [
   "gongio", "klaviyo", "datadog", "cloudflare", "hubspot",
@@ -641,100 +641,135 @@ export function scanSourceInventory() {
 }
 
 // ------------------------------------------------------------------
-// Supabase service-role client (lightweight REST wrapper)
-// Used by the scheduled handler to write scan results to the DB.
+// D1 scan persistence
 // ------------------------------------------------------------------
 
-function createServiceClient(env) {
-  const url = env.SUPABASE_URL;
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  const base = url.replace(/\/$/, "");
-  return {
-    async insert(table, rows) {
-      const res = await fetch(`${base}/rest/v1/${table}`, {
-        method: "POST",
-        headers: {
-          "apikey": key,
-          "Authorization": `Bearer ${key}`,
-          "Content-Type": "application/json",
-          "Prefer": "return=minimal"
-        },
-        body: JSON.stringify(rows)
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "unknown");
-        throw new Error(`Supabase insert error [${table}]: ${res.status} ${text}`);
-      }
-    },
-    async upsert(table, rows, onConflict) {
-      const endpoint = new URL(`${base}/rest/v1/${table}`);
-      if (onConflict) endpoint.searchParams.set("on_conflict", onConflict);
-      const res = await fetch(endpoint.toString(), {
-        method: "POST",
-        headers: {
-          "apikey": key,
-          "Authorization": `Bearer ${key}`,
-          "Content-Type": "application/json",
-          "Prefer": "resolution=merge-duplicates,return=minimal"
-        },
-        body: JSON.stringify(rows)
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "unknown");
-        throw new Error(`Supabase upsert error [${table}]: ${res.status} ${text}`);
-      }
-    }
-  };
+function db(env) {
+  return env.DB || null;
 }
 
-async function persistScanToSupabase(env, scanResult, today) {
-  const client = createServiceClient(env);
-  if (!client) return;
+function jsonText(value) {
+  return JSON.stringify(value ?? null);
+}
+
+async function dbRun(env, sql, ...params) {
+  const database = db(env);
+  if (!database) return null;
+  return database.prepare(sql).bind(...params).run();
+}
+
+async function dbFirst(env, sql, ...params) {
+  const database = db(env);
+  if (!database) return null;
+  return database.prepare(sql).bind(...params).first();
+}
+
+async function dbAll(env, sql, ...params) {
+  const database = db(env);
+  if (!database) return [];
+  const result = await database.prepare(sql).bind(...params).all();
+  return result?.results || [];
+}
+
+async function dbBatch(env, statements) {
+  const database = db(env);
+  if (!database || !statements.length) return;
+  if (typeof database.batch === "function") {
+    await database.batch(statements);
+    return;
+  }
+  for (const statement of statements) await statement.run();
+}
+
+async function persistScanToD1(env, scanResult, today) {
+  const database = db(env);
+  if (!database) return;
 
   const postings = Object.values(scanResult.postings);
   if (!postings.length) return;
 
-  // 1. Upsert master job_postings rows
-  const jobRows = postings.map(p => ({
-    id: p.id,
-    source: p.source,
-    source_token: p.source_token || p.company,
-    company: p.company,
-    title: p.title,
-    url: p.url,
-    industry: p.industry || INDUSTRIES.TECH,
-    niche: p.niche || TECH_NICHE,
-    first_seen_date: p.first_seen,
-    last_seen_date: p.last_seen,
-    last_filled_date: p.last_filled || null,
-    is_active: !p.last_filled
-  }));
+  const now = new Date().toISOString();
+  const statements = [];
 
-  await client.upsert("job_postings", jobRows, "id");
+  for (const p of postings) {
+    statements.push(database.prepare(`
+      insert into job_postings (
+        id, source, source_token, company, title, url, industry, niche,
+        first_seen_date, last_seen_date, last_filled_date, is_active, created_at, updated_at
+      )
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      on conflict(id) do update set
+        source = excluded.source,
+        source_token = excluded.source_token,
+        company = excluded.company,
+        title = excluded.title,
+        url = excluded.url,
+        industry = excluded.industry,
+        niche = excluded.niche,
+        first_seen_date = excluded.first_seen_date,
+        last_seen_date = excluded.last_seen_date,
+        last_filled_date = excluded.last_filled_date,
+        is_active = excluded.is_active,
+        updated_at = excluded.updated_at
+    `).bind(
+      p.id,
+      p.source,
+      p.source_token || p.company,
+      p.company,
+      p.title,
+      p.url,
+      p.industry || INDUSTRIES.TECH,
+      p.niche || TECH_NICHE,
+      p.first_seen,
+      p.last_seen,
+      p.last_filled || null,
+      p.last_filled ? 0 : 1,
+      now,
+      now
+    ));
 
-  // 2. Insert snapshot rows for today
-  const snapshotRows = postings.map(p => ({
-    job_id: p.id,
-    scan_date: today,
-    title: p.title,
-    location: p.location || null,
-    city: p.city || null,
-    country: p.country,
-    industry: p.industry || INDUSTRIES.TECH,
-    niche: p.niche || TECH_NICHE,
-    role_family: p.role_family,
-    seniority: p.seniority,
-    visa: p.visa,
-    score: p.score,
-    tier: p.tier,
-    is_new: p.first_seen === today,
-    is_filled: Boolean(p.last_filled)
-  }));
+    statements.push(database.prepare(`
+      insert into job_snapshots (
+        job_id, scan_date, title, location, city, country, industry, niche,
+        role_family, seniority, visa, score, tier, is_new, is_filled, created_at
+      )
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      on conflict(job_id, scan_date) do update set
+        title = excluded.title,
+        location = excluded.location,
+        city = excluded.city,
+        country = excluded.country,
+        industry = excluded.industry,
+        niche = excluded.niche,
+        role_family = excluded.role_family,
+        seniority = excluded.seniority,
+        visa = excluded.visa,
+        score = excluded.score,
+        tier = excluded.tier,
+        is_new = excluded.is_new,
+        is_filled = excluded.is_filled
+    `).bind(
+      p.id,
+      today,
+      p.title,
+      p.location || null,
+      p.city || null,
+      p.country,
+      p.industry || INDUSTRIES.TECH,
+      p.niche || TECH_NICHE,
+      p.role_family,
+      p.seniority,
+      p.visa,
+      p.score,
+      p.tier,
+      p.first_seen === today ? 1 : 0,
+      p.last_filled ? 1 : 0,
+      now
+    ));
+  }
 
-  await client.upsert("job_snapshots", snapshotRows, "job_id,scan_date");
+  await dbBatch(env, statements);
 
-  // 3. Compute and upsert daily_scan_stats
   const perSource = {};
   const perIndustry = {};
   const perNiche = {};
@@ -757,20 +792,41 @@ async function persistScanToSupabase(env, scanResult, today) {
     if (p.last_filled) filledJobs++;
   }
 
-  await client.upsert("daily_scan_stats", [{
-    scan_date: today,
-    total_jobs: postings.length,
-    new_jobs: newJobs,
-    filled_jobs: filledJobs,
-    per_source: perSource,
-    per_industry: perIndustry,
-    per_niche: perNiche,
-    per_country: perCountry,
-    per_family: perFamily,
-    per_tier: perTier,
-    ok_count: scanResult.scan_meta?.okCount || 0,
-    fail_count: scanResult.scan_meta?.failCount || 0
-  }], "scan_date");
+  await dbRun(env, `
+    insert into daily_scan_stats (
+      scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry,
+      per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at
+    )
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(scan_date) do update set
+      total_jobs = excluded.total_jobs,
+      new_jobs = excluded.new_jobs,
+      filled_jobs = excluded.filled_jobs,
+      per_source = excluded.per_source,
+      per_industry = excluded.per_industry,
+      per_niche = excluded.per_niche,
+      per_country = excluded.per_country,
+      per_family = excluded.per_family,
+      per_tier = excluded.per_tier,
+      ok_count = excluded.ok_count,
+      fail_count = excluded.fail_count,
+      updated_at = excluded.updated_at
+  `,
+    today,
+    postings.length,
+    newJobs,
+    filledJobs,
+    jsonText(perSource),
+    jsonText(perIndustry),
+    jsonText(perNiche),
+    jsonText(perCountry),
+    jsonText(perFamily),
+    jsonText(perTier),
+    scanResult.scan_meta?.okCount || 0,
+    scanResult.scan_meta?.failCount || 0,
+    now,
+    now
+  );
 }
 
 function calcScore({ visa, seniority, firstSeen, lastFilled, today }) {
@@ -1637,38 +1693,52 @@ const CSP_DIRECTIVES = [
   "frame-ancestors 'none'",
   "form-action 'self'",
   "upgrade-insecure-requests",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://challenges.cloudflare.com",
-  "connect-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://challenges.cloudflare.com",
-  "frame-src https://challenges.cloudflare.com",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://challenges.cloudflare.com",
+  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://api.clerk.com https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://challenges.cloudflare.com",
+  "frame-src https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com",
   "img-src 'self' data: https:",
   "style-src 'self' 'unsafe-inline'"
 ].join("; ");
 
-function applySupabaseHeaders(headers, supabaseContext) {
-  for (const [key, value] of supabaseContext?.responseHeaders || []) {
-    headers.set(key, value);
-  }
-  for (const cookie of supabaseContext?.cookieHeaders || []) {
-    headers.append("Set-Cookie", cookie);
-  }
-}
-
-function jsonResponse(data, init = {}, supabaseContext = null) {
+function jsonResponse(data, init = {}) {
   const headers = new Headers(init.headers || {});
   headers.set("Content-Type", "application/json");
-  applySupabaseHeaders(headers, supabaseContext);
   return withTrustHeaders(new Response(JSON.stringify(data), { ...init, headers }));
 }
 
-function errorResponse(status, message, supabaseContext = null) {
+function errorResponse(status, message) {
   const safeMessage = status >= 500 && !SAFE_SERVER_ERRORS.has(message) ? "internal_error" : message;
-  return jsonResponse({ error: safeMessage }, { status }, supabaseContext);
+  return jsonResponse({ error: safeMessage }, { status });
 }
 
-function redirectResponse(location, status = 303, supabaseContext = null) {
+function redirectResponse(location, status = 303) {
   const headers = new Headers({ Location: location });
-  applySupabaseHeaders(headers, supabaseContext);
   return withTrustHeaders(new Response(null, { status, headers }));
+}
+
+function parseCookieHeader(header) {
+  if (!header) return [];
+  return header.split(";").map(part => {
+    const [rawName, ...rawValue] = part.trim().split("=");
+    const name = rawName?.trim();
+    if (!name) return null;
+    return { name, value: decodeURIComponent(rawValue.join("=") || "") };
+  }).filter(Boolean);
+}
+
+function serializeCookieHeader(name, value, options = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`];
+  if (options.maxAge != null) parts.push(`Max-Age=${Math.floor(options.maxAge)}`);
+  if (options.expires) parts.push(`Expires=${options.expires.toUTCString()}`);
+  if (options.path) parts.push(`Path=${options.path}`);
+  if (options.domain) parts.push(`Domain=${options.domain}`);
+  if (options.httpOnly) parts.push("HttpOnly");
+  if (options.secure) parts.push("Secure");
+  if (options.sameSite) {
+    const sameSite = String(options.sameSite).toLowerCase();
+    parts.push(`SameSite=${sameSite.charAt(0).toUpperCase()}${sameSite.slice(1)}`);
+  }
+  return parts.join("; ");
 }
 
 function escapeHTML(value) {
@@ -1942,6 +2012,11 @@ function requireSameOrigin(request, env) {
   return hasValidOrigin(request, env) ? null : errorResponse(403, "invalid_origin");
 }
 
+function safeRedirectPath(value) {
+  const path = cleanString(value || "/", 300);
+  return path.startsWith("/") && !path.startsWith("//") ? path : "/";
+}
+
 function assetRequest(request, pathname) {
   const url = new URL(request.url);
   url.pathname = pathname;
@@ -1990,50 +2065,6 @@ function hasAuthMaterial(request) {
   return !!request.headers.get("Authorization") || !!request.headers.get("Cookie");
 }
 
-function createSupabaseContext(request, env) {
-  if (env.SUPABASE_CLIENT) {
-    return { supabase: env.SUPABASE_CLIENT, cookieHeaders: [], responseHeaders: new Headers() };
-  }
-  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
-    throw new Error("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required for account routes");
-  }
-
-  const cookieHeaders = [];
-  const responseHeaders = new Headers({ "Cache-Control": "private, no-store" });
-  const authorization = request.headers.get("Authorization");
-  const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    global: authorization ? { headers: { Authorization: authorization } } : undefined,
-    cookies: {
-      getAll() {
-        return parseCookieHeader(request.headers.get("Cookie") || "");
-      },
-      setAll(cookiesToSet, cacheHeaders = {}) {
-        for (const { name, value, options } of cookiesToSet) {
-          cookieHeaders.push(serializeCookieHeader(name, value, options));
-        }
-        for (const [key, value] of Object.entries(cacheHeaders)) {
-          responseHeaders.set(key, value);
-        }
-      }
-    }
-  });
-
-  return { supabase, cookieHeaders, responseHeaders };
-}
-
-async function requireUser(request, env) {
-  if (!hasAuthMaterial(request) && !env.SUPABASE_CLIENT) {
-    return { response: errorResponse(401, "unauthorized") };
-  }
-
-  const context = createSupabaseContext(request, env);
-  const { data, error } = await context.supabase.auth.getUser();
-  if (error || !data?.user) {
-    return { context, response: errorResponse(401, "unauthorized", context) };
-  }
-  return { context, user: data.user };
-}
-
 function cleanString(value, maxLength = 500) {
   if (typeof value !== "string") return "";
   return value.trim().slice(0, maxLength);
@@ -2069,79 +2100,223 @@ function analyticsAllowedEmails(env) {
 function requireAnalyticsOwner(auth, env) {
   const allowed = analyticsAllowedEmails(env);
   const email = cleanString(auth.user?.email, 320).toLowerCase();
-  return allowed.size > 0 && email && allowed.has(email) ? null : errorResponse(403, "forbidden", auth.context);
+  return allowed.size > 0 && email && allowed.has(email) ? null : errorResponse(403, "forbidden");
 }
 
-function buildUserDefaults(user, accountType = "individual") {
+function authTokenFromRequest(request) {
+  const authorization = request.headers.get("Authorization") || "";
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (bearer) return bearer.trim();
+  return cookieValue(request, "__session");
+}
+
+function clerkAuthorizedParties(request, env) {
+  const configured = String(env.CLERK_AUTHORIZED_PARTIES || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (configured.length) return configured;
+  const url = new URL(request.url);
+  const localOrigin = /^(localhost|127\.0\.0\.1)$/.test(url.hostname) ? url.origin : null;
+  return [SITE_ORIGIN, "https://www.livejobindex.com", localOrigin].filter(Boolean);
+}
+
+async function fetchClerkUser(userId, env) {
+  if (env.CLERK_USERS?.[userId]) return env.CLERK_USERS[userId];
+  if (!env.CLERK_SECRET_KEY) return null;
+  const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+  return clerk.users.getUser(userId);
+}
+
+function clerkUserName(clerkUser) {
+  const fullName = cleanString(clerkUser?.fullName || clerkUser?.full_name, 180);
+  if (fullName) return fullName;
+  return [clerkUser?.firstName || clerkUser?.first_name, clerkUser?.lastName || clerkUser?.last_name]
+    .map(part => cleanString(part, 90))
+    .filter(Boolean)
+    .join(" ") || null;
+}
+
+function clerkUserEmail(clerkUser) {
+  const direct = cleanString(clerkUser?.email, 320);
+  if (direct) return direct;
+  const primaryId = clerkUser?.primaryEmailAddressId || clerkUser?.primary_email_address_id;
+  const emails = clerkUser?.emailAddresses || clerkUser?.email_addresses || [];
+  const primary = emails.find(email => (email.id || email.emailAddress) === primaryId) || emails[0];
+  return cleanString(primary?.emailAddress || primary?.email_address, 320);
+}
+
+async function requireUser(request, env) {
+  if (env.CLERK_USER) {
+    const user = {
+      id: env.CLERK_USER.id,
+      email: env.CLERK_USER.email || "",
+      full_name: cleanString(env.CLERK_USER.full_name || env.CLERK_USER.name, 180) || null
+    };
+    return { context: {}, user };
+  }
+
+  const token = authTokenFromRequest(request);
+  if (!token) return { response: errorResponse(401, "unauthorized") };
+
+  try {
+    const claims = env.CLERK_VERIFY_TOKEN
+      ? await env.CLERK_VERIFY_TOKEN(token, request)
+      : await verifyToken(token, {
+        jwtKey: env.CLERK_JWT_KEY,
+        secretKey: env.CLERK_SECRET_KEY,
+        authorizedParties: clerkAuthorizedParties(request, env)
+      });
+    const userId = cleanString(claims?.sub, 160);
+    if (!userId) return { response: errorResponse(401, "unauthorized") };
+
+    const clerkUser = await fetchClerkUser(userId, env).catch(() => null);
+    const user = {
+      id: userId,
+      email: clerkUserEmail(clerkUser) || cleanString(claims.email, 320) || "",
+      full_name: clerkUserName(clerkUser) || cleanString(claims.name || claims.full_name, 180) || null
+    };
+    return { context: {}, user };
+  } catch {
+    return { response: errorResponse(401, "unauthorized") };
+  }
+}
+
+function parseJSONCell(value, fallback) {
+  if (value == null || value === "") return fallback;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeUserRow(row) {
+  if (!row) return null;
   return {
-    id: user.id,
-    email: user.email || "",
-    brand_theme: "graphite",
-    account_type: accountType,
-    onboarding_completed: false
+    ...row,
+    onboarding_completed: Boolean(row.onboarding_completed)
   };
 }
 
-async function ensureAccountRows(supabase, user, accountType = "individual") {
-  const userResult = await supabase
-    .from("users")
-    .upsert(buildUserDefaults(user, accountType), { onConflict: "id", ignoreDuplicates: true });
-  if (userResult.error) throw userResult.error;
-
-  const accessResult = await supabase
-    .from("account_access")
-    .upsert({
-      user_id: user.id,
-      account_type: accountType,
-      plan: "free",
-      api_access_enabled: false,
-      integrations_enabled: false,
-      export_enabled: accountType === "agency" ? "limited" : "none",
-      rate_limit_tier: "free"
-    }, { onConflict: "user_id", ignoreDuplicates: true });
-  if (accessResult.error) throw accessResult.error;
+function normalizeAccessRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    api_access_enabled: Boolean(row.api_access_enabled),
+    integrations_enabled: Boolean(row.integrations_enabled)
+  };
 }
 
-async function fetchMe(supabase, user) {
-  await ensureAccountRows(supabase, user);
+function normalizeIndividualProfile(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    years_experience: Number(row.years_experience),
+    target_role_families: parseJSONCell(row.target_role_families, []),
+    target_countries: parseJSONCell(row.target_countries, []),
+    visa_needed: Boolean(row.visa_needed),
+    salary_min_usd: row.salary_min_usd == null ? null : Number(row.salary_min_usd)
+  };
+}
 
-  const [
-    appUser,
-    individualProfile,
-    agencyProfile,
-    accountAccess
-  ] = await Promise.all([
-    supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
-    supabase.from("user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
-    supabase.from("agency_profiles").select("*").eq("user_id", user.id).maybeSingle(),
-    supabase.from("account_access").select("*").eq("user_id", user.id).maybeSingle()
+function normalizeAgencyProfile(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    target_markets: parseJSONCell(row.target_markets, []),
+    target_role_families: parseJSONCell(row.target_role_families, []),
+    target_countries: parseJSONCell(row.target_countries, [])
+  };
+}
+
+function normalizeUserJob(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    starred: Boolean(row.starred)
+  };
+}
+
+async function insertJobHistory(env, userId, jobId, eventType, fromStatus = null, toStatus = null) {
+  await dbRun(env, `
+    insert into user_job_history (id, user_id, job_id, event_type, from_status, to_status, created_at)
+    values (?, ?, ?, ?, ?, ?, ?)
+  `, crypto.randomUUID(), userId, jobId, eventType, fromStatus, toStatus, new Date().toISOString());
+}
+
+async function ensureAccountRows(env, user, accountType = "individual") {
+  const now = new Date().toISOString();
+  const safeAccountType = ACCOUNT_TYPES.has(accountType) ? accountType : "individual";
+  await dbRun(env, `
+    insert into users (
+      id, email, full_name, last_login_at, onboarding_completed, account_type,
+      brand_theme, created_at, updated_at
+    )
+    values (?, ?, ?, null, 0, ?, 'graphite', ?, ?)
+    on conflict(id) do update set
+      email = excluded.email,
+      full_name = coalesce(excluded.full_name, users.full_name),
+      updated_at = excluded.updated_at
+  `, user.id, user.email || "", user.full_name || null, safeAccountType, now, now);
+
+  await dbRun(env, `
+    insert into account_access (
+      user_id, plan, account_type, api_access_enabled, integrations_enabled,
+      export_enabled, rate_limit_tier, created_at, updated_at
+    )
+    values (?, 'free', ?, 0, 0, ?, 'free', ?, ?)
+    on conflict(user_id) do nothing
+  `, user.id, safeAccountType, safeAccountType === "agency" ? "limited" : "none", now, now);
+}
+
+async function syncAccountAccessType(env, userId, accountType) {
+  const now = new Date().toISOString();
+  const exportEnabled = accountType === "agency" ? "limited" : "none";
+  await dbRun(env, `
+    insert into account_access (
+      user_id, plan, account_type, api_access_enabled, integrations_enabled,
+      export_enabled, rate_limit_tier, created_at, updated_at
+    )
+    values (?, 'free', ?, 0, 0, ?, 'free', ?, ?)
+    on conflict(user_id) do update set
+      account_type = excluded.account_type,
+      export_enabled = case
+        when account_access.export_enabled = 'full' then 'full'
+        else excluded.export_enabled
+      end,
+      updated_at = excluded.updated_at
+  `, userId, accountType, exportEnabled, now, now);
+}
+
+async function fetchMe(env, user) {
+  await ensureAccountRows(env, user);
+  const [appUser, individualProfile, agencyProfile, accountAccess] = await Promise.all([
+    dbFirst(env, "select * from users where id = ?", user.id),
+    dbFirst(env, "select * from user_profiles where user_id = ?", user.id),
+    dbFirst(env, "select * from agency_profiles where user_id = ?", user.id),
+    dbFirst(env, "select * from account_access where user_id = ?", user.id)
   ]);
-
-  for (const result of [appUser, individualProfile, agencyProfile, accountAccess]) {
-    if (result.error) throw result.error;
-  }
 
   return {
     auth_user: {
       id: user.id,
       email: user.email || null,
-      full_name: cleanString(user.user_metadata?.full_name || user.user_metadata?.name) || null
+      full_name: user.full_name || null
     },
-    user: appUser.data,
-    individual_profile: individualProfile.data,
-    agency_profile: agencyProfile.data,
-    account_access: accountAccess.data
+    user: normalizeUserRow(appUser),
+    individual_profile: normalizeIndividualProfile(individualProfile),
+    agency_profile: normalizeAgencyProfile(agencyProfile),
+    account_access: normalizeAccessRow(accountAccess)
   };
 }
 
-async function recordActivity(supabase, userId, eventType, entityType = null, entityId = null, metadata = {}) {
-  await supabase.from("user_activity").insert({
-    user_id: userId,
-    event_type: eventType,
-    entity_type: entityType,
-    entity_id: entityId,
-    metadata
-  });
+async function recordActivity(env, userId, eventType, entityType = null, entityId = null, metadata = {}) {
+  await dbRun(env, `
+    insert into user_activity (id, user_id, event_type, entity_type, entity_id, metadata, created_at)
+    values (?, ?, ?, ?, ?, ?, ?)
+  `, crypto.randomUUID(), userId, eventType, entityType, entityId, jsonText(metadataObject(metadata)), new Date().toISOString());
 }
 
 function validateIndividualProfile(payload) {
@@ -2198,62 +2373,18 @@ function validateAgencyProfile(payload) {
 }
 
 async function handleSignup(request, env) {
-  const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json");
-
-  const email = cleanString(payload.email, 320).toLowerCase();
-  const password = typeof payload.password === "string" ? payload.password : "";
-  const fullName = cleanString(payload.full_name || payload.name, 160);
-  if (!email || !password || !fullName) {
-    return errorResponse(400, "email, password, and full_name are required");
-  }
-
-  const context = createSupabaseContext(request, env);
-  const origin = new URL(request.url).origin;
-  const { data, error } = await context.supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: fullName },
-      emailRedirectTo: origin
-    }
-  });
-  if (error) return errorResponse(400, error.message, context);
-
-  if (data?.user && data?.session) {
-    await ensureAccountRows(context.supabase, data.user);
-  }
-
-  return jsonResponse({
-    confirmation_required: !data?.session,
-    user: data?.user ? { id: data.user.id, email: data.user.email } : null
-  }, { status: 201 }, context);
+  return errorResponse(410, "clerk_auth_required");
 }
 
 async function handleLogin(request, env) {
-  const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json");
-
-  const email = cleanString(payload.email, 320).toLowerCase();
-  const password = typeof payload.password === "string" ? payload.password : "";
-  if (!email || !password) return errorResponse(400, "email and password are required");
-
-  const context = createSupabaseContext(request, env);
-  const { data, error } = await context.supabase.auth.signInWithPassword({ email, password });
-  if (error || !data?.user) return errorResponse(401, error?.message || "unauthorized", context);
-
-  await ensureAccountRows(context.supabase, data.user);
-  await context.supabase
-    .from("users")
-    .update({ last_login_at: new Date().toISOString(), email: data.user.email || email })
-    .eq("id", data.user.id);
-  await recordActivity(context.supabase, data.user.id, "login");
-
-  return jsonResponse(await fetchMe(context.supabase, data.user), {}, context);
+  return errorResponse(410, "clerk_auth_required");
 }
 
 async function handleGoogleLogin(request, env) {
-  return redirectResponse("/?auth_error=google_frontend_required", 303);
+  const url = new URL(env.CLERK_SIGN_IN_URL || "/", request.url);
+  const next = safeRedirectPath(new URL(request.url).searchParams.get("next") || "/");
+  url.searchParams.set("redirect_url", `${new URL(request.url).origin}${next}`);
+  return redirectResponse(url.toString(), 303);
 }
 
 async function handleAuthCallback(request, env) {
@@ -2261,48 +2392,20 @@ async function handleAuthCallback(request, env) {
 }
 
 async function handleAuthSession(request, env) {
-  const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json");
-
-  const accessToken = cleanString(payload.access_token, 4096);
-  const refreshToken = cleanString(payload.refresh_token, 4096);
-  if (!accessToken || !refreshToken) {
-    return errorResponse(400, "access_token and refresh_token are required");
-  }
-
-  const context = createSupabaseContext(request, env);
-  const { error: sessionError } = await context.supabase.auth.setSession({
-    access_token: accessToken,
-    refresh_token: refreshToken
-  });
-  if (sessionError) return errorResponse(401, "invalid_session", context);
-
-  const { data, error: userError } = await context.supabase.auth.getUser();
-  if (userError || !data?.user) return errorResponse(401, "invalid_session", context);
-
-  try {
-    await ensureAccountRows(context.supabase, data.user);
-    await context.supabase
-      .from("users")
-      .update({ last_login_at: new Date().toISOString(), email: data.user.email || "" })
-      .eq("id", data.user.id);
-    await recordActivity(context.supabase, data.user.id, "login_google");
-    return jsonResponse(await fetchMe(context.supabase, data.user), {}, context);
-  } catch {
-    return errorResponse(500, "account_setup_failed", context);
-  }
+  return errorResponse(410, "clerk_auth_required");
 }
 
 async function handleLogout(request, env) {
-  const context = createSupabaseContext(request, env);
-  await context.supabase.auth.signOut();
-  return jsonResponse({ ok: true }, {}, context);
+  return jsonResponse({ ok: true });
 }
 
 async function handleMe(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
-  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+  await ensureAccountRows(env, auth.user);
+  await dbRun(env, "update users set last_login_at = ?, email = ?, updated_at = ? where id = ?",
+    new Date().toISOString(), auth.user.email || "", new Date().toISOString(), auth.user.id);
+  return jsonResponse(await fetchMe(env, auth.user));
 }
 
 async function handleAccountType(request, env) {
@@ -2312,18 +2415,20 @@ async function handleAccountType(request, env) {
   const payload = await readJSON(request);
   const accountType = cleanString(payload?.account_type);
   if (!ACCOUNT_TYPES.has(accountType)) {
-    return errorResponse(400, "account_type must be individual or agency", auth.context);
+    return errorResponse(400, "account_type must be individual or agency");
   }
 
-  await ensureAccountRows(auth.context.supabase, auth.user, accountType);
-  const { error } = await auth.context.supabase
-    .from("users")
-    .update({ account_type: accountType, onboarding_completed: false })
-    .eq("id", auth.user.id);
-  if (error) return errorResponse(500, error.message, auth.context);
+  await ensureAccountRows(env, auth.user, accountType);
+  await dbRun(env,
+    "update users set account_type = ?, onboarding_completed = 0, updated_at = ? where id = ?",
+    accountType,
+    new Date().toISOString(),
+    auth.user.id
+  );
+  await syncAccountAccessType(env, auth.user.id, accountType);
 
-  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_account_type", "account", auth.user.id, { account_type: accountType });
-  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+  await recordActivity(env, auth.user.id, "onboarding_account_type", "account", auth.user.id, { account_type: accountType });
+  return jsonResponse(await fetchMe(env, auth.user));
 }
 
 async function handleIndividualProfile(request, env) {
@@ -2331,18 +2436,52 @@ async function handleIndividualProfile(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+  if (!payload) return errorResponse(400, "invalid_json");
 
   const validated = validateIndividualProfile(payload);
-  if (validated.error) return errorResponse(400, validated.error, auth.context);
+  if (validated.error) return errorResponse(400, validated.error);
 
-  const { error } = await auth.context.supabase
-    .from("user_profiles")
-    .upsert({ user_id: auth.user.id, ...validated.profile }, { onConflict: "user_id" });
-  if (error) return errorResponse(500, error.message, auth.context);
+  const profile = validated.profile;
+  const now = new Date().toISOString();
+  await dbRun(env, `
+    insert into user_profiles (
+      user_id, full_name, current_title, years_experience, target_role_families,
+      target_seniority, target_countries, visa_needed, preferred_work_mode,
+      salary_min_usd, linkedin_url, resume_url, created_at, updated_at
+    )
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(user_id) do update set
+      full_name = excluded.full_name,
+      current_title = excluded.current_title,
+      years_experience = excluded.years_experience,
+      target_role_families = excluded.target_role_families,
+      target_seniority = excluded.target_seniority,
+      target_countries = excluded.target_countries,
+      visa_needed = excluded.visa_needed,
+      preferred_work_mode = excluded.preferred_work_mode,
+      salary_min_usd = excluded.salary_min_usd,
+      linkedin_url = excluded.linkedin_url,
+      resume_url = excluded.resume_url,
+      updated_at = excluded.updated_at
+  `,
+    auth.user.id,
+    profile.full_name,
+    profile.current_title,
+    profile.years_experience,
+    jsonText(profile.target_role_families),
+    profile.target_seniority,
+    jsonText(profile.target_countries),
+    profile.visa_needed ? 1 : 0,
+    profile.preferred_work_mode,
+    profile.salary_min_usd,
+    profile.linkedin_url,
+    profile.resume_url,
+    now,
+    now
+  );
 
-  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_individual_profile");
-  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+  await recordActivity(env, auth.user.id, "onboarding_individual_profile");
+  return jsonResponse(await fetchMe(env, auth.user));
 }
 
 async function handleAgencyProfile(request, env) {
@@ -2350,44 +2489,72 @@ async function handleAgencyProfile(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+  if (!payload) return errorResponse(400, "invalid_json");
 
   const validated = validateAgencyProfile(payload);
-  if (validated.error) return errorResponse(400, validated.error, auth.context);
+  if (validated.error) return errorResponse(400, validated.error);
 
-  const { error } = await auth.context.supabase
-    .from("agency_profiles")
-    .upsert({ user_id: auth.user.id, ...validated.profile }, { onConflict: "user_id" });
-  if (error) return errorResponse(500, error.message, auth.context);
+  const profile = validated.profile;
+  const now = new Date().toISOString();
+  await dbRun(env, `
+    insert into agency_profiles (
+      user_id, agency_name, agency_type, target_markets, target_role_families,
+      target_countries, use_case, integration_interest, monthly_data_volume,
+      created_at, updated_at
+    )
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(user_id) do update set
+      agency_name = excluded.agency_name,
+      agency_type = excluded.agency_type,
+      target_markets = excluded.target_markets,
+      target_role_families = excluded.target_role_families,
+      target_countries = excluded.target_countries,
+      use_case = excluded.use_case,
+      integration_interest = excluded.integration_interest,
+      monthly_data_volume = excluded.monthly_data_volume,
+      updated_at = excluded.updated_at
+  `,
+    auth.user.id,
+    profile.agency_name,
+    profile.agency_type,
+    jsonText(profile.target_markets),
+    jsonText(profile.target_role_families),
+    jsonText(profile.target_countries),
+    profile.use_case,
+    profile.integration_interest,
+    profile.monthly_data_volume,
+    now,
+    now
+  );
 
-  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_agency_profile");
-  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+  await recordActivity(env, auth.user.id, "onboarding_agency_profile");
+  return jsonResponse(await fetchMe(env, auth.user));
 }
 
 async function handleCompleteOnboarding(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
 
-  const me = await fetchMe(auth.context.supabase, auth.user);
+  const me = await fetchMe(env, auth.user);
   const accountType = me.user?.account_type;
   if (!ACCOUNT_TYPES.has(accountType)) {
-    return errorResponse(400, "account_type is required", auth.context);
+    return errorResponse(400, "account_type is required");
   }
   if (accountType === "individual" && !me.individual_profile) {
-    return errorResponse(400, "individual profile is required", auth.context);
+    return errorResponse(400, "individual profile is required");
   }
   if (accountType === "agency" && !me.agency_profile) {
-    return errorResponse(400, "agency profile is required", auth.context);
+    return errorResponse(400, "agency profile is required");
   }
 
-  const { error } = await auth.context.supabase
-    .from("users")
-    .update({ onboarding_completed: true })
-    .eq("id", auth.user.id);
-  if (error) return errorResponse(500, error.message, auth.context);
+  await dbRun(env,
+    "update users set onboarding_completed = 1, updated_at = ? where id = ?",
+    new Date().toISOString(),
+    auth.user.id
+  );
 
-  await recordActivity(auth.context.supabase, auth.user.id, "onboarding_complete", "account", auth.user.id, { account_type: accountType });
-  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+  await recordActivity(env, auth.user.id, "onboarding_complete", "account", auth.user.id, { account_type: accountType });
+  return jsonResponse(await fetchMe(env, auth.user));
 }
 
 async function handleSettings(request, env) {
@@ -2395,21 +2562,22 @@ async function handleSettings(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+  if (!payload) return errorResponse(400, "invalid_json");
 
   const brandTheme = cleanString(payload.brand_theme);
   if (!BRAND_THEMES.has(brandTheme)) {
-    return errorResponse(400, "brand_theme must be cobalt, graphite, or aurora", auth.context);
+    return errorResponse(400, "brand_theme must be cobalt, graphite, or aurora");
   }
 
-  const { error } = await auth.context.supabase
-    .from("users")
-    .update({ brand_theme: brandTheme })
-    .eq("id", auth.user.id);
-  if (error) return errorResponse(500, error.message, auth.context);
+  await dbRun(env,
+    "update users set brand_theme = ?, updated_at = ? where id = ?",
+    brandTheme,
+    new Date().toISOString(),
+    auth.user.id
+  );
 
-  await recordActivity(auth.context.supabase, auth.user.id, "settings_updated", "account", auth.user.id, { brand_theme: brandTheme });
-  return jsonResponse(await fetchMe(auth.context.supabase, auth.user), {}, auth.context);
+  await recordActivity(env, auth.user.id, "settings_updated", "account", auth.user.id, { brand_theme: brandTheme });
+  return jsonResponse(await fetchMe(env, auth.user));
 }
 
 async function handleAgencyFeedback(request, env) {
@@ -2417,15 +2585,15 @@ async function handleAgencyFeedback(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+  if (!payload) return errorResponse(400, "invalid_json");
 
   const message = typeof payload.message === "string" ? payload.message.trim() : "";
-  if (!message) return errorResponse(400, "message is required", auth.context);
-  if (message.length > 2000) return errorResponse(400, "message must be 2000 characters or fewer", auth.context);
+  if (!message) return errorResponse(400, "message is required");
+  if (message.length > 2000) return errorResponse(400, "message must be 2000 characters or fewer");
 
-  const me = await fetchMe(auth.context.supabase, auth.user);
+  const me = await fetchMe(env, auth.user);
   if (me.user?.account_type !== "agency" || !me.user?.onboarding_completed || !me.agency_profile) {
-    return errorResponse(403, "agency onboarding is required", auth.context);
+    return errorResponse(403, "agency onboarding is required");
   }
 
   const metadata = {
@@ -2435,16 +2603,20 @@ async function handleAgencyFeedback(request, env) {
     monthly_data_volume: me.agency_profile.monthly_data_volume || null
   };
 
-  const { error } = await auth.context.supabase.from("agency_feedback").insert({
-    user_id: auth.user.id,
-    agency_name: me.agency_profile.agency_name || null,
+  await dbRun(env, `
+    insert into agency_feedback (id, user_id, agency_name, message, metadata, created_at)
+    values (?, ?, ?, ?, ?, ?)
+  `,
+    crypto.randomUUID(),
+    auth.user.id,
+    me.agency_profile.agency_name || null,
     message,
-    metadata
-  });
-  if (error) return errorResponse(500, error.message, auth.context);
+    jsonText(metadata),
+    new Date().toISOString()
+  );
 
-  await recordActivity(auth.context.supabase, auth.user.id, "agency_feedback_submitted", "agency_feedback", auth.user.id, metadata);
-  return jsonResponse({ ok: true }, { status: 201 }, auth.context);
+  await recordActivity(env, auth.user.id, "agency_feedback_submitted", "agency_feedback", auth.user.id, metadata);
+  return jsonResponse({ ok: true }, { status: 201 });
 }
 
 async function readJobsPayload(env) {
@@ -2683,8 +2855,9 @@ async function handlePublicJobs(request, env) {
 function handlePublicConfig(env) {
   return jsonResponse({
     turnstile_site_key: env.TURNSTILE_SITE_KEY || "",
-    supabase_url: env.SUPABASE_URL || "",
-    supabase_publishable_key: env.SUPABASE_PUBLISHABLE_KEY || ""
+    clerk_publishable_key: env.CLERK_PUBLISHABLE_KEY || "",
+    clerk_sign_in_url: env.CLERK_SIGN_IN_URL || "",
+    clerk_sign_up_url: env.CLERK_SIGN_UP_URL || ""
   }, {
     headers: {
       "Cache-Control": "public, max-age=300"
@@ -2710,13 +2883,13 @@ async function handleJobsQuery(request, env) {
     const turnstileToken = cleanString(payload.turnstile_token || payload["cf-turnstile-response"]);
     if (!hasCookie) {
       const verified = await validateTurnstile(request, env, turnstileToken);
-      if (!verified) return errorResponse(403, "human_verification_required", auth.context);
+      if (!verified) return errorResponse(403, "human_verification_required");
       setPageCookie = await createPageAccessCookie(auth.user.id, env);
     }
   }
 
   const data = await readJobsPayload(env);
-  const response = jsonResponse(pagePostings(data, query), {}, auth?.context || null);
+  const response = jsonResponse(pagePostings(data, query));
   if (setPageCookie) response.headers.append("Set-Cookie", setPageCookie);
   return response;
 }
@@ -2725,14 +2898,8 @@ async function handleGetUserJobs(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
 
-  const { data, error } = await auth.context.supabase
-    .from("user_jobs")
-    .select("*, viewed_at")
-    .eq("user_id", auth.user.id)
-    .order("updated_at", { ascending: false });
-  if (error) return errorResponse(500, error.message, auth.context);
-
-  return jsonResponse({ jobs: data || [] }, {}, auth.context);
+  const rows = await dbAll(env, "select * from user_jobs where user_id = ? order by updated_at desc", auth.user.id);
+  return jsonResponse({ jobs: rows.map(normalizeUserJob) });
 }
 
 async function handlePutUserJob(request, env, jobId) {
@@ -2740,21 +2907,21 @@ async function handlePutUserJob(request, env, jobId) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+  if (!payload) return errorResponse(400, "invalid_json");
 
   const normalizedJobId = cleanString(jobId, 300);
-  if (!normalizedJobId) return errorResponse(400, "job_id is required", auth.context);
+  if (!normalizedJobId) return errorResponse(400, "job_id is required");
 
-  const { data: existing, error: existingError } = await auth.context.supabase
-    .from("user_jobs")
-    .select("*")
-    .eq("user_id", auth.user.id)
-    .eq("job_id", normalizedJobId)
-    .maybeSingle();
-  if (existingError) return errorResponse(500, existingError.message, auth.context);
+  await ensureAccountRows(env, auth.user);
+  const existing = normalizeUserJob(await dbFirst(
+    env,
+    "select * from user_jobs where user_id = ? and job_id = ?",
+    auth.user.id,
+    normalizedJobId
+  ));
 
   const status = payload.status == null ? existing?.status || "Not started" : cleanString(payload.status);
-  if (!STATUSES.has(status)) return errorResponse(400, "invalid status", auth.context);
+  if (!STATUSES.has(status)) return errorResponse(400, "invalid status");
 
   const now = new Date().toISOString();
   const prevStatus = existing?.status || "Not started";
@@ -2774,46 +2941,59 @@ async function handlePutUserJob(request, env, jobId) {
   if (status === "Applied" && !row.applied_at) row.applied_at = now;
   if (ARCHIVE_STATUSES.has(status) && !row.archived_at) row.archived_at = now;
 
-  const { data, error } = await auth.context.supabase
-    .from("user_jobs")
-    .upsert(row, { onConflict: "user_id,job_id" })
-    .select("*")
-    .single();
-  if (error) return errorResponse(500, error.message, auth.context);
+  await dbRun(env, `
+    insert into user_jobs (
+      id, user_id, job_id, status, starred, notes, applied_at, saved_at,
+      archived_at, viewed_at, created_at, updated_at
+    )
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(user_id, job_id) do update set
+      status = excluded.status,
+      starred = excluded.starred,
+      notes = excluded.notes,
+      applied_at = excluded.applied_at,
+      saved_at = excluded.saved_at,
+      archived_at = excluded.archived_at,
+      viewed_at = excluded.viewed_at,
+      updated_at = excluded.updated_at
+  `,
+    existing?.id || crypto.randomUUID(),
+    row.user_id,
+    row.job_id,
+    row.status,
+    row.starred ? 1 : 0,
+    row.notes,
+    row.applied_at,
+    row.saved_at,
+    row.archived_at,
+    row.viewed_at,
+    existing?.created_at || now,
+    now
+  );
 
   if (payload.viewed === true && !existing?.viewed_at) {
-    await auth.context.supabase.from("user_job_history").insert({
-      user_id: auth.user.id,
-      job_id: normalizedJobId,
-      event_type: "viewed",
-      to_status: status
-    });
+    await insertJobHistory(env, auth.user.id, normalizedJobId, "viewed", null, status);
   }
 
   if (status !== prevStatus) {
-    await auth.context.supabase.from("user_job_history").insert({
-      user_id: auth.user.id,
-      job_id: normalizedJobId,
-      event_type: "status_changed",
-      from_status: prevStatus,
-      to_status: status
-    });
+    await insertJobHistory(env, auth.user.id, normalizedJobId, "status_changed", prevStatus, status);
   }
 
   if (payload.starred != null && Boolean(payload.starred) !== Boolean(existing?.starred)) {
-    await auth.context.supabase.from("user_job_history").insert({
-      user_id: auth.user.id,
-      job_id: normalizedJobId,
-      event_type: "starred",
-      to_status: status
-    });
+    await insertJobHistory(env, auth.user.id, normalizedJobId, "starred", null, status);
   }
 
-  await recordActivity(auth.context.supabase, auth.user.id, "job_state_updated", "job", normalizedJobId, {
+  await recordActivity(env, auth.user.id, "job_state_updated", "job", normalizedJobId, {
     status,
     starred: row.starred
   });
-  return jsonResponse({ job: data }, {}, auth.context);
+  const saved = normalizeUserJob(await dbFirst(
+    env,
+    "select * from user_jobs where user_id = ? and job_id = ?",
+    auth.user.id,
+    normalizedJobId
+  ));
+  return jsonResponse({ job: saved });
 }
 
 async function handleGetUserJobHistory(request, env, jobId) {
@@ -2821,17 +3001,14 @@ async function handleGetUserJobHistory(request, env, jobId) {
   if (auth.response) return auth.response;
 
   const normalizedJobId = cleanString(jobId, 300);
-  if (!normalizedJobId) return errorResponse(400, "job_id is required", auth.context);
+  if (!normalizedJobId) return errorResponse(400, "job_id is required");
 
-  const { data, error } = await auth.context.supabase
-    .from("user_job_history")
-    .select("*")
-    .eq("user_id", auth.user.id)
-    .eq("job_id", normalizedJobId)
-    .order("created_at", { ascending: false });
-  if (error) return errorResponse(500, error.message, auth.context);
-
-  return jsonResponse({ history: data || [] }, {}, auth.context);
+  const rows = await dbAll(env,
+    "select * from user_job_history where user_id = ? and job_id = ? order by created_at desc",
+    auth.user.id,
+    normalizedJobId
+  );
+  return jsonResponse({ history: rows });
 }
 
 async function handleActivity(request, env) {
@@ -2839,21 +3016,20 @@ async function handleActivity(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
-  if (!payload) return errorResponse(400, "invalid_json", auth.context);
+  if (!payload) return errorResponse(400, "invalid_json");
 
   const eventType = cleanString(payload.event_type, 120);
-  if (!eventType) return errorResponse(400, "event_type is required", auth.context);
+  if (!eventType) return errorResponse(400, "event_type is required");
 
-  const { error } = await auth.context.supabase.from("user_activity").insert({
-    user_id: auth.user.id,
-    event_type: eventType,
-    entity_type: cleanString(payload.entity_type, 120) || null,
-    entity_id: cleanString(payload.entity_id, 300) || null,
-    metadata: metadataObject(payload.metadata)
-  });
-  if (error) return errorResponse(500, error.message, auth.context);
-
-  return jsonResponse({ ok: true }, { status: 201 }, auth.context);
+  await recordActivity(
+    env,
+    auth.user.id,
+    eventType,
+    cleanString(payload.entity_type, 120) || null,
+    cleanString(payload.entity_id, 300) || null,
+    metadataObject(payload.metadata)
+  );
+  return jsonResponse({ ok: true }, { status: 201 });
 }
 
 export default {
@@ -2996,7 +3172,7 @@ export default {
       }
       const result = await runScan(env);
       if (result.next && ctx?.waitUntil) {
-        ctx.waitUntil(persistScanToSupabase(env, result.next, result.next.last_scan));
+        ctx.waitUntil(persistScanToD1(env, result.next, result.next.last_scan));
       }
       return jsonResponse({ okCount: result.okCount, failCount: result.failCount, total: result.total });
     }
@@ -3008,7 +3184,7 @@ export default {
     const today = todayUTC();
     const scanPromise = runScan(env).then(result => {
       if (result.next) {
-        return persistScanToSupabase(env, result.next, today);
+        return persistScanToD1(env, result.next, today);
       }
     });
     if (ctx?.waitUntil) {
@@ -3042,17 +3218,11 @@ async function handleSession(request, env) {
     maxAge: ANON_SESSION_TTL_DAYS * 24 * 60 * 60
   });
 
-  // Persist to Supabase asynchronously if service role key is available
-  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
-    const client = createServiceClient(env);
-    if (client) {
-      client.insert("anonymous_sessions", [{
-        session_token: token,
-        ip_hash: null,
-        user_agent_fingerprint: null
-      }]).catch(() => {});
-    }
-  }
+  await dbRun(env, `
+    insert into anonymous_sessions (id, session_token, ip_hash, user_agent_fingerprint, created_at, last_seen_at)
+    values (?, ?, null, null, ?, ?)
+    on conflict(session_token) do update set last_seen_at = excluded.last_seen_at
+  `, crypto.randomUUID(), token, new Date().toISOString(), new Date().toISOString()).catch(() => {});
 
   return jsonResponse({ session_token: token }, {
     headers: { "Set-Cookie": cookie }
@@ -3071,62 +3241,41 @@ async function handleTrack(request, env) {
   const sessionToken = getAnonSessionCookie(request);
   const hasAuth = hasAuthMaterial(request);
 
-  // Try to resolve user_id for authenticated requests
   let userId = null;
-  if (hasAuth && env.SUPABASE_URL && env.SUPABASE_PUBLISHABLE_KEY) {
+  if (hasAuth) {
     try {
-      const context = createSupabaseContext(request, env);
-      const { data } = await context.supabase.auth.getUser();
-      if (data?.user) userId = data.user.id;
+      const auth = await requireUser(request, env);
+      if (!auth.response) userId = auth.user.id;
     } catch {
       // ignore auth errors, track as anonymous
     }
   }
 
-  // Resolve session_id from token
-  let sessionId = null;
-  if (sessionToken && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
-    try {
-      const client = createServiceClient(env);
-      if (client) {
-        // We can't easily query via REST POST, so we'll just use the token as-is
-        // and let the frontend include session_id if it has it.
-        // For now, we track by session_token in metadata.
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // Build insert row based on event type
-  const client = createServiceClient(env);
-  if (!client) return jsonResponse({ ok: true });
-
-  const baseRow = {
-    user_id: userId,
-    session_id: cleanString(payload.session_id, 120) || null
-  };
+  const sessionId = cleanString(payload.session_id, 120) || sessionToken || null;
 
   try {
     if (eventType === "job_view") {
-      await client.insert("job_views", [{
-        ...baseRow,
-        job_id: cleanString(payload.job_id, 300) || "",
-        source: cleanString(payload.source, 80) || "direct"
-      }]);
+      await dbRun(env, `
+        insert into job_views (user_id, session_id, job_id, source, viewed_at)
+        values (?, ?, ?, ?, ?)
+      `, userId, sessionId, cleanString(payload.job_id, 300) || "", cleanString(payload.source, 80) || "direct", new Date().toISOString());
     } else if (eventType === "search") {
-      await client.insert("search_queries", [{
-        ...baseRow,
-        query_text: cleanString(payload.query_text, 500) || null,
-        filters: metadataObject(payload.filters),
-        result_count: Number.isFinite(payload.result_count) ? payload.result_count : null
-      }]);
+      await dbRun(env, `
+        insert into search_queries (user_id, session_id, query_text, filters, result_count, created_at)
+        values (?, ?, ?, ?, ?, ?)
+      `,
+        userId,
+        sessionId,
+        cleanString(payload.query_text, 500) || null,
+        jsonText(metadataObject(payload.filters)),
+        Number.isFinite(payload.result_count) ? payload.result_count : null,
+        new Date().toISOString()
+      );
     } else if (eventType === "page_view") {
-      await client.insert("page_views", [{
-        ...baseRow,
-        page_path: cleanString(payload.page_path, 300) || "/",
-        referrer: cleanString(payload.referrer, 500) || null
-      }]);
+      await dbRun(env, `
+        insert into page_views (user_id, session_id, page_path, referrer, created_at)
+        values (?, ?, ?, ?, ?)
+      `, userId, sessionId, cleanString(payload.page_path, 300) || "/", cleanString(payload.referrer, 500) || null, new Date().toISOString());
     }
   } catch {
     // Silently ignore tracking errors so they never break the UX
@@ -3145,25 +3294,23 @@ async function handleAnalyticsJobs(request, env) {
   const ownerError = requireAnalyticsOwner(auth, env);
   if (ownerError) return ownerError;
 
-  const client = createServiceClient(env);
-  if (!client) return errorResponse(503, "analytics unavailable");
-
   const url = new URL(request.url);
   const days = clampInteger(url.searchParams.get("days"), 30, 1, 365);
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 
   try {
-    const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/daily_scan_stats?scan_date=gte.${since}&order=scan_date.desc`, {
-      headers: {
-        "apikey": env.SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
-      }
-    });
-    if (!res.ok) throw new Error("fetch failed");
-    const data = await res.json();
-    return jsonResponse({ stats: data || [] }, {}, auth.context);
+    const data = await dbAll(env, "select * from daily_scan_stats where scan_date >= ? order by scan_date desc", since);
+    return jsonResponse({ stats: data.map(row => ({
+      ...row,
+      per_source: parseJSONCell(row.per_source, {}),
+      per_industry: parseJSONCell(row.per_industry, {}),
+      per_niche: parseJSONCell(row.per_niche, {}),
+      per_country: parseJSONCell(row.per_country, {}),
+      per_family: parseJSONCell(row.per_family, {}),
+      per_tier: parseJSONCell(row.per_tier, {})
+    })) });
   } catch (err) {
-    return errorResponse(500, "internal_error", auth.context);
+    return errorResponse(500, "internal_error");
   }
 }
 
@@ -3178,17 +3325,10 @@ async function handleAnalyticsSearches(request, env) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/search_queries?created_at=gte.${encodeURIComponent(since)}&order=created_at.desc`, {
-      headers: {
-        "apikey": env.SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
-      }
-    });
-    if (!res.ok) throw new Error("fetch failed");
-    const data = await res.json();
-    return jsonResponse({ searches: data || [] }, {}, auth.context);
+    const data = await dbAll(env, "select * from search_queries where created_at >= ? order by created_at desc", since);
+    return jsonResponse({ searches: data.map(row => ({ ...row, filters: parseJSONCell(row.filters, {}) })) });
   } catch (err) {
-    return errorResponse(500, "internal_error", auth.context);
+    return errorResponse(500, "internal_error");
   }
 }
 
@@ -3203,16 +3343,9 @@ async function handleAnalyticsViews(request, env) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/job_views?viewed_at=gte.${encodeURIComponent(since)}&order=viewed_at.desc`, {
-      headers: {
-        "apikey": env.SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
-      }
-    });
-    if (!res.ok) throw new Error("fetch failed");
-    const data = await res.json();
-    return jsonResponse({ views: data || [] }, {}, auth.context);
+    const data = await dbAll(env, "select * from job_views where viewed_at >= ? order by viewed_at desc", since);
+    return jsonResponse({ views: data });
   } catch (err) {
-    return errorResponse(500, "internal_error", auth.context);
+    return errorResponse(500, "internal_error");
   }
 }
