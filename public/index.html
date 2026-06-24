@@ -1705,25 +1705,29 @@ async function startClerkAuth(mode = AUTH_MODE, nextRoute = CURRENT_ROUTE) {
   setMessage('auth-message', isSignup ? 'Opening account creation...' : 'Opening sign-in...');
   const redirectUrl = `${window.location.origin}${safeNextRoute(nextRoute)}`;
   try {
-    const clerk = await getClerkClient();
     if (isSignup) {
+      if (!CLERK_SIGN_UP_URL && !CLERK_PUBLISHABLE_KEY) await loadPublicConfig();
       if (CLERK_SIGN_UP_URL) {
         const url = new URL(CLERK_SIGN_UP_URL, window.location.origin);
         url.searchParams.set('redirect_url', redirectUrl);
         window.location.assign(url.toString());
         return;
       }
+      const clerk = await getClerkClient();
       await clerk.redirectToSignUp({ redirectUrl });
       return;
     }
+    if (!CLERK_SIGN_IN_URL && !CLERK_PUBLISHABLE_KEY) await loadPublicConfig();
     if (CLERK_SIGN_IN_URL) {
       const url = new URL(CLERK_SIGN_IN_URL, window.location.origin);
       url.searchParams.set('redirect_url', redirectUrl);
       window.location.assign(url.toString());
       return;
     }
+    const clerk = await getClerkClient();
     await clerk.redirectToSignIn({ redirectUrl });
   } catch (err) {
+    showAuth(err.message || 'Sign-in could not be started. Try again.', isProtectedRoute());
     setMessage('auth-message', err.message || 'Sign-in could not be started. Try again.', true);
   }
 }

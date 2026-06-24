@@ -303,6 +303,19 @@ test("homepage source includes routed profile and onboarding handling", () => {
   assert.doesNotMatch(html, /account-pill'\)\.onclick = showProfilePanel/);
 });
 
+test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk JS", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const start = html.indexOf("async function startClerkAuth");
+  const end = html.indexOf("async function signOutClerk", start);
+  const source = html.slice(start, end);
+
+  assert.match(source, /if \(!CLERK_SIGN_IN_URL && !CLERK_PUBLISHABLE_KEY\) await loadPublicConfig\(\);/);
+  assert.match(source, /if \(!CLERK_SIGN_UP_URL && !CLERK_PUBLISHABLE_KEY\) await loadPublicConfig\(\);/);
+  assert.ok(source.indexOf("if (CLERK_SIGN_IN_URL)") < source.lastIndexOf("const clerk = await getClerkClient();"));
+  assert.ok(source.indexOf("if (CLERK_SIGN_UP_URL)") < source.indexOf("await clerk.redirectToSignUp"));
+  assert.match(source, /showAuth\(err\.message \|\| 'Sign-in could not be started\. Try again\.', isProtectedRoute\(\)\);/);
+});
+
 test("homepage defaults signed-out theme to graphite and uses icon-only header toggle", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
