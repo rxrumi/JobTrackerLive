@@ -1700,10 +1700,10 @@ async function getClerkToken() {
   }
 }
 
-async function startClerkAuth(mode = AUTH_MODE) {
+async function startClerkAuth(mode = AUTH_MODE, nextRoute = CURRENT_ROUTE) {
   const isSignup = mode === 'signup';
   setMessage('auth-message', isSignup ? 'Opening account creation...' : 'Opening sign-in...');
-  const redirectUrl = `${window.location.origin}${safeNextRoute(CURRENT_ROUTE)}`;
+  const redirectUrl = `${window.location.origin}${safeNextRoute(nextRoute)}`;
   try {
     const clerk = await getClerkClient();
     if (isSignup) {
@@ -2008,7 +2008,7 @@ async function showTurnstileGate(page) {
 async function setPage(page) {
   const target = Math.max(1, page);
   if (target > 1 && !ME?.user) {
-    showAuth('Sign in to view additional job pages.');
+    await startClerkAuth('login', CURRENT_ROUTE);
     return;
   }
   if (target > 1 && state.tab === 'active') {
@@ -2957,8 +2957,7 @@ function wireStaticHandlers() {
         return;
       }
       if (!ME?.user && (t.dataset.tab === 'pipeline' || t.dataset.tab === 'archive')) {
-        AUTH_MODE = 'login';
-        showAuth('Sign in or create an account to manage your pipeline.');
+        startClerkAuth('login', '/pipeline');
         return;
       }
       if (t.dataset.tab === 'pipeline') {
@@ -3393,7 +3392,7 @@ function fillProfileForms() {
 
 function showProfilePanel() {
   if (!ME?.user) {
-    showAuth('Sign in to manage your profile.', true);
+    startClerkAuth('login', '/profile');
     return;
   }
   hideAuth();
@@ -3439,13 +3438,7 @@ async function applyRoute() {
   }
 
   if (!ME?.user) {
-    const routeMessages = {
-      '/profile': 'Sign in to manage your profile and settings.',
-      '/pipeline': 'Sign in or create an account to manage your pipeline.',
-      '/insights': 'Sign in or create an account to view market insights.'
-    };
-    const message = routeMessages[CURRENT_ROUTE] || 'Sign in or create an account to complete onboarding.';
-    showAuth(message, true);
+    startClerkAuth('login', CURRENT_ROUTE);
     return;
   }
 
@@ -3730,12 +3723,10 @@ function wireAuthHandlers() {
   });
 
   document.getElementById('header-login-btn').onclick = () => {
-    AUTH_MODE = 'login';
-    showAuth();
+    startClerkAuth('login', CURRENT_ROUTE);
   };
   document.getElementById('header-signup-btn').onclick = () => {
-    AUTH_MODE = 'signup';
-    showAuth();
+    startClerkAuth('signup', CURRENT_ROUTE);
   };
   document.getElementById('account-pill').onclick = (e) => {
     e.stopPropagation();
@@ -3968,9 +3959,8 @@ async function init() {
 
   const me = ME || await loadMe();
   if (!me) {
-    if (oauthError) showAuth(oauthError);
-    else if (authError && CURRENT_ROUTE === '/') showAuth(authError);
-    else await applyRoute();
+    if (oauthError || (authError && CURRENT_ROUTE === '/')) console.warn(oauthError || authError);
+    await applyRoute();
   } else if (!me.user?.onboarding_completed) {
     if (CURRENT_ROUTE === '/') navigateTo('/onboarding', true);
     else await applyRoute();
