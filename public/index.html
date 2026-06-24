@@ -605,7 +605,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       </div>
     </a>
   </div>
-  <div class="industry-switcher" id="industry-switcher" aria-label="Industry feed">
+  <div class="industry-switcher" id="industry-switcher" aria-label="Industry feed" hidden>
     <button class="industry-btn active" type="button" data-industry="tech">Tech</button>
     <button class="industry-btn" type="button" data-industry="engineering">Engineering</button>
   </div>
@@ -1567,7 +1567,7 @@ let PROFILE_FILTERS_RELAXED = false;
 const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
-const CLERK_JS_URL = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+let CLERK_JS_URL = '';
 
 // ------------------------------------------------------------------
 // Lightweight anonymous session & event tracking
@@ -1664,6 +1664,7 @@ function loadScriptOnce(src, marker) {
     script.async = true;
     script.defer = true;
     script.setAttribute(marker, 'true');
+    script.crossOrigin = 'anonymous';
     if (marker === 'data-clerkjs' && CLERK_PUBLISHABLE_KEY) {
       script.setAttribute('data-clerk-publishable-key', CLERK_PUBLISHABLE_KEY);
     }
@@ -1683,12 +1684,13 @@ async function getClerkClient() {
   if (CLERK_CLIENT) return CLERK_CLIENT;
   if (!CLERK_READY_PROMISE) {
     CLERK_READY_PROMISE = (async () => {
+      const fapiDomain = atob(CLERK_PUBLISHABLE_KEY.split('_')[2]).slice(0, -1);
+      CLERK_JS_URL = `https://${fapiDomain}/npm/@clerk/clerk-js@5/dist/clerk.browser.js`;
       await loadScriptOnce(CLERK_JS_URL, 'data-clerkjs');
       if (!window.Clerk) throw new Error('Sign-in could not be loaded. Try again.');
-      const clerk = new window.Clerk(CLERK_PUBLISHABLE_KEY);
-      await clerk.load();
-      CLERK_CLIENT = clerk;
-      return clerk;
+      await window.Clerk.load();
+      CLERK_CLIENT = window.Clerk;
+      return CLERK_CLIENT;
     })();
   }
   return CLERK_READY_PROMISE;
@@ -1697,8 +1699,11 @@ async function getClerkClient() {
 async function getClerkToken() {
   try {
     const clerk = await getClerkClient();
-    return await clerk.session?.getToken();
-  } catch {
+    const session = clerk.session;
+    if (!session) return null;
+    return await session.getToken();
+  } catch (e) {
+    console.warn('Clerk token error:', e?.message || e);
     return null;
   }
 }
@@ -2081,11 +2086,13 @@ function saveStar(id, v) { persistUserJob(id, { starred: v }); }
 function recordViewed(id) { persistUserJob(id, { viewed: true }); }
 
 function initialIndustry() {
+  const fallback = DEFAULT_INDUSTRY;
   try {
     const saved = localStorage.getItem(INDUSTRY_KEY);
-    return INDUSTRIES[saved] ? saved : DEFAULT_INDUSTRY;
+    if (!INDUSTRIES[saved]) return fallback;
+    return saved === 'engineering' ? fallback : saved;
   } catch {
-    return DEFAULT_INDUSTRY;
+    return fallback;
   }
 }
 

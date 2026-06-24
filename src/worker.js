@@ -104,143 +104,15 @@ const YC_SEED_PATHS = [
   "/jobs/role/operations/san-francisco"
 ];
 
-const ENGINEERING_SOURCES = [
-  engineeringAtsSource({
-    source: "greenhouse",
-    token: "spacex",
-    company: "spacex",
-    niche: ENGINEERING_NICHES.AEROSPACE,
-    tier: "BigTech",
-    visa: "Likely",
-    fetcher: fetchGreenhouse
-  }),
-  {
-    source: "rmk",
-    token: "bechtel-engineering",
-    company: "bechtel",
-    url: "https://jobs.bechtel.com/go/Engineering/399431",
-    industry: INDUSTRIES.ENGINEERING,
-    niche: ENGINEERING_NICHES.CONSTRUCTION,
-    fetch: fetchRmkCategory
-  },
-  {
-    source: "tribepad",
-    token: "burohappold",
-    company: "buro happold",
-    url: "https://vacancies.burohappold.com/jobs/search",
-    industry: INDUSTRIES.ENGINEERING,
-    niche: ENGINEERING_NICHES.AEC,
-    fetch: fetchTribepad
-  },
-  {
-    source: "nlx",
-    token: "aecom",
-    company: "aecom",
-    url: "https://aecom.jobs",
-    industry: INDUSTRIES.ENGINEERING,
-    niche: ENGINEERING_NICHES.AEC,
-    fetch: fetchNlxJobs
-  },
-  {
-    source: "nlx",
-    token: "stantec",
-    company: "stantec",
-    url: "https://stantec.jobs",
-    industry: INDUSTRIES.ENGINEERING,
-    niche: ENGINEERING_NICHES.AEC,
-    fetch: fetchNlxJobs
-  },
-  workdaySource({
-    token: "intel",
-    company: "intel",
-    host: "intel.wd1.myworkdayjobs.com",
-    tenant: "intel",
-    site: "External",
-    niche: ENGINEERING_NICHES.SEMICONDUCTORS,
-    visa: "Strong"
-  }),
-  workdaySource({
-    token: "boeing",
-    company: "boeing",
-    host: "boeing.wd1.myworkdayjobs.com",
-    tenant: "boeing",
-    site: "EXTERNAL_CAREERS",
-    niche: ENGINEERING_NICHES.AEROSPACE,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "airbus",
-    company: "airbus",
-    host: "ag.wd3.myworkdayjobs.com",
-    tenant: "ag",
-    site: "Airbus",
-    niche: ENGINEERING_NICHES.AEROSPACE,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "aurecon",
-    company: "aurecon",
-    host: "aurecongroup.wd3.myworkdayjobs.com",
-    tenant: "aurecongroup",
-    site: "aurecon",
-    niche: ENGINEERING_NICHES.AEC,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "gevernova",
-    company: "ge vernova",
-    host: "gevernova.wd5.myworkdayjobs.com",
-    tenant: "gevernova",
-    site: "Vernova_ExternalSite",
-    niche: ENGINEERING_NICHES.ENERGY,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "gensler",
-    company: "gensler",
-    host: "gensler.wd1.myworkdayjobs.com",
-    tenant: "gensler",
-    site: "genslercareers",
-    niche: ENGINEERING_NICHES.ARCHITECTURE,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "samsung-careers",
-    company: "samsung",
-    host: "sec.wd3.myworkdayjobs.com",
-    tenant: "sec",
-    site: "Samsung_Careers",
-    niche: ENGINEERING_NICHES.HARDWARE,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "3m",
-    company: "3m",
-    host: "3m.wd1.myworkdayjobs.com",
-    tenant: "3m",
-    site: "Search",
-    niche: ENGINEERING_NICHES.INDUSTRIAL,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "rockwellautomation",
-    company: "rockwell automation",
-    host: "rockwellautomation.wd1.myworkdayjobs.com",
-    tenant: "rockwellautomation",
-    site: "External_Rockwell_Automation",
-    niche: ENGINEERING_NICHES.INDUSTRIAL,
-    visa: "Likely"
-  }),
-  workdaySource({
-    token: "bostondynamics",
-    company: "boston dynamics",
-    host: "bostondynamics.wd1.myworkdayjobs.com",
-    tenant: "bostondynamics",
-    site: "Boston_Dynamics",
-    niche: ENGINEERING_NICHES.ROBOTICS,
-    visa: "Likely"
-  })
-];
+// Engineering sources were live-scraped from corporate Workday tenants
+// (Intel, Boeing, Airbus, Aurecon, GE Vernova, Gensler, Samsung, 3M,
+// Rockwell Automation, Boston Dynamics), Greenhouse (SpaceX), RMK (Bechtel),
+// Tribepad (Buro Happold), and NLX (AECOM, Stantec). All of these ATS
+// endpoints block or bot-challenge Cloudflare Worker egress IPs, so every
+// engineering scan returned null and the postings eventually fell out of
+// the 7-day last_filled window. These companies are now curated as static
+// engineering targets in ENGINEERING_STATIC_COMPANIES in public/index.html.
+const ENGINEERING_SOURCES = [];
 
 const YC_SOURCES = [{
   source: "yc",
@@ -1693,11 +1565,12 @@ const CSP_DIRECTIVES = [
   "frame-ancestors 'none'",
   "form-action 'self'",
   "upgrade-insecure-requests",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://challenges.cloudflare.com",
-  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://api.clerk.com https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://challenges.cloudflare.com",
-  "frame-src https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com",
-  "img-src 'self' data: https:",
-  "style-src 'self' 'unsafe-inline'"
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://challenges.cloudflare.com https://static.cloudflareinsights.com",
+  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://api.clerk.com https://img.clerk.com https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://challenges.cloudflare.com https://cloudflareinsights.com",
+  "frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://challenges.cloudflare.com",
+  "img-src 'self' data: https: https://img.clerk.com",
+  "style-src 'self' 'unsafe-inline'",
+  "worker-src 'self' blob:"
 ].join("; ");
 
 function jsonResponse(data, init = {}) {

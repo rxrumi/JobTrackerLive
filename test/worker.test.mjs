@@ -310,6 +310,8 @@ test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk J
   const source = html.slice(start, end);
 
   assert.match(html, /script\.setAttribute\('data-clerk-publishable-key', CLERK_PUBLISHABLE_KEY\);/);
+  assert.match(html, /const fapiDomain = atob\(CLERK_PUBLISHABLE_KEY\.split\('_'\)\[2\]\)\.slice\(0, -1\);/);
+  assert.match(html, /await window\.Clerk\.load\(\);/);
   assert.match(source, /if \(!CLERK_SIGN_IN_URL && !CLERK_PUBLISHABLE_KEY\) await loadPublicConfig\(\);/);
   assert.match(source, /if \(!CLERK_SIGN_UP_URL && !CLERK_PUBLISHABLE_KEY\) await loadPublicConfig\(\);/);
   assert.ok(source.indexOf("if (CLERK_SIGN_IN_URL)") < source.lastIndexOf("const clerk = await getClerkClient();"));
@@ -346,6 +348,8 @@ test("homepage exposes industry switch and engineering niche controls", () => {
 
   assert.match(html, /data-industry="tech">Tech<\/button>/);
   assert.match(html, /data-industry="engineering">Engineering<\/button>/);
+  assert.match(html, /id="industry-switcher"[^>]*hidden/);
+  assert.match(html, /const DEFAULT_INDUSTRY = 'tech'/);
   assert.match(html, /id="niche-filter" hidden/);
   assert.match(html, /const ENGINEERING_NICHES = \['AEC \/ Infrastructure'/);
   assert.match(html, /company: 'AECOM'.*niche: 'AEC \/ Infrastructure'/);
@@ -574,18 +578,13 @@ test("runScan classifies broad professional role families", async t => {
   ]));
 });
 
-test("runScan maps engineering source postings with industry and niche", async t => {
-  t.mock.method(globalThis, "fetch", async url => {
-    const href = String(url);
-    if (href.includes("vacancies.burohappold.com/jobs/search")) {
-      return new Response(`
-        <a href="/jobs/job/Senior-Structural-Engineer/2218">Senior Structural Engineer</a>
-        <span>London, United Kingdom</span>
-      `, { headers: { "content-type": "text/html" } });
-    }
-    const token = tokenFromUrl(href);
-    return Response.json(token ? emptyPayload(href) : {});
-  });
+test("runScan no longer live-scrapes engineering sources (workday/greenhouse-spacex/rmk/tribepad/nlx)", async t => {
+  // Engineering corp ATS endpoints (corporate Workday tenants, SpaceX
+  // Greenhouse, Bechtel RMK, Buro Happold Tribepad, AECOM/Stantec NLX) all
+  // bot-challenge or block Cloudflare Worker egress IPs. Live scraping was
+  // removed; those companies are now curated as static targets in
+  // ENGINEERING_STATIC_COMPANIES in public/index.html.
+  t.mock.method(globalThis, "fetch", mockFetch({}));
 
   const KV = createKV();
   const result = await runScan({ KV });
@@ -593,79 +592,19 @@ test("runScan maps engineering source postings with industry and niche", async t
 
   const jobsPut = KV.puts.find(p => p.key === "jobs");
   const payload = JSON.parse(jobsPut.value);
-  const posting = payload.postings.find(p => p.source === "tribepad");
-
-  assert.ok(posting);
-  assert.equal(posting.company, "buro happold");
-  assert.equal(posting.industry, "engineering");
-  assert.equal(posting.niche, "AEC / Infrastructure");
-  assert.equal(posting.role_family, "Engineering");
-  assert.equal(posting.country, "GB");
-});
-
-test("runScan maps Workday engineering source postings", async t => {
-  t.mock.method(globalThis, "fetch", mockFetch({
-    jobsByToken: {
-      "intel.wd1.myworkdayjobs.com": {
-        total: 1,
-        jobPostings: [{
-          title: "Senior CPU RTL Design Engineer",
-          externalPath: "/job/US-Texas-Austin/Senior-CPU-RTL-Design-Engineer_JR123",
-          locationsText: "US, Texas, Austin",
-          bulletFields: ["JR123"]
-        }]
-      }
-    }
-  }));
-
-  const KV = createKV();
-  const result = await runScan({ KV });
-  assert.equal(result.error, undefined);
-
-  const jobsPut = KV.puts.find(p => p.key === "jobs");
-  const payload = JSON.parse(jobsPut.value);
-  const posting = payload.postings.find(p => p.source === "workday" && p.source_token === "intel");
-
-  assert.ok(posting);
-  assert.equal(posting.company, "intel");
-  assert.equal(posting.industry, "engineering");
-  assert.equal(posting.niche, "Semiconductors");
-  assert.equal(posting.role_family, "Engineering");
-  assert.equal(posting.country, "US");
-  assert.equal(posting.visa, "Strong");
-  assert.equal(posting.url, "https://intel.wd1.myworkdayjobs.com/External/job/US-Texas-Austin/Senior-CPU-RTL-Design-Engineer_JR123");
-});
-
-test("runScan maps SpaceX Greenhouse postings as engineering aerospace jobs", async t => {
-  t.mock.method(globalThis, "fetch", mockFetch({
-    jobsByToken: {
-      spacex: {
-        jobs: [{
-          id: 8399574002,
-          title: "Senior Propulsion Engineer",
-          location: { name: "Hawthorne, CA" },
-          absolute_url: "https://boards.greenhouse.io/spacex/jobs/8399574002"
-        }]
-      }
-    }
-  }));
-
-  const KV = createKV();
-  const result = await runScan({ KV });
-  assert.equal(result.error, undefined);
-
-  const jobsPut = KV.puts.find(p => p.key === "jobs");
-  const payload = JSON.parse(jobsPut.value);
-  const posting = payload.postings.find(p => p.source === "greenhouse" && p.source_token === "spacex");
-
-  assert.ok(posting);
-  assert.equal(posting.company, "spacex");
-  assert.equal(posting.industry, "engineering");
-  assert.equal(posting.niche, "Aerospace / Defense / Space");
-  assert.equal(posting.role_family, "Engineering");
-  assert.equal(posting.country, "US");
-  assert.equal(posting.tier, "BigTech");
-  assert.equal(posting.visa, "Likely");
+  const sourcesSeen = new Set(payload.postings.map(p => `${p.source}-${p.source_token}`));
+  for (const id of [
+    "greenhouse-spacex",
+    "rmk-bechtel-engineering",
+    "tribepad-burohappold",
+    "nlx-aecom",
+    "nlx-stantec",
+    "workday-intel",
+    "workday-boeing",
+    "workday-bostondynamics"
+  ]) {
+    assert.equal(sourcesSeen.has(id), false, `${id} should not be live-scraped anymore`);
+  }
 });
 
 test("runScan maps Anthropic Greenhouse postings as frontier AI jobs", async t => {
@@ -842,23 +781,25 @@ test("runScan maps Netflix Eightfold positions", async t => {
   assert.equal(payload.scan_meta.sourceMeta["eightfold-netflix"].parsedCount, 1);
 });
 
-test("engineering source inventory includes SpaceX and existing live source types", () => {
+test("engineering source inventory no longer includes bot-protected live engineering sources", () => {
+  // Live engineering scraping was removed because corporate Workday tenants,
+  // SpaceX Greenhouse, Bechtel RMK, Buro Happold Tribepad, and AECOM/Stantec
+  // NLX all bot-challenge Cloudflare Worker egress. Those companies are now
+  // curated as static targets in public/index.html instead.
   const inventory = scanSourceInventory();
-  const byId = new Map(inventory.map(source => [source.id, source]));
+  const ids = new Set(inventory.map(source => source.id));
 
-  assert.deepEqual(byId.get("greenhouse-spacex"), {
-    id: "greenhouse-spacex",
-    source: "greenhouse",
-    token: "spacex",
-    company: "spacex",
-    industry: "engineering",
-    niche: "Aerospace / Defense / Space",
-    tier: "BigTech",
-    visa: "Likely"
-  });
-
-  for (const id of ["rmk-bechtel-engineering", "tribepad-burohappold", "nlx-aecom", "nlx-stantec", "workday-intel", "workday-boeing", "workday-bostondynamics"]) {
-    assert.equal(byId.get(id)?.industry, "engineering", `${id} should remain an engineering source`);
+  for (const id of [
+    "greenhouse-spacex",
+    "rmk-bechtel-engineering",
+    "tribepad-burohappold",
+    "nlx-aecom",
+    "nlx-stantec",
+    "workday-intel",
+    "workday-boeing",
+    "workday-bostondynamics"
+  ]) {
+    assert.equal(ids.has(id), false, `${id} should no longer be a live source`);
   }
 });
 
