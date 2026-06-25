@@ -239,14 +239,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .agency-feedback-message { min-height: 16px; color: var(--text-secondary); font-size: 12px; }
 .agency-feedback-message.error { color: var(--danger); }
 
-.metrics-ribbon { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin-bottom: 10px; padding: 7px 10px; background: color-mix(in srgb, var(--panel) 78%, transparent); border: 0.5px solid var(--border-soft); border-radius: 8px; color: var(--text-secondary); }
-.metric { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; padding: 3px 13px; border-right: 0.5px solid var(--border-soft); }
-.metric:first-child { padding-left: 2px; }
-.metric:last-child { border-right: 0; padding-right: 2px; }
-.metric-label { color: var(--text-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
-.metric-value { color: var(--text); font-size: 14px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
-.metric-value.text { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-
 .utility-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; padding: 8px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
 .filter-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
 .filter-bar > details { position: relative; }
@@ -617,10 +609,6 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   .sort-select { order: 3; width: 100%; }
   .results-count { order: 4; margin-left: 0; }
   .filter-popup, .filter-popup.wide { min-width: min(280px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
-  .metrics-ribbon { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; padding: 6px; }
-  .metric { justify-content: space-between; padding: 6px 8px; border-right: 0; border-bottom: 0.5px solid var(--border-soft); }
-  .metric:last-child { grid-column: 1 / -1; border-bottom: 0; }
-  .metric-value.text { max-width: 150px; }
   .agency-banner { grid-template-columns: 1fr; }
   .site-footer { grid-template-columns: 1fr; }
   .footer-links { justify-content: flex-start; }
@@ -1147,8 +1135,6 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   <button class="tab" type="button" data-tab="archive">Archive <span class="count" id="count-archive">—</span></button>
   <button class="tab" type="button" data-route="/insights">Market Insights</button>
 </nav>
-
-<div class="metrics-ribbon" id="stats"></div>
 
 <div class="utility-bar">
   <div class="search-wrap" id="search-wrap">
@@ -2566,7 +2552,14 @@ function filterSection(title, items) {
   return section;
 }
 
-function renderFilterOptions(countryCounts = {}) {
+function countryCountsForFilters() {
+  const countryRows = JOBS.filter(j => passesControls(j, { ignoreCountry: true }));
+  const byCountry = {};
+  countryRows.forEach(j => { byCountry[j.country] = (byCountry[j.country] || 0) + 1; });
+  return byCountry;
+}
+
+function renderFilterOptions(countryCounts = countryCountsForFilters()) {
   const nicheDetails = document.getElementById('niche-filter');
   const nicheEl = document.getElementById('filter-niche');
   const countryEl = document.getElementById('filter-country');
@@ -2880,27 +2873,6 @@ function compactNote(note) {
   return note.length > 72 ? note.slice(0, 69).trim() + '...' : note;
 }
 
-function renderStats() {
-  const marketRows = JOBS.filter(passesControls);
-  const countryRows = JOBS.filter(j => passesControls(j, { ignoreCountry: true }));
-  const liveCount = marketRows.filter(j => !j.is_static && !j.is_filled).length;
-  const newCount = marketRows.filter(j => j.is_new).length;
-  const strong = marketRows.filter(j => j.visa === 'Strong').length;
-  const pipeline = JOBS.filter(j => j.industry === state.industry && tabBucket(j) === 'pipeline').length;
-  const byCountry = {};
-  countryRows.forEach(j => { byCountry[j.country] = (byCountry[j.country] || 0) + 1; });
-  const counts = Object.entries(byCountry).sort((a,b) => b[1]-a[1]);
-  const topMarkets = counts.slice(0, 3).map(([c,n]) => `${COUNTRY_NAMES[c]} ${n}`).join(' · ') || 'None';
-  let html = '';
-  html += `<div class="metric"><span class="metric-label">Live roles</span><span class="metric-value">${liveCount}</span></div>`;
-  html += `<div class="metric"><span class="metric-label">New this week</span><span class="metric-value">${newCount}</span></div>`;
-  html += `<div class="metric"><span class="metric-label">Strong visa</span><span class="metric-value">${strong}</span></div>`;
-  html += `<div class="metric"><span class="metric-label">Top markets</span><span class="metric-value text" title="${escapeHTML(topMarkets)}">${escapeHTML(topMarkets)}</span></div>`;
-  html += `<div class="metric"><span class="metric-label">In pipeline</span><span class="metric-value">${pipeline}</span></div>`;
-  document.getElementById('stats').innerHTML = html;
-  renderFilterOptions(byCountry);
-}
-
 function renderTabs() {
   const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0 };
   JOBS.filter(j => j.industry === state.industry).forEach(j => buckets[tabBucket(j)]++);
@@ -3068,7 +3040,7 @@ function renderPipeline() {
 
 function render() {
   renderTabs();
-  renderStats();
+  renderFilterOptions();
   updateFilterBadges();
   const rows = sorted(filtered());
   const tbody = document.getElementById('job-tbody');
