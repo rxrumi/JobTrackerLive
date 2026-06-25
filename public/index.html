@@ -308,8 +308,54 @@ thead th:hover { color: var(--text); }
 thead th.sorted { color: var(--accent); }
 thead th.sorted::after { content: ' ↓'; }
 thead th.sorted.asc::after { content: ' ↑'; }
-.header-help { display: inline-flex; align-items: center; justify-content: center; margin-left: 4px; color: var(--text-secondary); font-size: 10px; text-transform: none; letter-spacing: 0; cursor: help; }
-.header-help:hover { color: var(--accent); }
+.header-help { position: relative; display: inline-flex; align-items: center; justify-content: center; margin-left: 4px; color: var(--text-secondary); font-size: 10px; text-transform: none; letter-spacing: 0; cursor: default; }
+.header-help:hover,
+.header-help:focus-visible { color: var(--accent); outline: none; }
+.header-help::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  top: calc(100% + 7px);
+  width: max-content;
+  max-width: 240px;
+  transform: translateX(-50%);
+  padding: 6px 8px;
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+.header-help::before {
+  content: '';
+  position: absolute;
+  z-index: 21;
+  left: 50%;
+  top: calc(100% + 3px);
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%) rotate(45deg);
+  border-left: 0.5px solid var(--border);
+  border-top: 0.5px solid var(--border);
+  background: var(--panel);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+.header-help:hover::after,
+.header-help:hover::before,
+.header-help:focus-visible::after,
+.header-help:focus-visible::before { opacity: 1; visibility: visible; }
 tbody td { padding: 10px 12px; border-bottom: 0.5px solid var(--border-soft); font-size: 13px; vertical-align: middle; }
 tbody tr { background: var(--card); transition: background 0.15s, box-shadow 0.15s; }
 tbody tr:hover { background: var(--card-hover); box-shadow: inset 3px 0 0 var(--accent); }
@@ -1158,9 +1204,9 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <th data-sort="company">Company</th>
       <th data-sort="role">Role</th>
       <th data-sort="location">Location</th>
-      <th>Company type <span class="header-help" title="Company size and market category used for prioritization." aria-label="Company size and market category used for prioritization.">(i)</span></th>
-      <th>Function <span class="header-help" title="Role family inferred from the job title or target company category." aria-label="Role family inferred from the job title or target company category.">(i)</span></th>
-      <th>Visa signal <span class="header-help" title="Company-level sponsorship signal only. It is not a sponsorship guarantee." aria-label="Company-level sponsorship signal only. It is not a sponsorship guarantee.">(i)</span></th>
+      <th>Company type <span class="header-help" tabindex="0" data-tooltip="Company size and market category used for prioritization." aria-label="Company size and market category used for prioritization.">(i)</span></th>
+      <th>Function <span class="header-help" tabindex="0" data-tooltip="Role family inferred from the job title or target company category." aria-label="Role family inferred from the job title or target company category.">(i)</span></th>
+      <th>Visa signal <span class="header-help" tabindex="0" data-tooltip="Company-level sponsorship signal only. It is not a sponsorship guarantee." aria-label="Company-level sponsorship signal only. It is not a sponsorship guarantee.">(i)</span></th>
       <th>Action</th>
       <th data-col="notes">Notes</th>
       <th data-sort="status">Status</th>
@@ -2665,9 +2711,9 @@ function functionCellHTML(j) {
 }
 
 function visaSignalLabel(visa) {
-  if (visa === 'Strong') return 'Strong signal';
-  if (visa === 'Likely') return 'Likely signal';
-  return 'No signal';
+  if (visa === 'Strong') return 'Strong';
+  if (visa === 'Likely') return 'Likely';
+  return 'Unlikely';
 }
 
 function visaSignalTitle(visa) {
