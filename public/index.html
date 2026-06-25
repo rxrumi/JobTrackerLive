@@ -305,7 +305,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-card); }
+#job-table { min-width: 1180px; }
 thead th { background: var(--panel-2); padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 0.5px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+thead th:not([data-sort]) { cursor: default; }
 thead th:hover { color: var(--text); }
 thead th.sorted { color: var(--accent); }
 thead th.sorted::after { content: ' ↓'; }
@@ -343,7 +345,13 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .visa-strong { background: var(--visa-strong-bg); color: var(--visa-strong-fg); }
 .visa-likely { background: var(--visa-likely-bg); color: var(--visa-likely-fg); }
 .visa-unknown { background: var(--visa-unknown-bg); color: var(--visa-unknown-fg); }
-.composite-cell { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.signal-cell { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; min-width: max-content; }
+.signal-stack { display: inline-flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.signal-muted { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.mobile-signal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.mobile-signal { min-width: 0; }
+.mobile-signal-label { display: block; color: var(--text-muted); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 3px; }
+.mobile-signal-value { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
 
 .score-cell { display: inline-flex; align-items: center; gap: 8px; }
 .score-bar { display: inline-flex; gap: 2px; width: 40px; height: 5px; }
@@ -508,7 +516,6 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .job-card .card-line-2 { font-size: 14px; font-weight: 500; margin-bottom: 8px; line-height: 1.35; color: var(--text); }
 .job-card.is-filled .card-line-2 { font-style: italic; }
 .job-card .card-line-3 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.job-card .card-line-3 .composite-cell { gap: 4px; flex: 1; min-width: 0; }
 .job-card .card-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .job-card .notes-mobile { color: var(--text-secondary); font-size: 12px; margin-top: 6px; line-height: 1.4; }
 .site-footer { margin: 24px 0 0; padding: 16px 18px; border: 0.5px solid var(--border); border-radius: 10px; background: var(--panel); display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 16px 22px; align-items: start; color: var(--text-secondary); font-size: 12px; box-shadow: var(--shadow-card); }
@@ -1151,7 +1158,10 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <th data-sort="company">Company</th>
       <th data-sort="role">Role</th>
       <th data-sort="location">Location</th>
-      <th>Signals <span class="header-help" title="Signals combine company tier, role family, seniority, and visa likelihood." aria-label="Signals combine company tier, role family, seniority, and visa likelihood.">(i)</span></th>
+      <th>Company type <span class="header-help" title="Company size and market category used for prioritization." aria-label="Company size and market category used for prioritization.">(i)</span></th>
+      <th>Function <span class="header-help" title="Role family inferred from the job title or target company category." aria-label="Role family inferred from the job title or target company category.">(i)</span></th>
+      <th>Level <span class="header-help" title="Seniority inferred from the job title. Static targets show Any." aria-label="Seniority inferred from the job title. Static targets show Any.">(i)</span></th>
+      <th>Visa signal <span class="header-help" title="Company-level sponsorship signal only. It is not a sponsorship guarantee." aria-label="Company-level sponsorship signal only. It is not a sponsorship guarantee.">(i)</span></th>
       <th>Action</th>
       <th data-col="notes">Notes</th>
       <th data-sort="status">Status</th>
@@ -2684,24 +2694,54 @@ function scoreBarHTML(score) {
   return html;
 }
 
-function compositeBadgesHTML(j) {
-  const familyTitle = j.is_static ? (j.role_families || []).join(', ') : j.familyLabel;
+function companyTypeCellHTML(j) {
   const tier = classToken(j.tier);
-  const visa = classToken(j.visa);
+  return `<span class="signal-cell"><span class="tier-badge tier-${tier}">${escapeHTML(j.tierLabel)}</span></span>`;
+}
+
+function functionCellHTML(j) {
+  const familyTitle = j.is_static ? (j.role_families || []).join(', ') : j.familyLabel;
   const badges = [
-    `<span class="tier-badge tier-${tier}">${escapeHTML(j.tierLabel)}</span>`,
     `<span class="family-badge" title="${escapeHTML(familyTitle)}">${escapeHTML(j.familyLabel)}</span>`
   ];
   if (j.industry === 'engineering' && j.nicheLabel) {
     badges.push(`<span class="family-badge">${escapeHTML(j.nicheLabel)}</span>`);
   }
-  if (j.seniorityLabel !== 'Unknown') {
-    badges.push(`<span class="seniority-badge">${escapeHTML(j.seniorityLabel)}</span>`);
-  }
-  if (j.visa !== 'Unknown') {
-    badges.push(`<span class="visa-badge visa-${visa}">${escapeHTML(j.visa)}</span>`);
-  }
-  return `<span class="composite-cell">${badges.join('')}</span>`;
+  return `<span class="signal-stack">${badges.join('')}</span>`;
+}
+
+function levelCellHTML(j) {
+  return `<span class="signal-cell"><span class="seniority-badge">${escapeHTML(j.seniorityLabel)}</span></span>`;
+}
+
+function visaSignalLabel(visa) {
+  if (visa === 'Strong') return 'Strong signal';
+  if (visa === 'Likely') return 'Likely signal';
+  return 'No signal';
+}
+
+function visaSignalTitle(visa) {
+  if (visa === 'Strong') return 'Company has stronger sponsorship history or hiring signal. This is not a guarantee.';
+  if (visa === 'Likely') return 'Company has some sponsorship history or hiring signal. This is not a guarantee.';
+  return 'No useful company-level sponsorship signal is currently known.';
+}
+
+function visaSignalCellHTML(j) {
+  const visa = classToken(j.visa);
+  return `<span class="signal-cell"><span class="visa-badge visa-${visa}" title="${escapeHTML(visaSignalTitle(j.visa))}">${escapeHTML(visaSignalLabel(j.visa))}</span></span>`;
+}
+
+function mobileSignalHTML(label, valueHTML) {
+  return `<div class="mobile-signal"><span class="mobile-signal-label">${escapeHTML(label)}</span><span class="mobile-signal-value">${valueHTML}</span></div>`;
+}
+
+function mobileSignalsHTML(j) {
+  return `<div class="mobile-signal-grid">
+    ${mobileSignalHTML('Company type', companyTypeCellHTML(j))}
+    ${mobileSignalHTML('Function', functionCellHTML(j))}
+    ${mobileSignalHTML('Level', levelCellHTML(j))}
+    ${mobileSignalHTML('Visa signal', visaSignalCellHTML(j))}
+  </div>`;
 }
 
 function statusSelectHTML(id) {
@@ -2768,7 +2808,6 @@ function rowHTML(j) {
   const sourceBadge = `<span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
   const isViewed = !!loadViewedAt(j.id);
   const rowCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
-  const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   const note = compactNote(j.notes || '');
   const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
   return `<tr class="${rowCls.trim()}">
@@ -2783,7 +2822,10 @@ function rowHTML(j) {
     </td>
     <td class="role">${escapeHTML(j.role)}</td>
     <td>${escapeHTML(j.location)}</td>
-    <td>${compositeBadgesHTML(j)}</td>
+    <td>${companyTypeCellHTML(j)}</td>
+    <td>${functionCellHTML(j)}</td>
+    <td>${levelCellHTML(j)}</td>
+    <td>${visaSignalCellHTML(j)}</td>
     <td>${applyButtonHTML(j)}</td>
     <td class="notes-cell" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</td>
     <td>${statusSelectHTML(j.id)}</td>
@@ -2796,7 +2838,6 @@ function cardHTML(j) {
   const sourceBadge = `<span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
   const isViewed = !!loadViewedAt(j.id);
   const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
-  const scoreClass = j.score >= 85 ? 'score-high' : j.score >= 70 ? 'score-med' : 'score-low';
   const note = compactNote(j.notes || '');
   const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
   return `<article class="job-card ${cardCls.trim()}">
@@ -2811,8 +2852,8 @@ function cardHTML(j) {
     <div class="card-line-2">${escapeHTML(j.role)}</div>
     <div class="card-line-3">
       <span style="color:var(--text-secondary);font-size:12px">${escapeHTML(j.location)}</span>
-      ${compositeBadgesHTML(j)}
     </div>
+    ${mobileSignalsHTML(j)}
     ${note ? `<div class="notes-mobile" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</div>` : ''}
     <div class="card-actions">
       ${applyButtonHTML(j)}
