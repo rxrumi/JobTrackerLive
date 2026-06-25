@@ -373,9 +373,11 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 
 .company { font-weight: 500; }
 .company-cell { display: flex; align-items: flex-start; gap: 7px; min-width: 170px; }
-.company-main { min-width: 0; }
+.company-main { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 7px; min-width: 0; align-items: start; }
 .company-name { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.company-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 3px; }
+.company-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 3px; grid-column: 2; }
+.company-logo { display: block; width: 22px; height: 22px; border-radius: 5px; background: var(--panel-2); object-fit: contain; flex: 0 0 22px; box-shadow: inset 0 0 0 0.5px var(--border-soft); }
+.company-logo-placeholder { display: block; width: 22px; height: 22px; flex: 0 0 22px; }
 .meta-text { color: var(--text-secondary); font-size: 11px; }
 .role { color: var(--text); }
 .tier-badge, .family-badge, .seniority-badge, .visa-badge, .new-badge, .filled-badge, .source-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
@@ -554,7 +556,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 .job-card.is-new { border-left-color: var(--new); }
 .job-card.is-filled { border-left-color: var(--filled); color: var(--text-secondary); }
 .job-card .card-line-1 { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
-.job-card .card-line-1 .company { flex: 1; min-width: 100px; }
+.job-card .card-line-1 .company { flex: 1; min-width: 100px; display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 7px; align-items: start; }
 .job-card .card-line-2 { font-size: 14px; font-weight: 500; margin-bottom: 8px; line-height: 1.35; color: var(--text); }
 .job-card.is-filled .card-line-2 { font-style: italic; }
 .job-card .card-line-3 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -1490,6 +1492,98 @@ const ENGINEERING_STATIC_COMPANIES = [
   { id: 1097, company: '3M', country: 'US', city: 'Minneapolis', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://www.3m.com/3M/en_US/careers-us/' }
 ];
 
+const COMPANY_LOGO_DOMAINS = {
+  '3m': '3m.com',
+  abb: 'abb.com',
+  adobe: 'adobe.com',
+  aecom: 'aecom.com',
+  airbus: 'airbus.com',
+  airtable: 'airtable.com',
+  amd: 'amd.com',
+  anthropic: 'anthropic.com',
+  apple: 'apple.com',
+  asana: 'asana.com',
+  asml: 'asml.com',
+  atlassian: 'atlassian.com',
+  'aws amazon': 'amazon.com',
+  amazon: 'amazon.com',
+  bechtel: 'bechtel.com',
+  boeing: 'boeing.com',
+  bolt: 'bolt.eu',
+  box: 'box.com',
+  brex: 'brex.com',
+  broadcom: 'broadcom.com',
+  canva: 'canva.com',
+  celonis: 'celonis.com',
+  cloudflare: 'cloudflare.com',
+  cognite: 'cognite.com',
+  confluent: 'confluent.io',
+  cursor: 'cursor.com',
+  databricks: 'databricks.com',
+  datadog: 'datadoghq.com',
+  deel: 'deel.com',
+  elastic: 'elastic.co',
+  factorial: 'factorialhr.com',
+  factorialhr: 'factorialhr.com',
+  figma: 'figma.com',
+  gitlab: 'gitlab.com',
+  glovo: 'glovoapp.com',
+  gm: 'gm.com',
+  gong: 'gong.io',
+  gongio: 'gong.io',
+  google: 'google.com',
+  hubspot: 'hubspot.com',
+  intel: 'intel.com',
+  kahoot: 'kahoot.com',
+  klarna: 'klarna.com',
+  klaviyo: 'klaviyo.com',
+  linear: 'linear.app',
+  linkedin: 'linkedin.com',
+  meta: 'meta.com',
+  microsoft: 'microsoft.com',
+  miro: 'miro.com',
+  mollie: 'mollie.com',
+  monday: 'monday.com',
+  mongodb: 'mongodb.com',
+  n26: 'n26.com',
+  netflix: 'netflix.com',
+  notion: 'notion.com',
+  nvidia: 'nvidia.com',
+  openai: 'openai.com',
+  personio: 'personio.com',
+  perplexity: 'perplexity.ai',
+  pipedrive: 'pipedrive.com',
+  pinterest: 'pinterest.com',
+  pleo: 'pleo.io',
+  ramp: 'ramp.com',
+  remote: 'remote.com',
+  salesforce: 'salesforce.com',
+  servicenow: 'servicenow.com',
+  shopify: 'shopify.com',
+  snowflake: 'snowflake.com',
+  spacex: 'spacex.com',
+  spotify: 'spotify.com',
+  stripe: 'stripe.com',
+  talkdesk: 'talkdesk.com',
+  tesla: 'tesla.com',
+  trustpilot: 'trustpilot.com',
+  twilio: 'twilio.com',
+  typeform: 'typeform.com',
+  vercel: 'vercel.com',
+  wise: 'wise.com',
+  xero: 'xero.com',
+  zendesk: 'zendesk.com'
+};
+const ATS_LOGO_HOST_PATTERNS = [
+  /(^|\.)greenhouse\.io$/,
+  /(^|\.)job-boards\.greenhouse\.io$/,
+  /(^|\.)ashbyhq\.com$/,
+  /(^|\.)lever\.co$/,
+  /(^|\.)smartrecruiters\.com$/,
+  /(^|\.)workdayjobs\.com$/,
+  /(^|\.)myworkdayjobs\.com$/,
+  /(^|\.)ycombinator\.com$/
+];
 const COUNTRY_NAMES = { GB: 'UK', IE: 'Ireland', CA: 'Canada', AU: 'Australia', US: 'United States', SG: 'Singapore', DE: 'Germany', NL: 'Netherlands', CH: 'Switzerland', SE: 'Sweden', DK: 'Denmark', NO: 'Norway', ES: 'Spain', PT: 'Portugal', EE: 'Estonia', NZ: 'New Zealand', FR: 'France', IT: 'Italy', PL: 'Poland', BE: 'Belgium', FI: 'Finland', AT: 'Austria', JP: 'Japan', KR: 'South Korea', IN: 'India', TW: 'Taiwan' };
 const COUNTRY_FLAGS = { GB: '🇬🇧', IE: '🇮🇪', CA: '🇨🇦', AU: '🇦🇺', US: '🇺🇸', SG: '🇸🇬', DE: '🇩🇪', NL: '🇳🇱', CH: '🇨🇭', SE: '🇸🇪', DK: '🇩🇰', NO: '🇳🇴', ES: '🇪🇸', PT: '🇵🇹', EE: '🇪🇪', NZ: '🇳🇿', FR: '🇫🇷', IT: '🇮🇹', PL: '🇵🇱', BE: '🇧🇪', FI: '🇫🇮', AT: '🇦🇹', JP: '🇯🇵', KR: '🇰🇷', IN: '🇮🇳', TW: '🇹🇼' };
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
@@ -1614,6 +1708,32 @@ function prettyCompany(token) {
   const map = { gongio:'Gong', factorialhr:'Factorial', kahoot:'Kahoot!' };
   if (map[token]) return map[token];
   return token.charAt(0).toUpperCase() + token.slice(1);
+}
+
+function logoKey(company) {
+  return normalizeSearchText(company).replace(/\b(inc|ltd|limited|plc|corp|corporation|company|co|com)\b/g, '').trim().replace(/\s+/g, ' ');
+}
+
+function applyHostLogoDomain(url) {
+  try {
+    const host = new URL(String(url || '')).hostname.replace(/^www\./, '').toLowerCase();
+    if (!host || ATS_LOGO_HOST_PATTERNS.some(pattern => pattern.test(host))) return '';
+    return host;
+  } catch (e) {
+    return '';
+  }
+}
+
+function companyLogoDomain(j) {
+  const key = logoKey(j.company);
+  return COMPANY_LOGO_DOMAINS[key] || applyHostLogoDomain(j.apply);
+}
+
+function companyLogoHTML(j) {
+  const domain = companyLogoDomain(j);
+  if (!domain) return '<span class="company-logo-placeholder" aria-hidden="true"></span>';
+  const src = `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(domain)}`;
+  return `<img class="company-logo" src="${escapeHTML(src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true" onerror="this.style.visibility='hidden'">`;
 }
 
 function inferRoleFamily(title) {
@@ -2810,6 +2930,7 @@ function rowHTML(j) {
       <div class="company-cell">
         ${starHTML(j.id)}
         <div class="company-main">
+          ${companyLogoHTML(j)}
           <div class="company-name">${escapeHTML(j.company)}</div>
           <div class="company-meta">${sourceBadge}${newBadge}${filledBadge}${viewedTime}</div>
         </div>
@@ -2838,6 +2959,7 @@ function cardHTML(j) {
     <div class="card-line-1">
       ${starHTML(j.id)}
       <span class="company">
+        ${companyLogoHTML(j)}
         <span class="company-name">${escapeHTML(j.company)}</span>
         <span class="company-meta">${sourceBadge}${newBadge}${filledBadge}${viewedTime}</span>
       </span>
