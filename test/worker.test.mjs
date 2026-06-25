@@ -389,6 +389,65 @@ test("homepage preserves onboarding role families when relaxing profile defaults
   assert.match(html, /PROFILE_FILTERS_RELAXED = selected !== candidates\[0\];/);
 });
 
+test("homepage renders active pages from page-scoped server results", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const renderSource = html.slice(
+    html.indexOf("function render()"),
+    html.indexOf("function wireRowHandlers()")
+  );
+
+  assert.match(html, /let DYNAMIC_PAGE_IDS = \[\];/);
+  assert.match(html, /function dynamicQueryKeyFromPayload\(\{ page, sort, dir, search, filters \}\)/);
+  assert.match(html, /function activeServerPageReady\(\)/);
+  assert.match(html, /DYNAMIC_PAGINATION_QUERY_KEY === dynamicQueryKey\(state\.page\)/);
+  assert.match(html, /function dynamicPageRows\(\)/);
+  assert.match(html, /DYNAMIC_PAGE_IDS\s+\.map\(id => byId\.get\(String\(id\)\)\)/);
+  assert.match(renderSource, /const serverBackedActive = activeServerPageReady\(\);/);
+  assert.match(renderSource, /const pageRows = serverBackedActive \? dynamicPageRows\(\) : rows\.slice\(start, start \+ PAGE_SIZE\);/);
+  assert.doesNotMatch(renderSource, /serverBackedActive \? Math\.max\(rows\.length, DYNAMIC_PAGINATION\.total \|\| 0\) : rows\.length/);
+});
+
+test("homepage honors worker-clamped active pages", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const fetchSource = html.slice(
+    html.indexOf("async function fetchJobsPage(page)"),
+    html.indexOf("function scheduleActiveRefresh()")
+  );
+  const setPageSource = html.slice(
+    html.indexOf("async function setPage(page)"),
+    html.indexOf("function resetPage()")
+  );
+
+  assert.match(fetchSource, /const resolvedPage = DYNAMIC_PAGINATION\.page \|\| page;/);
+  assert.match(fetchSource, /DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKeyFromPayload\(\{ \.\.\.query, page: resolvedPage \}\);/);
+  assert.match(fetchSource, /if \(!queryHasActiveControls\) HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION\.total \|\| HEADER_ACTIVE_TOTAL;/);
+  assert.match(fetchSource, /DYNAMIC_PAGE_IDS = \(data\.postings \|\| \[\]\)\.map\(p => String\(p\.id\)\);/);
+  assert.match(setPageSource, /let target = Math\.max\(1, page\);/);
+  assert.match(setPageSource, /if \(state\.tab === 'active'\)/);
+  assert.match(setPageSource, /const data = await fetchJobsPage\(target\);/);
+  assert.match(setPageSource, /target = data\.pagination\?\.page \|\| target;/);
+  assert.match(setPageSource, /state\.page = target;/);
+});
+
+test("homepage fetches filtered startup pages without poisoning global active counts", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const initSource = html.slice(
+    html.indexOf("async function init()"),
+    html.indexOf("const me = ME || await loadMe()")
+  );
+  const tabsSource = html.slice(
+    html.indexOf("function renderTabs()"),
+    html.indexOf("function rowHTML(j)")
+  );
+
+  assert.match(initSource, /const needsFilteredStartupPage = hasActiveControls\(\);/);
+  assert.match(initSource, /if \(!needsFilteredStartupPage\) DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKey\(DYNAMIC_PAGINATION\.page \|\| 1\);/);
+  assert.match(initSource, /if \(needsFilteredStartupPage\) \{[\s\S]*await fetchJobsPage\(1\);/);
+  assert.match(initSource, /HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION\.total \|\| data\.postings\?\.length \|\| 0;/);
+  assert.match(tabsSource, /Math\.max\(buckets\.active, HEADER_ACTIVE_TOTAL\)/);
+  assert.doesNotMatch(tabsSource, /DYNAMIC_PAGINATION\.total/);
+});
+
 test("runScan matches lowercase/country-hint locations and classifies visa", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     jobsByToken: {

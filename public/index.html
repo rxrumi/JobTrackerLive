@@ -1597,6 +1597,7 @@ let JOBS = [];
 let DYNAMIC_POSTINGS = new Map();
 let DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
 let DYNAMIC_PAGINATION_QUERY_KEY = '';
+let DYNAMIC_PAGE_IDS = [];
 let LAST_SCAN = null;
 let PUBLIC_FEED_LOADED = false;
 let HEADER_ACTIVE_TOTAL = 0;
@@ -1859,14 +1860,35 @@ function serializedFilters() {
   };
 }
 
+function dynamicQueryKeyFromPayload({ page, sort, dir, search, filters }) {
+  return JSON.stringify({ page, sort, dir, search, filters });
+}
+
 function dynamicQueryKey(page = state.page) {
-  return JSON.stringify({
+  return dynamicQueryKeyFromPayload({
     page,
     sort: state.sort,
     dir: state.dir,
     search: state.search,
     filters: serializedFilters()
   });
+}
+
+function resetDynamicPageState() {
+  DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
+  DYNAMIC_PAGINATION_QUERY_KEY = '';
+  DYNAMIC_PAGE_IDS = [];
+}
+
+function activeServerPageReady() {
+  return state.tab === 'active' && DYNAMIC_PAGINATION_QUERY_KEY === dynamicQueryKey(state.page);
+}
+
+function dynamicPageRows() {
+  const byId = new Map(JOBS.map(j => [String(j.id), j]));
+  return DYNAMIC_PAGE_IDS
+    .map(id => byId.get(String(id)))
+    .filter(j => j && tabBucket(j) === 'active' && passesControls(j));
 }
 
 function buildJobs(dynamicPostings) {
@@ -1961,22 +1983,34 @@ async function loadPublicConfig() {
 }
 
 async function fetchJobsPage(page) {
-  const queryKey = dynamicQueryKey(page);
+  const query = {
+    page,
+    per_page: PAGE_SIZE,
+    sort: state.sort,
+    dir: state.dir,
+    search: state.search,
+    filters: serializedFilters()
+  };
+  const queryHasActiveControls = Boolean(
+    query.search.trim() ||
+    query.filters.niche.length ||
+    query.filters.country.length ||
+    query.filters.tier.length ||
+    query.filters.family.length ||
+    query.filters.seniority.length ||
+    query.filters.visa.length ||
+    query.filters.presets.length
+  );
   const data = await api('/api/jobs/query', {
     method: 'POST',
-    body: JSON.stringify({
-      page,
-      per_page: PAGE_SIZE,
-      sort: state.sort,
-      dir: state.dir,
-      search: state.search,
-      filters: serializedFilters()
-    })
+    body: JSON.stringify(query)
   });
   DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
-  DYNAMIC_PAGINATION_QUERY_KEY = queryKey;
+  const resolvedPage = DYNAMIC_PAGINATION.page || page;
+  DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKeyFromPayload({ ...query, page: resolvedPage });
+  DYNAMIC_PAGE_IDS = (data.postings || []).map(p => String(p.id));
   LAST_SCAN = data.last_scan_at || LAST_SCAN;
-  HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || 0;
+  if (!queryHasActiveControls) HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || HEADER_ACTIVE_TOTAL;
   mergeDynamicPostings(data.postings || []);
   rebuildJobsFromCache();
   PUBLIC_FEED_LOADED = true;
@@ -1999,14 +2033,15 @@ function scheduleActiveRefresh() {
 }
 
 async function setPage(page) {
-  const target = Math.max(1, page);
+  let target = Math.max(1, page);
   if (target > 1 && !ME?.user) {
     await startClerkAuth('login', CURRENT_ROUTE);
     return;
   }
-  if (target > 1 && state.tab === 'active') {
+  if (state.tab === 'active') {
     try {
-      await fetchJobsPage(target);
+      const data = await fetchJobsPage(target);
+      target = data.pagination?.page || target;
     } catch (e) {
       updateHeaderStatus('🟢 Active jobs updated today');
       return;
@@ -2200,11 +2235,17 @@ function syncSearchInput() {
 function applyUrlFiltersToState() {
   if (!isDashboardRoute(CURRENT_ROUTE)) return;
   const params = new URLSearchParams(window.location.search);
+  const before = JSON.stringify({ country: [...state.country], family: [...state.family] });
   if (params.has('country')) {
     state.country = new Set(valuesFromQueryParam(params, 'country', allowedFilterValues('country', state.industry)));
   }
   if (params.has('family')) {
     state.family = new Set(valuesFromQueryParam(params, 'family', allowedFilterValues('family', state.industry)));
+  }
+  const after = JSON.stringify({ country: [...state.country], family: [...state.family] });
+  if (before !== after) {
+    resetPage();
+    resetDynamicPageState();
   }
   saveCurrentIndustryFilters();
 }
@@ -2243,7 +2284,7 @@ async function setIndustry(industry) {
   applyFilterSnapshotToState(INDUSTRY_FILTER_SNAPSHOTS[industry], industry);
   state.page = 1;
   HEADER_ACTIVE_TOTAL = 0;
-  DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
+  resetDynamicPageState();
   try { localStorage.setItem(INDUSTRY_KEY, industry); } catch {}
   saveCurrentIndustryFilters();
   syncShareableFiltersToUrl();
@@ -2278,6 +2319,7 @@ function filterChanged(changedCat = '') {
   if (changedCat === 'country' || changedCat === 'family') syncShareableFiltersToUrl();
   updateFilterBadges();
   resetPage();
+  resetDynamicPageState();
   render();
   scheduleActiveRefresh();
   debouncedTrackSearch();
@@ -2522,6 +2564,8 @@ function applyControlState(controls) {
   state.search = controls.search;
   saveCurrentIndustryFilters();
   syncSearchInput();
+  resetPage();
+  resetDynamicPageState();
 }
 
 function relaxedProfileFilterStates(profile) {
@@ -2690,7 +2734,7 @@ function renderStats() {
 function renderTabs() {
   const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0 };
   JOBS.filter(j => j.industry === state.industry).forEach(j => buckets[tabBucket(j)]++);
-  document.getElementById('count-active').textContent = Math.max(buckets.active, DYNAMIC_PAGINATION.total || 0);
+  document.getElementById('count-active').textContent = Math.max(buckets.active, HEADER_ACTIVE_TOTAL);
   document.getElementById('count-targets').textContent = buckets.targets;
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
   document.getElementById('count-archive').textContent = buckets.archive;
@@ -2861,20 +2905,22 @@ function render() {
   const pipelineView = document.getElementById('pipeline-view');
   const empty = document.getElementById('empty-state');
   const loadedTabTotal = JOBS.filter(j => tabBucket(j) === state.tab).length;
-  const total = state.tab === 'active' ? Math.max(loadedTabTotal, DYNAMIC_PAGINATION.total || 0) : loadedTabTotal;
-  const serverBackedActive = state.tab === 'active' && DYNAMIC_PAGINATION_QUERY_KEY === dynamicQueryKey(state.page);
-  const paginationTotal = serverBackedActive ? Math.max(rows.length, DYNAMIC_PAGINATION.total || 0) : rows.length;
-  const totalPages = Math.max(1, Math.ceil(paginationTotal / PAGE_SIZE));
-  if (state.page > totalPages) state.page = totalPages;
+  const total = state.tab === 'active' ? Math.max(loadedTabTotal, HEADER_ACTIVE_TOTAL) : loadedTabTotal;
+  const serverBackedActive = activeServerPageReady();
+  const paginationTotal = serverBackedActive ? DYNAMIC_PAGINATION.total || 0 : rows.length;
+  const totalPages = serverBackedActive
+    ? Math.max(1, DYNAMIC_PAGINATION.total_pages || Math.ceil(paginationTotal / PAGE_SIZE))
+    : Math.max(1, Math.ceil(paginationTotal / PAGE_SIZE));
+  if (!serverBackedActive && state.page > totalPages) state.page = totalPages;
   const start = (state.page - 1) * PAGE_SIZE;
-  const pageRows = rows.slice(start, start + PAGE_SIZE);
+  const pageRows = serverBackedActive ? dynamicPageRows() : rows.slice(start, start + PAGE_SIZE);
   const visibleStart = paginationTotal ? start + 1 : 0;
   const visibleEnd = Math.min(paginationTotal, start + pageRows.length);
-  document.getElementById('results-count').textContent = rows.length
+  document.getElementById('results-count').textContent = paginationTotal
     ? `${visibleStart}-${visibleEnd} of ${paginationTotal} filtered · ${total} total`
     : `0 of ${total}`;
 
-  if (!rows.length) {
+  if (!paginationTotal) {
     empty.style.display = 'block';
     wrap.style.display = 'none';
     cards.style.display = 'none';
@@ -2956,6 +3002,7 @@ function resetAll() {
   saveCurrentIndustryFilters();
   syncShareableFiltersToUrl();
   resetPage();
+  resetDynamicPageState();
   syncSearchInput();
   document.querySelectorAll('.chip.active, .filter-option.active').forEach(c => c.classList.remove('active'));
   updateFilterBadges();
@@ -3003,6 +3050,7 @@ function wireStaticHandlers() {
     saveCurrentIndustryFilters();
     searchWrap.classList.toggle('has-text', e.target.value.length > 0);
     resetPage();
+    resetDynamicPageState();
     render();
     scheduleActiveRefresh();
     debouncedTrackSearch();
@@ -3014,6 +3062,7 @@ function wireStaticHandlers() {
     searchWrap.classList.remove('has-text');
     searchEl.focus();
     resetPage();
+    resetDynamicPageState();
     render();
     scheduleActiveRefresh();
     debouncedTrackSearch();
@@ -3024,6 +3073,7 @@ function wireStaticHandlers() {
     const [k, d] = e.target.value.split('|');
     state.sort = k; state.dir = d;
     resetPage();
+    resetDynamicPageState();
     render();
     scheduleActiveRefresh();
   };
@@ -3043,6 +3093,7 @@ function wireStaticHandlers() {
       const sel = document.getElementById('sort-select');
       const v = `${state.sort}|${state.dir}`;
       if ([...sel.options].some(o => o.value === v)) sel.value = v;
+      resetDynamicPageState();
       render();
       scheduleActiveRefresh();
     };
@@ -3957,6 +4008,7 @@ async function init() {
 
   await loadPublicConfig();
   const oauthError = await handleOAuthCallbackFromUrl();
+  const needsFilteredStartupPage = hasActiveControls();
 
   try {
     const r = await fetch(`/api/jobs?industry=${encodeURIComponent(state.industry)}`);
@@ -3964,7 +4016,8 @@ async function init() {
       const data = await r.json();
       LAST_SCAN = data.last_scan_at;
       DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
-      DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKey(1);
+      DYNAMIC_PAGE_IDS = (data.postings || []).map(p => String(p.id));
+      if (!needsFilteredStartupPage) DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKey(DYNAMIC_PAGINATION.page || 1);
       HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || data.postings?.length || 0;
       mergeDynamicPostings(data.postings || []);
       rebuildJobsFromCache();
@@ -3974,6 +4027,16 @@ async function init() {
     }
   } catch (e) {
     updateHeaderStatus('🟢 Active jobs updating today');
+  }
+
+  if (needsFilteredStartupPage) {
+    try {
+      const data = await fetchJobsPage(1);
+      state.page = data.pagination?.page || 1;
+      render();
+    } catch (e) {
+      updateHeaderStatus('🟢 Active jobs updating today');
+    }
   }
 
   const me = ME || await loadMe();
