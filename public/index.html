@@ -2541,14 +2541,10 @@ function applyControlState(controls) {
 
 function relaxedProfileFilterStates(profile) {
   const full = profileFilterState(profile);
-  const withoutRole = { ...full, family: new Set() };
-  const withoutRoleOrCountry = { ...withoutRole, country: new Set() };
-  const allActive = {
-    ...withoutRoleOrCountry,
-    seniority: new Set(),
-    visa: new Set()
-  };
-  return [full, withoutRole, withoutRoleOrCountry, allActive];
+  const withoutSeniority = { ...full, seniority: new Set() };
+  const withoutSeniorityOrVisa = { ...withoutSeniority, visa: new Set() };
+  const withoutSeniorityVisaOrCountry = { ...withoutSeniorityOrVisa, country: new Set() };
+  return [full, withoutSeniority, withoutSeniorityOrVisa, withoutSeniorityVisaOrCountry];
 }
 
 function applyProfileFiltersOnce() {

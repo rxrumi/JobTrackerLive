@@ -357,13 +357,20 @@ test("homepage exposes industry switch and engineering niche controls", () => {
   assert.match(html, /function setIndustry\(industry\)/);
 });
 
-test("homepage silently relaxes onboarding filters when profile defaults have no active matches", () => {
+test("homepage preserves onboarding role families when relaxing profile defaults", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const relaxationSource = html.slice(
+    html.indexOf("function relaxedProfileFilterStates(profile)"),
+    html.indexOf("function applyProfileFiltersOnce()")
+  );
 
   assert.match(html, /function relaxedProfileFilterStates\(profile\)/);
-  assert.match(html, /const withoutRole = \{ \.\.\.full, family: new Set\(\) \};/);
-  assert.match(html, /const withoutRoleOrCountry = \{ \.\.\.withoutRole, country: new Set\(\) \};/);
-  assert.match(html, /seniority: new Set\(\),\n    visa: new Set\(\)/);
+  assert.doesNotMatch(relaxationSource, /withoutRole/);
+  assert.doesNotMatch(relaxationSource, /family:\s*new Set\(\)/);
+  assert.match(relaxationSource, /const withoutSeniority = \{ \.\.\.full, seniority: new Set\(\) \};/);
+  assert.match(relaxationSource, /const withoutSeniorityOrVisa = \{ \.\.\.withoutSeniority, visa: new Set\(\) \};/);
+  assert.match(relaxationSource, /const withoutSeniorityVisaOrCountry = \{ \.\.\.withoutSeniorityOrVisa, country: new Set\(\) \};/);
+  assert.match(relaxationSource, /return \[full, withoutSeniority, withoutSeniorityOrVisa, withoutSeniorityVisaOrCountry\];/);
   assert.match(html, /const selected = candidates\.find\(activeMatchCountForControls\) \|\| candidates\[candidates\.length - 1\];/);
   assert.match(html, /PROFILE_FILTERS_RELAXED = selected !== candidates\[0\];/);
 });
