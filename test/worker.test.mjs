@@ -1577,7 +1577,7 @@ test("jobs query rejects anonymous page two", async () => {
   assert.equal(response.status, 401);
 });
 
-test("jobs query requires human verification for authenticated page two", async () => {
+test("jobs query allows authenticated page two without human verification", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000020", email: "king@example.com" };
   const fake = createD1Fake({ user });
   const KV = createKV();
@@ -1589,71 +1589,16 @@ test("jobs query requires human verification for authenticated page two", async 
     body: JSON.stringify({ page: 2 })
   }), {
     KV,
-    DB: fake.DB, CLERK_USER: fake.user,
-    PAGE_ACCESS_SECRET: "page-secret",
-    TURNSTILE_SECRET: "turnstile-secret"
-  });
-
-  assert.equal(response.status, 403);
-  assert.equal((await response.json()).error, "human_verification_required");
-});
-
-test("jobs query allows authenticated page two with valid Turnstile and sets clearance cookie", async t => {
-  t.mock.method(globalThis, "fetch", async url => {
-    assert.equal(String(url), "https://challenges.cloudflare.com/turnstile/v0/siteverify");
-    return Response.json({ success: true });
-  });
-  const user = { id: "00000000-0000-4000-8000-000000000021", email: "king@example.com" };
-  const fake = createD1Fake({ user });
-  const KV = createKV();
-  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
-
-  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
-    method: "POST",
-    headers: { Cookie: "session=1" },
-    body: JSON.stringify({ page: 2, turnstile_token: "token" })
-  }), {
-    KV,
-    DB: fake.DB, CLERK_USER: fake.user,
-    PAGE_ACCESS_SECRET: "page-secret",
-    TURNSTILE_SECRET: "turnstile-secret"
+    DB: fake.DB, CLERK_USER: fake.user
   });
 
   assert.equal(response.status, 200);
-  assert.match(response.headers.get("Set-Cookie"), /job_page_access=/);
   const payload = await response.json();
   assert.equal(payload.pagination.page, 2);
   assert.equal(payload.postings.length, 5);
 });
 
-test("jobs query rejects Turnstile tokens for the wrong hostname or action", async t => {
-  t.mock.method(globalThis, "fetch", async () => Response.json({
-    success: true,
-    hostname: "evil.example",
-    action: "jobs_page_access"
-  }));
-  const user = { id: "00000000-0000-4000-8000-000000000023", email: "king@example.com" };
-  const fake = createD1Fake({ user });
-  const KV = createKV();
-  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
-
-  const response = await worker.fetch(new Request("https://livejobindex.com/api/jobs/query", {
-    method: "POST",
-    headers: { Cookie: "session=1", Origin: "https://livejobindex.com" },
-    body: JSON.stringify({ page: 2, turnstile_token: "token" })
-  }), {
-    KV,
-    DB: fake.DB, CLERK_USER: fake.user,
-    PAGE_ACCESS_SECRET: "page-secret",
-    TURNSTILE_SECRET: "turnstile-secret"
-  });
-
-  assert.equal(response.status, 403);
-  assert.equal((await response.json()).error, "human_verification_required");
-});
-
-test("jobs query clamps out-of-range pages", async t => {
-  t.mock.method(globalThis, "fetch", async () => Response.json({ success: true }));
+test("jobs query clamps out-of-range pages", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000022", email: "king@example.com" };
   const fake = createD1Fake({ user });
   const KV = createKV();
@@ -1662,12 +1607,10 @@ test("jobs query clamps out-of-range pages", async t => {
   const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
     method: "POST",
     headers: { Cookie: "session=1" },
-    body: JSON.stringify({ page: 99, turnstile_token: "token" })
+    body: JSON.stringify({ page: 99 })
   }), {
     KV,
-    DB: fake.DB, CLERK_USER: fake.user,
-    PAGE_ACCESS_SECRET: "page-secret",
-    TURNSTILE_SECRET: "turnstile-secret"
+    DB: fake.DB, CLERK_USER: fake.user
   });
 
   assert.equal(response.status, 200);
@@ -1865,7 +1808,6 @@ test("me exposes signup full name from auth metadata", async () => {
 
 test("public config exposes browser auth settings", async () => {
   const response = await worker.fetch(new Request("https://livejobindex.com/api/config"), {
-    TURNSTILE_SITE_KEY: "turnstile-public-key",
     CLERK_PUBLISHABLE_KEY: "pk_test_livejobindex",
     CLERK_SIGN_IN_URL: "https://accounts.livejobindex.com/sign-in",
     CLERK_SIGN_UP_URL: "https://accounts.livejobindex.com/sign-up"
@@ -1875,7 +1817,6 @@ test("public config exposes browser auth settings", async () => {
   assert.equal(response.headers.get("Cache-Control"), "no-store");
   const payload = await response.json();
   assert.deepEqual(payload, {
-    turnstile_site_key: "turnstile-public-key",
     clerk_publishable_key: "pk_test_livejobindex",
     clerk_sign_in_url: "https://accounts.livejobindex.com/sign-in",
     clerk_sign_up_url: "https://accounts.livejobindex.com/sign-up"
@@ -2353,5 +2294,5 @@ test("homepage render helpers escape dynamic job HTML and constrain apply URLs",
   assert.match(html, /<div class="company-name">\$\{escapeHTML\(j\.company\)\}<\/div>/);
   assert.match(html, /<td class="role">\$\{escapeHTML\(j\.role\)\}<\/td>/);
   assert.match(html, /title="\$\{escapeHTML\(j\.notes \|\| ''\)\}"/);
-  assert.match(html, /action: 'jobs_page_access'/);
+  assert.doesNotMatch(html, /jobs_page_access/);
 });

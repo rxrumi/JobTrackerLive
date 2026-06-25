@@ -38,8 +38,8 @@ Cloudflare Worker: job-tracker
 │   ├── GET /sitemap.xml       -> static asset
 │   ├── GET /llms.txt          -> static asset
 │   ├── GET /api/jobs          -> page 1 of public job payload, optionally filtered by industry (KV, 300s cache)
-│   ├── POST /api/jobs/query   -> paged filtered/sorted jobs (page 2+ needs auth + Turnstile)
-│   ├── GET /api/config        -> public config (Turnstile + Clerk hosted auth URLs)
+│   ├── POST /api/jobs/query   -> paged filtered/sorted jobs (page 2+ needs Clerk auth)
+│   ├── GET /api/config        -> public config (Clerk hosted auth URLs)
 │   ├── POST /api/session      -> create or return anonymous session cookie
 │   ├── POST /api/track        -> event tracking (job_view, search, page_view)
 │   ├── POST /api/signup       -> legacy route, returns 410 Clerk migration message
@@ -140,7 +140,6 @@ Configured Cloudflare resources live in `wrangler.toml`:
 - Cloudflare KV for persistent scan state and public job payload.
 - Clerk hosted auth (email/password + Google OAuth) for account identity.
 - Cloudflare D1 for accounts, profiles, onboarding, user job state, job history, activity, scan analytics, event tracking.
-- Cloudflare Turnstile for human verification on pagination gate.
 - Wrangler for local development, dry-run validation, deployment, secrets, logs, and KV inspection.
 - Plain HTML, CSS, and JavaScript for the frontend SPA.
 - Node's built-in `node:test` runner for tests.
@@ -199,9 +198,8 @@ Accepts body fields:
 - `search` — free text search across company, title, city, country, industry, niche, family, seniority, visa, tier
 - `filters` — object with optional arrays: `industry`, `niche`, `country`, `tier`, `family`, `seniority`, `visa`, `presets` (`senior`, `strong-visa`, `new`)
 - `ids` — specific posting IDs to fetch
-- `turnstile_token` — Cloudflare Turnstile token for page 2+
 
-Page 1 is public. Page 2+ requires an authenticated Clerk session token AND either a valid `job_page_access` HMAC-signed cookie or a fresh Turnstile token. Low bot score requests (`cf.botManagement.score < 30`, non-verified) are rejected before processing.
+Page 1 is public. Page 2+ requires an authenticated Clerk session token. Low bot score requests (`cf.botManagement.score < 30`, non-verified) are rejected before processing.
 
 Legacy `Ecosystem` tier values are normalized to `GrowthSaaS`.
 
@@ -211,7 +209,6 @@ Returns public config:
 
 ```json
 {
-  "turnstile_site_key": "",
   "clerk_publishable_key": "",
   "clerk_sign_in_url": "",
   "clerk_sign_up_url": ""
@@ -427,7 +424,7 @@ The entire SPA lives in `public/index.html`. Features:
 - **Search + sort**: free text search across company/role/family/city/notes, sort by newest, company, role, country, status.
 - **Desktop table**: company, role, location, signals (tier/family/seniority/visa badges), apply link, notes, status dropdown.
 - **Mobile cards**: responsive card layout replaces table on screens <800px.
-- **Pagination**: page buttons with Turnstile human verification gate for page 2+.
+- **Pagination**: page buttons, with page 2+ requiring Clerk sign-in.
 - **Pipeline view**: timeline history with event dots (viewed, status_changed, starred, note_added) and time formatting.
 - **Anonymous session + tracking**: `lji_session` cookie, event tracking (job_view, search, page_view) to D1.
 - **Agency banner**: feedback form for agency users.
@@ -488,9 +485,6 @@ npx wrangler secret put CLERK_SECRET_KEY
 npx wrangler secret put CLERK_JWT_KEY
 npx wrangler secret put CLERK_SIGN_IN_URL
 npx wrangler secret put CLERK_SIGN_UP_URL
-npx wrangler secret put TURNSTILE_SECRET
-npx wrangler secret put TURNSTILE_SITE_KEY
-npx wrangler secret put PAGE_ACCESS_SECRET
 npx wrangler secret put ANALYTICS_ALLOWED_EMAILS
 ```
 
@@ -538,7 +532,7 @@ The test suite (~80 tests, 1260 lines) covers:
 - Homepage source structure (tabs, route handling, brand theme defaults)
 - Account route authentication gate
 - Jobs query pagination, tier normalization, bot score rejection
-- Turnstile verification and page access cookie flow
+- Clerk-only page 2+ jobs query access
 - Clerk legacy auth endpoint behavior
 - Onboarding completion validation (individual + agency)
 - User job upsert with derived timestamps
@@ -618,7 +612,7 @@ For engineering companies, add the entry to `ENGINEERING_STATIC_COMPANIES` and i
 - Static target entries are not live postings.
 - Visa classification is heuristic and company-level, not posting-level.
 - Role matching is title-based; job descriptions are not fetched.
-- Turnstile human verification is required for page 2+ of job results; this may add friction for pagination.
+- Page 2+ of job results requires Clerk sign-in.
 - KV is eventually consistent, so very recent writes may take a short time to propagate.
 - Cloudflare Email Service is configured as a binding but no email digest is implemented yet.
 - The app is optimized for low personal usage, not high-volume public traffic.

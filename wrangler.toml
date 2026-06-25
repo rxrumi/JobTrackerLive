@@ -31,9 +31,6 @@ enabled = true
 # - CLERK_SIGN_IN_URL         (hosted Clerk sign-in URL)
 # - CLERK_SIGN_UP_URL         (hosted Clerk sign-up URL)
 # - SCAN_KEY                  (secret for manual scan trigger via /api/scan-now)
-# - TURNSTILE_SECRET          (Cloudflare Turnstile server-side secret)
-# - TURNSTILE_SITE_KEY        (Cloudflare Turnstile site key, exposed to frontend)
-# - PAGE_ACCESS_SECRET        (HMAC secret for page-access clearance cookies)
 # - ANALYTICS_ALLOWED_EMAILS  (comma-separated owner emails allowed to read global analytics)
 
 [[routes]]

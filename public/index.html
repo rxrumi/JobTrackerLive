@@ -296,12 +296,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .page-btn:hover:not(:disabled) { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
 .page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .page-btn[aria-current="page"] { background: var(--accent); color: var(--button-primary-text); border-color: var(--accent); }
-.turnstile-gate { display: grid; gap: 10px; margin: 10px 0 14px; padding: 12px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
-.turnstile-gate[hidden] { display: none; }
-.turnstile-title { font-size: 13px; font-weight: 500; }
-.turnstile-copy { margin: 0; color: var(--text-secondary); font-size: 12px; }
-.turnstile-message { min-height: 16px; color: var(--text-secondary); font-size: 12px; }
-.turnstile-message.error { color: var(--danger); }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-card); }
@@ -1176,13 +1170,6 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 
 <nav class="pagination-bar" id="pagination-bottom" aria-label="Jobs pages" hidden></nav>
 
-<section class="turnstile-gate" id="turnstile-gate" hidden>
-  <div class="turnstile-title">Human check required</div>
-  <p class="turnstile-copy">Sign in and complete the check to view additional job pages.</p>
-  <div id="turnstile-widget"></div>
-  <div class="turnstile-message" id="turnstile-message"></div>
-</section>
-
 <details class="legend-details">
   <summary>Score &amp; badges</summary>
   <div class="legend">
@@ -1618,15 +1605,11 @@ let USER_JOBS = new Map();
 let AUTH_MODE = 'login';
 let ONBOARDING_ACCOUNT_TYPE = 'individual';
 let ONBOARDING_STEP = 0;
-let TURNSTILE_SITE_KEY = '';
 let CLERK_PUBLISHABLE_KEY = '';
 let CLERK_SIGN_IN_URL = '';
 let CLERK_SIGN_UP_URL = '';
 let CLERK_CLIENT = null;
 let CLERK_READY_PROMISE = null;
-let TURNSTILE_WIDGET_ID = null;
-let PENDING_PAGE = null;
-let PAGE_ACCESS_VERIFIED = false;
 let ACTIVE_REFRESH_TIMER = null;
 let PROFILE_FILTERS_APPLIED = false;
 let PROFILE_FILTERS_RELAXED = false;
@@ -1967,39 +1950,17 @@ async function api(path, options = {}) {
 async function loadPublicConfig() {
   try {
     const data = await api('/api/config');
-    TURNSTILE_SITE_KEY = data.turnstile_site_key || '';
     CLERK_PUBLISHABLE_KEY = data.clerk_publishable_key || '';
     CLERK_SIGN_IN_URL = data.clerk_sign_in_url || '';
     CLERK_SIGN_UP_URL = data.clerk_sign_up_url || '';
   } catch {
-    TURNSTILE_SITE_KEY = '';
     CLERK_PUBLISHABLE_KEY = '';
     CLERK_SIGN_IN_URL = '';
     CLERK_SIGN_UP_URL = '';
   }
 }
 
-async function loadTurnstileScript() {
-  if (window.turnstile) return;
-  await new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-turnstile]');
-    if (existing) {
-      existing.addEventListener('load', resolve, { once: true });
-      existing.addEventListener('error', reject, { once: true });
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-    script.async = true;
-    script.defer = true;
-    script.dataset.turnstile = 'true';
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
-
-async function fetchJobsPage(page, turnstileToken = '') {
+async function fetchJobsPage(page) {
   const queryKey = dynamicQueryKey(page);
   const data = await api('/api/jobs/query', {
     method: 'POST',
@@ -2009,8 +1970,7 @@ async function fetchJobsPage(page, turnstileToken = '') {
       sort: state.sort,
       dir: state.dir,
       search: state.search,
-      filters: serializedFilters(),
-      turnstile_token: turnstileToken
+      filters: serializedFilters()
     })
   });
   DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
@@ -2021,7 +1981,6 @@ async function fetchJobsPage(page, turnstileToken = '') {
   rebuildJobsFromCache();
   PUBLIC_FEED_LOADED = true;
   updateHeaderStatus();
-  if (page > 1) PAGE_ACCESS_VERIFIED = true;
   return data;
 }
 
@@ -2039,50 +1998,6 @@ function scheduleActiveRefresh() {
   }, 250);
 }
 
-function hideTurnstileGate() {
-  PENDING_PAGE = null;
-  document.getElementById('turnstile-gate').hidden = true;
-  setMessage('turnstile-message', '');
-}
-
-async function showTurnstileGate(page) {
-  PENDING_PAGE = page;
-  const gate = document.getElementById('turnstile-gate');
-  gate.hidden = false;
-  setMessage('turnstile-message', 'Preparing human check...');
-  if (!TURNSTILE_SITE_KEY) await loadPublicConfig();
-  if (!TURNSTILE_SITE_KEY) {
-    setMessage('turnstile-message', 'Human check is not configured yet. Add TURNSTILE_SITE_KEY and TURNSTILE_SECRET.', true);
-    return;
-  }
-  try {
-    await loadTurnstileScript();
-    const container = document.getElementById('turnstile-widget');
-    container.innerHTML = '';
-    TURNSTILE_WIDGET_ID = window.turnstile.render(container, {
-      sitekey: TURNSTILE_SITE_KEY,
-      action: 'jobs_page_access',
-      callback: async token => {
-        setMessage('turnstile-message', 'Verifying...');
-        try {
-          await fetchJobsPage(PENDING_PAGE || page, token);
-          state.page = Math.min(PENDING_PAGE || page, DYNAMIC_PAGINATION.total_pages || PENDING_PAGE || page);
-          hideTurnstileGate();
-          render();
-        } catch (e) {
-          setMessage('turnstile-message', e.message, true);
-          if (TURNSTILE_WIDGET_ID != null) window.turnstile.reset(TURNSTILE_WIDGET_ID);
-        }
-      },
-      'error-callback': () => setMessage('turnstile-message', 'Human check failed. Try again.', true),
-      'expired-callback': () => setMessage('turnstile-message', 'Human check expired. Try again.', true)
-    });
-    setMessage('turnstile-message', '');
-  } catch {
-    setMessage('turnstile-message', 'Could not load the human check. Try again shortly.', true);
-  }
-}
-
 async function setPage(page) {
   const target = Math.max(1, page);
   if (target > 1 && !ME?.user) {
@@ -2093,16 +2008,9 @@ async function setPage(page) {
     try {
       await fetchJobsPage(target);
     } catch (e) {
-      if (e.message === 'human_verification_required') {
-        await showTurnstileGate(target);
-        return;
-      }
       updateHeaderStatus('🟢 Active jobs updated today');
       return;
     }
-  } else if (target > 1 && !PAGE_ACCESS_VERIFIED) {
-    await showTurnstileGate(target);
-    return;
   }
   state.page = target;
   render();
@@ -2110,7 +2018,6 @@ async function setPage(page) {
 
 function resetPage() {
   state.page = 1;
-  hideTurnstileGate();
 }
 
 function loadUserJob(id) {
@@ -3876,7 +3783,6 @@ function wireAuthHandlers() {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     ME = null;
     USER_JOBS = new Map();
-    PAGE_ACCESS_VERIFIED = false;
     resetPage();
     navigateTo('/');
   };

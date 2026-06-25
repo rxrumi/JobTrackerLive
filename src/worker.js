@@ -1632,8 +1632,6 @@ const ACCOUNT_TYPES = new Set(["individual", "agency"]);
 const BRAND_THEMES = new Set(["cobalt", "graphite", "aurora"]);
 const JOB_PAGE_SIZE = 15;
 const MAX_JOB_PAGE_SIZE = 15;
-const PAGE_ACCESS_COOKIE = "job_page_access";
-const PAGE_ACCESS_TTL_SECONDS = 30 * 60;
 const STATUSES = new Set([
   "Not started",
   "Saved",
@@ -1732,9 +1730,9 @@ const CSP_DIRECTIVES = [
   "frame-ancestors 'none'",
   "form-action 'self'",
   "upgrade-insecure-requests",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://challenges.cloudflare.com https://static.cloudflareinsights.com",
-  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://api.clerk.com https://img.clerk.com https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://challenges.cloudflare.com https://cloudflareinsights.com",
-  "frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://challenges.cloudflare.com",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://static.cloudflareinsights.com",
+  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://api.clerk.com https://img.clerk.com https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://cloudflareinsights.com",
+  "frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com",
   "img-src 'self' data: https: https://img.clerk.com",
   "style-src 'self' 'unsafe-inline'",
   "worker-src 'self' blob:"
@@ -1919,24 +1917,6 @@ function base64UrlEncode(bytes) {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-function base64UrlDecode(value) {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
-  const binary = atob(padded);
-  return Uint8Array.from(binary, ch => ch.charCodeAt(0));
-}
-
-async function hmacSignature(secret, value) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
-  return base64UrlEncode(new Uint8Array(signature));
-}
-
 async function sha256Base64Url(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(value || "")));
   return base64UrlEncode(new Uint8Array(digest));
@@ -1963,76 +1943,11 @@ function cookieValue(request, name) {
   return cookies.find(cookie => cookie.name === name)?.value || "";
 }
 
-async function createPageAccessCookie(userId, env) {
-  if (!env.PAGE_ACCESS_SECRET) return "";
-  const expiresAt = Math.floor(Date.now() / 1000) + PAGE_ACCESS_TTL_SECONDS;
-  const payload = base64UrlEncode(new TextEncoder().encode(JSON.stringify({ sub: userId, exp: expiresAt })));
-  const signature = await hmacSignature(env.PAGE_ACCESS_SECRET, payload);
-  return serializeCookieHeader(PAGE_ACCESS_COOKIE, `${payload}.${signature}`, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: PAGE_ACCESS_TTL_SECONDS
-  });
-}
-
-async function hasValidPageAccessCookie(request, userId, env) {
-  if (!env.PAGE_ACCESS_SECRET) return false;
-  const value = cookieValue(request, PAGE_ACCESS_COOKIE);
-  const [payload, signature] = value.split(".");
-  if (!payload || !signature) return false;
-  const expected = await hmacSignature(env.PAGE_ACCESS_SECRET, payload);
-  if (!timingSafeEqual(signature, expected)) return false;
-  try {
-    const decoded = JSON.parse(new TextDecoder().decode(base64UrlDecode(payload)));
-    return decoded.sub === userId && Number(decoded.exp) > Math.floor(Date.now() / 1000);
-  } catch {
-    return false;
-  }
-}
-
 function isLowBotScore(request) {
   const bot = request.cf?.botManagement;
   if (!bot || bot.verifiedBot) return false;
   const score = Number(bot.score);
   return Number.isFinite(score) && score > 0 && score < 30;
-}
-
-function hostnameMatches(hostname, expected) {
-  if (!hostname || !expected) return true;
-  const h = hostname.toLowerCase();
-  const e = expected.toLowerCase();
-  if (h === e) return true;
-  if (h === `www.${e}`) return true;
-  if (e === `www.${h}`) return true;
-  return false;
-}
-
-async function validateTurnstile(request, env, token) {
-  if (!env.TURNSTILE_SECRET || !token) return false;
-  const result = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      secret: env.TURNSTILE_SECRET,
-      response: token,
-      remoteip: request.headers.get("CF-Connecting-IP") || undefined
-    })
-  });
-  if (!result.ok) return false;
-  const data = await result.json();
-  if (!data.success) {
-    console.error("Turnstile siteverify failed:", data["error-codes"]);
-    return false;
-  }
-  const expectedHostname = new URL(env.APP_ORIGIN || SITE_ORIGIN).hostname;
-  if (data.hostname && !hostnameMatches(data.hostname, expectedHostname)) {
-    console.error("Turnstile hostname mismatch:", data.hostname, "expected:", expectedHostname);
-    return false;
-  }
-  if (data.action && data.action !== "jobs_page_access") return false;
-  return true;
 }
 
 function allowedOrigins(request, env) {
@@ -2897,7 +2812,6 @@ async function handlePublicJobs(request, env) {
 
 function handlePublicConfig(env) {
   return jsonResponse({
-    turnstile_site_key: env.TURNSTILE_SITE_KEY || "",
     clerk_publishable_key: env.CLERK_PUBLISHABLE_KEY || "",
     clerk_sign_in_url: env.CLERK_SIGN_IN_URL || "",
     clerk_sign_up_url: env.CLERK_SIGN_UP_URL || ""
@@ -2915,26 +2829,14 @@ async function handleJobsQuery(request, env) {
   if (!payload) return errorResponse(400, "invalid_json");
 
   const query = normalizeJobQuery(payload);
-  let auth = null;
-  let setPageCookie = null;
 
   if (query.page > 1) {
-    auth = await requireUser(request, env);
+    const auth = await requireUser(request, env);
     if (auth.response) return auth.response;
-
-    const hasCookie = await hasValidPageAccessCookie(request, auth.user.id, env);
-    const turnstileToken = cleanString(payload.turnstile_token || payload["cf-turnstile-response"]);
-    if (!hasCookie) {
-      const verified = await validateTurnstile(request, env, turnstileToken);
-      if (!verified) return errorResponse(403, "human_verification_required");
-      setPageCookie = await createPageAccessCookie(auth.user.id, env);
-    }
   }
 
   const data = await readJobsPayload(env);
-  const response = jsonResponse(pagePostings(data, query));
-  if (setPageCookie) response.headers.append("Set-Cookie", setPageCookie);
-  return response;
+  return jsonResponse(pagePostings(data, query));
 }
 
 async function handleGetUserJobs(request, env) {
