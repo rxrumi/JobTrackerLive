@@ -1160,7 +1160,6 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <th data-sort="location">Location</th>
       <th>Company type <span class="header-help" title="Company size and market category used for prioritization." aria-label="Company size and market category used for prioritization.">(i)</span></th>
       <th>Function <span class="header-help" title="Role family inferred from the job title or target company category." aria-label="Role family inferred from the job title or target company category.">(i)</span></th>
-      <th>Level <span class="header-help" title="Seniority inferred from the job title. Static targets show Any." aria-label="Seniority inferred from the job title. Static targets show Any.">(i)</span></th>
       <th>Visa signal <span class="header-help" title="Company-level sponsorship signal only. It is not a sponsorship guarantee." aria-label="Company-level sponsorship signal only. It is not a sponsorship guarantee.">(i)</span></th>
       <th>Action</th>
       <th data-col="notes">Notes</th>
@@ -2710,10 +2709,6 @@ function functionCellHTML(j) {
   return `<span class="signal-stack">${badges.join('')}</span>`;
 }
 
-function levelCellHTML(j) {
-  return `<span class="signal-cell"><span class="seniority-badge">${escapeHTML(j.seniorityLabel)}</span></span>`;
-}
-
 function visaSignalLabel(visa) {
   if (visa === 'Strong') return 'Strong signal';
   if (visa === 'Likely') return 'Likely signal';
@@ -2739,7 +2734,6 @@ function mobileSignalsHTML(j) {
   return `<div class="mobile-signal-grid">
     ${mobileSignalHTML('Company type', companyTypeCellHTML(j))}
     ${mobileSignalHTML('Function', functionCellHTML(j))}
-    ${mobileSignalHTML('Level', levelCellHTML(j))}
     ${mobileSignalHTML('Visa signal', visaSignalCellHTML(j))}
   </div>`;
 }
@@ -2824,7 +2818,6 @@ function rowHTML(j) {
     <td>${escapeHTML(j.location)}</td>
     <td>${companyTypeCellHTML(j)}</td>
     <td>${functionCellHTML(j)}</td>
-    <td>${levelCellHTML(j)}</td>
     <td>${visaSignalCellHTML(j)}</td>
     <td>${applyButtonHTML(j)}</td>
     <td class="notes-cell" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</td>
