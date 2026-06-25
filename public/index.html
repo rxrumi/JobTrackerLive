@@ -1475,6 +1475,63 @@ function calcScore(j) {
   return Math.round((visaW[j.visa] || 50) * 0.5 + (seniorityW[j.seniority] || 65) * 0.3 + freshness * 0.2);
 }
 
+const SEARCH_ALIAS_REPLACEMENTS = [
+  ['united states of america', 'us'],
+  ['united states', 'us'],
+  ['great britain', 'gb'],
+  ['united kingdom', 'gb'],
+  ['u s a', 'us'],
+  ['u s', 'us'],
+  ['usa', 'us'],
+  ['uk', 'gb'],
+  ['england', 'gb'],
+  ['nyc', 'new york'],
+  ['sf', 'san francisco'],
+  ['rev ops', 'revenue operations'],
+  ['revops', 'revenue operations'],
+  ['biz ops', 'business operations'],
+  ['bizops', 'business operations'],
+  ['gtm ops', 'go to market operations'],
+  ['gtm operations', 'go to market operations']
+];
+const SEARCH_STOP_WORDS = new Set(['a', 'an', 'and', 'for', 'in', 'of', 'the', 'to']);
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function applySearchAliases(value) {
+  let normalized = normalizeSearchText(value);
+  SEARCH_ALIAS_REPLACEMENTS.forEach(([from, to]) => {
+    normalized = normalized.replace(new RegExp(`(^| )${escapeRegExp(from)}(?= |$)`, 'g'), `$1${to}`);
+  });
+  return normalized.trim().replace(/\s+/g, ' ');
+}
+
+function searchTokens(value) {
+  return applySearchAliases(value)
+    .split(' ')
+    .map(token => token.trim())
+    .filter(token => token && !SEARCH_STOP_WORDS.has(token) && (token.length > 1 || /\d/.test(token)));
+}
+
+function matchesSearchTokens(haystack, tokens) {
+  if (!tokens.length) return true;
+  const normalizedHaystack = ` ${applySearchAliases(haystack)} `;
+  return tokens.every(token => normalizedHaystack.includes(` ${token} `));
+}
+
 function daysSince(iso) {
   if (!iso) return 999;
   return Math.floor((Date.now() - new Date(iso).getTime()) / (1000*60*60*24));
@@ -1513,20 +1570,20 @@ function prettyCompany(token) {
 
 function inferRoleFamily(title) {
   // Display fallback for dynamic payloads and static rows; keep aligned with ROLE_FAMILIES in src/worker.js.
-  const t = (title || '').toLowerCase();
-  if (/(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|site reliability|sre|devops|developer|technical lead|engineering manager|machine learning|ml engineer|civil engineer|structural engineer|mechanical engineer|electrical engineer|transport engineer|transportation engineer|highway engineer|rail engineer|water engineer|environmental engineer|geotechnical engineer|fire engineer|facade engineer|mep engineer|bim designer|revit designer|design engineer|project engineer|process engineer|piping engineer|substation engineer|semiconductor|hardware engineer|systems engineer|aerospace engineer|propulsion engineer|manufacturing engineer|robotics engineer|firmware engineer|asic|fpga)/.test(t)) return 'Engineering';
-  if (/product/.test(t)) return 'Product';
-  if (/(designer|design|ux|ui|user researcher|content designer)/.test(t)) return 'Design';
-  if (/(data|analytics|business intelligence|bi analyst|insights)/.test(t)) return 'Data/Analytics';
-  if (/(security|cybersecurity|information security|it support|systems administrator|network)/.test(t)) return 'Security/IT';
-  if (/(sales|account executive|business development|bdr|sdr|partnership|partner manager|commercial account|enterprise account)/.test(t)) return 'Sales';
-  if (/(marketing|growth|demand generation|product marketing|content marketing|field marketing|brand marketing|seo|lifecycle)/.test(t)) return 'Marketing';
-  if (/(fp&a|fpa|financial planning|accounting|accountant|controller|strategic finance|revenue finance|deal desk|corporate finance|tax|treasury|procurement|payroll|finance)/.test(t)) return 'Finance';
-  if (/(operations|revops|rev ops|biz ops|gtm ops|go-to-market|salesforce administrator)/.test(t)) return 'Operations';
-  if (/(customer success|customer support|technical support|implementation|onboarding|solutions consultant|professional services|renewals)/.test(t)) return 'Customer Success/Support';
-  if (/(people|human resources|hr business partner|talent acquisition|recruiter|recruiting|compensation|benefits|employee experience)/.test(t)) return 'People/HR';
-  if (/(legal|counsel|compliance|regulatory|risk manager|contract manager)/.test(t)) return 'Legal/Compliance';
-  if (/(strategy|strategic programs|program manager|project manager|chief of staff|business planning)/.test(t)) return 'Strategy/Program';
+  const t = normalizeSearchText(title);
+  if (/\bmarketing\b|\bgrowth\b|\bdemand gen(eration)?\b|\bproduct marketing\b|\bcontent marketing\b|\bfield marketing\b|\bbrand marketing\b|\bmarketing operations\b|\bmarketing ops\b|\bseo\b|\bperformance marketing\b|\blifecycle marketing\b/.test(t)) return 'Marketing';
+  if (/\bproduct (manager|owner|lead|strategy|operations|ops)\b|\bgroup product\b/.test(t)) return 'Product';
+  if (/\b(product|ux|ui|content|brand|visual) designer\b|\bdesign manager\b|\buser researcher\b|\bux researcher\b/.test(t)) return 'Design';
+  if (/\bdata (analyst|scientist|science|engineer)\b|\bbusiness analyst\b|\banalytics?\b|\bbusiness intelligence\b|\bbi analyst\b|\banalytics engineer\b|\binsights analyst\b/.test(t)) return 'Data/Analytics';
+  if (/\bsecurity\b|\bcybersecurity\b|\binformation security\b|\btrust and safety\b|\bit support\b|\bsystems administrator\b|\bnetwork engineer\b|\bcloud infrastructure\b|\bprivacy engineer\b/.test(t)) return 'Security/IT';
+  if (/\bfp\s*a\b|\bfpa\b|\bfinancial planning\b|\baccounting\b|\baccountant\b|\bcontroller\b|\bstrategic finance\b|\brevenue finance\b|\bdeal desk\b|\bcorporate finance\b|\btax\b|\btreasury\b|\bprocurement\b|\bpayroll\b|\bfinance (manager|analyst)\b/.test(t)) return 'Finance';
+  if (/\bcustomer success\b|\bcustomer support\b|\btechnical support\b|\bsupport engineer\b|\bimplementation\b|\bonboarding\b|\bsolutions consultant\b|\bprofessional services\b|\bcustomer experience\b|\brenewals\b|\bsupport manager\b/.test(t)) return 'Customer Success/Support';
+  if (/\bsalesforce administrator\b|\brevenue operations\b|\brev ?ops\b|\bbusiness operations\b|\bbiz ?ops\b|\bgtm operations\b|\bgtm ops\b|\bgo to market operations\b|\bgo market operations\b|\bsales operations\b|\bsales ops\b|\bfield operations\b|\bworkplace operations\b|\boperations\b/.test(t)) return 'Operations';
+  if (/\b(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|machine learning|ml|civil|structural|mechanical|electrical|transport|transportation|highway|rail|water|environmental|geotechnical|fire|facade|mep|design|project|process|piping|substation|hardware|systems|aerospace|propulsion|manufacturing|robotics|firmware) engineer\b|\bsite reliability\b|\bsre\b|\bdevops\b|\bdeveloper\b|\btechnical lead\b|\bengineering manager\b|\bsolutions engineer\b|\bsales engineer\b|\bbim designer\b|\brevit designer\b|\bsemiconductor\b|\basic\b|\bfpga\b/.test(t)) return 'Engineering';
+  if (/\bpeople\b|\bhuman resources\b|\bhr business partner\b|\btalent acquisition\b|\brecruiter\b|\brecruiting\b|\bcompensation\b|\bbenefits\b|\bpeople operations\b|\bemployee experience\b|\blearning and development\b/.test(t)) return 'People/HR';
+  if (/\blegal counsel\b|\bsenior legal counsel\b|\bcommercial counsel\b|\bprivacy counsel\b|\bcompliance\b|\bregulatory\b|\brisk manager\b|\blegal operations\b|\bcontract manager\b/.test(t)) return 'Legal/Compliance';
+  if (/\bstrategy\b|\bstrategic programs\b|\bprogram manager\b|\bproject manager\b|\bchief of staff\b|\bbusiness planning\b|\brevenue strategy\b|\bstrategy and operations\b/.test(t)) return 'Strategy/Program';
+  if (/\baccount executive\b|\bsales\b|\bbusiness development\b|\bbdr\b|\bsdr\b|\baccount manager\b|\bpartnerships\b|\bpartner manager\b|\benterprise account\b|\bcommercial account\b|\bsales strategy\b|\bsales excellence\b/.test(t)) return 'Sales';
   return 'Other';
 }
 
@@ -2461,7 +2518,7 @@ function passesPresets(j, controls = state) {
 }
 
 function matchesControls(j, controls, opts = {}) {
-  const q = controls.search.toLowerCase().trim();
+  const tokens = searchTokens(controls.search);
   if (j.industry !== controls.industry) return false;
   if (controls.niche.size && !controls.niche.has(j.niche)) return false;
   if (!opts.ignoreCountry && controls.country.size && !controls.country.has(j.country)) return false;
@@ -2470,9 +2527,21 @@ function matchesControls(j, controls, opts = {}) {
   if (controls.seniority.size && !j.is_static && !controls.seniority.has(j.seniority)) return false;
   if (controls.visa.size && !controls.visa.has(j.visa)) return false;
   if (!passesPresets(j, controls)) return false;
-  if (q) {
-    const blob = (j.company + ' ' + j.role + ' ' + j.nicheLabel + ' ' + j.familyLabel + ' ' + j.seniorityLabel + ' ' + j.city + ' ' + (j.notes||'') + ' ' + j.tierLabel).toLowerCase();
-    if (!blob.includes(q)) return false;
+  if (tokens.length) {
+    const blob = [
+      j.company,
+      j.role,
+      j.nicheLabel,
+      j.familyLabel,
+      j.seniorityLabel,
+      j.city,
+      j.country,
+      COUNTRY_NAMES[j.country],
+      j.notes || '',
+      j.tierLabel,
+      j.visa
+    ].join(' ');
+    if (!matchesSearchTokens(blob, tokens)) return false;
   }
   return true;
 }

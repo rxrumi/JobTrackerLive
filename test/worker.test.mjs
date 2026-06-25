@@ -357,6 +357,20 @@ test("homepage exposes industry switch and engineering niche controls", () => {
   assert.match(html, /function setIndustry\(industry\)/);
 });
 
+test("homepage aligns deterministic search helpers and role precedence fallbacks", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /function normalizeSearchText\(value\)/);
+  assert.match(html, /function searchTokens\(value\)/);
+  assert.match(html, /function matchesSearchTokens\(haystack, tokens\)/);
+  assert.match(html, /\['uk', 'gb'\]/);
+  assert.match(html, /\['nyc', 'new york'\]/);
+  assert.match(html, /\['revops', 'revenue operations'\]/);
+  assert.match(html, /salesforce administrator/);
+  assert.match(html, /sales operations/);
+  assert.match(html, /security.*Security\/IT/s);
+});
+
 test("homepage preserves onboarding role families when relaxing profile defaults", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const relaxationSource = html.slice(
@@ -436,6 +450,53 @@ test("runScan matches United States city and remote country-hint locations", asy
   assert.equal(byTitle.get("Revenue Operations Manager").country, "US");
   assert.equal(byTitle.get("Sales Operations Manager").city, "Remote - US");
   assert.equal(byTitle.get("Sales Operations Manager").country, "US");
+});
+
+test("runScan deterministically parses multi-location strings", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      hubspot: {
+        jobs: [{
+          id: 331,
+          title: "Revenue Operations Manager",
+          location: { name: "London / Dublin" },
+          absolute_url: "https://example.com/hubspot-331"
+        }, {
+          id: 332,
+          title: "Revenue Operations Lead",
+          location: { name: "US / Canada" },
+          absolute_url: "https://example.com/hubspot-332"
+        }, {
+          id: 333,
+          title: "Revenue Operations Analyst",
+          location: { name: "Singapore, Singapore" },
+          absolute_url: "https://example.com/hubspot-333"
+        }, {
+          id: 334,
+          title: "Revenue Operations Director",
+          location: { name: "Remote - US" },
+          absolute_url: "https://example.com/hubspot-334"
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const byId = new Map(payload.postings.map(p => [p.id, p]));
+
+  assert.equal(byId.get("greenhouse-hubspot-331").city, "London");
+  assert.equal(byId.get("greenhouse-hubspot-331").country, "GB");
+  assert.equal(byId.get("greenhouse-hubspot-332").city, "United States");
+  assert.equal(byId.get("greenhouse-hubspot-332").country, "US");
+  assert.equal(byId.get("greenhouse-hubspot-333").city, "Singapore");
+  assert.equal(byId.get("greenhouse-hubspot-333").country, "SG");
+  assert.equal(byId.get("greenhouse-hubspot-334").city, "Remote - US");
+  assert.equal(byId.get("greenhouse-hubspot-334").country, "US");
 });
 
 test("runScan matches expanded EU and APAC hub locations", async t => {
@@ -583,6 +644,56 @@ test("runScan classifies broad professional role families", async t => {
     "People/HR",
     "Customer Success/Support"
   ]));
+});
+
+test("runScan applies ordered role classification precedence", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      canva: {
+        content: [{
+          id: "ops-1",
+          name: "Salesforce Administrator",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "marketing-ops-1",
+          name: "Product Marketing Manager",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "sales-ops-1",
+          name: "Sales Operations Manager",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "security-1",
+          name: "Security Engineer",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }, {
+          id: "bizops-1",
+          name: "Business Operations Lead",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
+        }],
+        totalFound: 5
+      }
+    }
+  }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+  assert.equal(result.error, undefined);
+
+  const jobsPut = KV.puts.find(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  const families = new Map(payload.postings.map(p => [p.title, p.role_family]));
+
+  assert.equal(families.get("Salesforce Administrator"), "Operations");
+  assert.equal(families.get("Product Marketing Manager"), "Marketing");
+  assert.equal(families.get("Sales Operations Manager"), "Operations");
+  assert.equal(families.get("Security Engineer"), "Security/IT");
+  assert.equal(families.get("Business Operations Lead"), "Operations");
 });
 
 test("runScan no longer live-scrapes engineering sources (workday/greenhouse-spacex/rmk/tribepad/nlx)", async t => {
@@ -1399,6 +1510,61 @@ test("jobs query filters engineering postings by niche", async () => {
   assert.equal(payload.postings[0].id, "eng-semi");
 });
 
+test("jobs query applies deterministic search aliases and all-token matching", async () => {
+  const KV = createKV();
+  const postings = [
+    {
+      ...samplePostings(1)[0],
+      id: "gb-revops",
+      company: "HubSpot",
+      title: "Revenue Operations Manager",
+      country: "GB",
+      city: "London",
+      location: "London, United Kingdom",
+      role_family: "Operations"
+    },
+    {
+      ...samplePostings(1)[0],
+      id: "nyc-bizops",
+      company: "Cursor",
+      title: "Business Operations Lead",
+      country: "US",
+      city: "New York",
+      location: "New York, United States",
+      role_family: "Operations"
+    },
+    {
+      ...samplePostings(1)[0],
+      id: "sf-gtm",
+      company: "OpenAI",
+      title: "GTM Operations Manager",
+      country: "US",
+      city: "San Francisco",
+      location: "San Francisco, United States",
+      role_family: "Operations"
+    }
+  ];
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings }));
+
+  const cases = [
+    ["uk revops", "gb-revops"],
+    ["united kingdom revenue operations", "gb-revops"],
+    ["nyc bizops", "nyc-bizops"],
+    ["sf gtm ops", "sf-gtm"]
+  ];
+
+  for (const [search, expectedId] of cases) {
+    const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+      method: "POST",
+      body: JSON.stringify({ page: 1, search })
+    }), { KV });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.pagination.total, 1, search);
+    assert.equal(payload.postings[0].id, expectedId, search);
+  }
+});
+
 test("jobs query rejects anonymous page two", async () => {
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(20) }));
@@ -1858,6 +2024,8 @@ test("runScan preserves previous postings from a failed active source", async t 
   assert.equal(payload.postings.length, 1);
   assert.equal(payload.postings[0].id, previousPosting.id);
   assert.equal(payload.postings[0].last_filled, null);
+  assert.equal(payload.scan_meta.sourceMeta["greenhouse-hubspot"].fetchFailures[0].reason, "http_error");
+  assert.equal(payload.scan_meta.sourceMeta["greenhouse-hubspot"].fetchFailures[0].status, 503);
 });
 
 test("runScan preserves previous postings when a custom parser source fails", async t => {

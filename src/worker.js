@@ -59,6 +59,7 @@ const ACTIVE_SOURCES = new Set([
   "eightfold"
 ]);
 const FAILURE_ABORT_RATIO = 0.5;
+const FETCH_TIMEOUT_MS = 12000;
 const CUSTOM_SOURCE_LIMIT = 120;
 const AMAZON_SEARCH_LOCATIONS = [
   "United States", "United Kingdom", "Ireland", "Canada", "Australia", "Singapore",
@@ -243,78 +244,106 @@ const COUNTRY_HINTS = {
   "taiwan": { country: "TW", city: "Taiwan" }
 };
 
-const EXCLUDED_TITLE_KEYWORDS = [
-  "intern", "internship", "apprentice", "apprenticeship", "graduate program",
-  "graduate scheme", "working student", "student worker", "campus ambassador",
-  "risk, ethics", "advocacy & legal"
+const SEARCH_ALIAS_REPLACEMENTS = [
+  ["united states of america", "us"],
+  ["united states", "us"],
+  ["great britain", "gb"],
+  ["united kingdom", "gb"],
+  ["u s a", "us"],
+  ["u s", "us"],
+  ["usa", "us"],
+  ["uk", "gb"],
+  ["england", "gb"],
+  ["nyc", "new york"],
+  ["sf", "san francisco"],
+  ["rev ops", "revenue operations"],
+  ["revops", "revenue operations"],
+  ["biz ops", "business operations"],
+  ["bizops", "business operations"],
+  ["gtm ops", "go to market operations"],
+  ["gtm operations", "go to market operations"]
+];
+
+const SEARCH_STOP_WORDS = new Set(["a", "an", "and", "for", "in", "of", "the", "to"]);
+
+const EXCLUDED_TITLE_PATTERNS = [
+  /\bintern(ship)?\b/,
+  /\bapprentice(ship)?\b/,
+  /\bgraduate (program|scheme)\b/,
+  /\bworking student\b/,
+  /\bstudent worker\b/,
+  /\bcampus ambassador\b/,
+  /\brisk ethics\b/,
+  /\badvocacy legal\b/
 ];
 
 const ROLE_FAMILIES = [
   {
     family: "Engineering",
-    keywords: [
-      "software engineer", "frontend engineer", "front end engineer", "backend engineer",
-      "back end engineer", "full stack engineer", "fullstack engineer", "mobile engineer",
-      "ios engineer", "android engineer", "platform engineer", "infrastructure engineer",
-      "site reliability", "sre", "devops", "developer", "technical lead", "engineering manager",
-      "solutions engineer", "sales engineer", "machine learning engineer", "ml engineer",
-      "civil engineer", "structural engineer", "mechanical engineer", "electrical engineer",
-      "transport engineer", "transportation engineer", "highway engineer", "rail engineer",
-      "water engineer", "environmental engineer", "geotechnical engineer", "fire engineer",
-      "facade engineer", "mep engineer", "bim designer", "revit designer", "design engineer",
-      "project engineer", "process engineer", "piping engineer", "substation engineer",
-      "semiconductor", "hardware engineer", "systems engineer", "aerospace engineer",
-      "propulsion engineer", "manufacturing engineer", "robotics engineer",
-      "firmware engineer", "asic", "fpga"
+    patterns: [
+      /\b(software|frontend|front end|backend|back end|full stack|fullstack|mobile|ios|android|platform|infrastructure|machine learning|ml|civil|structural|mechanical|electrical|transport|transportation|highway|rail|water|environmental|geotechnical|fire|facade|mep|design|project|process|piping|substation|hardware|systems|aerospace|propulsion|manufacturing|robotics|firmware) engineer\b/,
+      /\bsite reliability\b/,
+      /\bsre\b/,
+      /\bdevops\b/,
+      /\bdeveloper\b/,
+      /\btechnical lead\b/,
+      /\bengineering manager\b/,
+      /\bsolutions engineer\b/,
+      /\bsales engineer\b/,
+      /\bbim designer\b/,
+      /\brevit designer\b/,
+      /\bsemiconductor\b/,
+      /\basic\b/,
+      /\bfpga\b/
     ]
   },
   {
     family: "Product",
-    keywords: ["product manager", "product owner", "product lead", "product strategy", "group product", "product operations", "product ops"]
+    patterns: [/\bproduct (manager|owner|lead|strategy|operations|ops)\b/, /\bgroup product\b/]
   },
   {
     family: "Design",
-    keywords: ["product designer", "ux designer", "ui designer", "content designer", "brand designer", "visual designer", "design manager", "user researcher", "ux researcher"]
+    patterns: [/\b(product|ux|ui|content|brand|visual) designer\b/, /\bdesign manager\b/, /\buser researcher\b/, /\bux researcher\b/]
   },
   {
     family: "Data/Analytics",
-    keywords: ["data analyst", "business analyst", "analytics", "data scientist", "data science", "business intelligence", "bi analyst", "data engineer", "analytics engineer", "insights analyst"]
+    patterns: [/\bdata (analyst|scientist|science|engineer)\b/, /\bbusiness analyst\b/, /\banalytics?\b/, /\bbusiness intelligence\b/, /\bbi analyst\b/, /\banalytics engineer\b/, /\binsights analyst\b/]
   },
   {
     family: "Security/IT",
-    keywords: ["security", "cybersecurity", "information security", "trust and safety", "it support", "systems administrator", "network engineer", "cloud infrastructure", "privacy engineer"]
-  },
-  {
-    family: "Sales",
-    keywords: ["account executive", "sales", "business development", "bdr", "sdr", "account manager", "partnerships", "partner manager", "enterprise account", "commercial account", "sales operations", "sales ops", "sales strategy", "sales excellence"]
+    patterns: [/\bsecurity\b/, /\bcybersecurity\b/, /\binformation security\b/, /\btrust and safety\b/, /\bit support\b/, /\bsystems administrator\b/, /\bnetwork engineer\b/, /\bcloud infrastructure\b/, /\bprivacy engineer\b/]
   },
   {
     family: "Marketing",
-    keywords: ["marketing", "growth", "demand generation", "demand gen", "product marketing", "content marketing", "field marketing", "brand marketing", "marketing operations", "marketing ops", "seo", "performance marketing", "lifecycle marketing"]
+    patterns: [/\bmarketing\b/, /\bgrowth\b/, /\bdemand gen(eration)?\b/, /\bproduct marketing\b/, /\bcontent marketing\b/, /\bfield marketing\b/, /\bbrand marketing\b/, /\bmarketing operations\b/, /\bmarketing ops\b/, /\bseo\b/, /\bperformance marketing\b/, /\blifecycle marketing\b/]
   },
   {
     family: "Finance",
-    keywords: ["fp&a", "fpa", "financial planning", "accounting", "accountant", "controller", "strategic finance", "revenue finance", "deal desk", "corporate finance", "tax", "treasury", "procurement", "payroll", "finance manager", "finance analyst"]
-  },
-  {
-    family: "Operations",
-    keywords: ["operations", "revenue operations", "revops", "rev ops", "business operations", "biz ops", "gtm operations", "gtm ops", "go-to-market operations", "field operations", "workplace operations", "salesforce administrator"]
+    patterns: [/\bfp\s*a\b/, /\bfpa\b/, /\bfinancial planning\b/, /\baccounting\b/, /\baccountant\b/, /\bcontroller\b/, /\bstrategic finance\b/, /\brevenue finance\b/, /\bdeal desk\b/, /\bcorporate finance\b/, /\btax\b/, /\btreasury\b/, /\bprocurement\b/, /\bpayroll\b/, /\bfinance (manager|analyst)\b/]
   },
   {
     family: "Customer Success/Support",
-    keywords: ["customer success", "customer support", "technical support", "support engineer", "implementation", "onboarding", "solutions consultant", "professional services", "customer experience", "renewals", "support manager"]
+    patterns: [/\bcustomer success\b/, /\bcustomer support\b/, /\btechnical support\b/, /\bsupport engineer\b/, /\bimplementation\b/, /\bonboarding\b/, /\bsolutions consultant\b/, /\bprofessional services\b/, /\bcustomer experience\b/, /\brenewals\b/, /\bsupport manager\b/]
+  },
+  {
+    family: "Operations",
+    patterns: [/\bsalesforce administrator\b/, /\brevenue operations\b/, /\brev ?ops\b/, /\bbusiness operations\b/, /\bbiz ?ops\b/, /\bgtm operations\b/, /\bgtm ops\b/, /\bgo to market operations\b/, /\bgo market operations\b/, /\bsales operations\b/, /\bsales ops\b/, /\bfield operations\b/, /\bworkplace operations\b/, /\boperations\b/]
   },
   {
     family: "People/HR",
-    keywords: ["people", "human resources", "hr business partner", "talent acquisition", "recruiter", "recruiting", "compensation", "benefits", "people operations", "employee experience", "learning and development"]
+    patterns: [/\bpeople\b/, /\bhuman resources\b/, /\bhr business partner\b/, /\btalent acquisition\b/, /\brecruiter\b/, /\brecruiting\b/, /\bcompensation\b/, /\bbenefits\b/, /\bpeople operations\b/, /\bemployee experience\b/, /\blearning and development\b/]
   },
   {
     family: "Legal/Compliance",
-    keywords: ["legal counsel", "senior legal counsel", "commercial counsel", "privacy counsel", "compliance", "regulatory", "risk manager", "legal operations", "contract manager"]
+    patterns: [/\blegal counsel\b/, /\bsenior legal counsel\b/, /\bcommercial counsel\b/, /\bprivacy counsel\b/, /\bcompliance\b/, /\bregulatory\b/, /\brisk manager\b/, /\blegal operations\b/, /\bcontract manager\b/]
   },
   {
     family: "Strategy/Program",
-    keywords: ["strategy", "strategic programs", "program manager", "project manager", "chief of staff", "business planning", "revenue strategy", "strategy and operations", "strategy & operations"]
+    patterns: [/\bstrategy\b/, /\bstrategic programs\b/, /\bprogram manager\b/, /\bproject manager\b/, /\bchief of staff\b/, /\bbusiness planning\b/, /\brevenue strategy\b/, /\bstrategy and operations\b/]
+  },
+  {
+    family: "Sales",
+    patterns: [/\baccount executive\b/, /\bsales\b/, /\bbusiness development\b/, /\bbdr\b/, /\bsdr\b/, /\baccount manager\b/, /\bpartnerships\b/, /\bpartner manager\b/, /\benterprise account\b/, /\bcommercial account\b/, /\bsales strategy\b/, /\bsales excellence\b/]
   }
 ];
 
@@ -363,21 +392,67 @@ const SCALEUP_COMPANIES = new Set([
 
 function matchCountry(locationName) {
   if (!locationName) return null;
-  const normalized = locationName.toLowerCase();
-  for (const [hint, loc] of Object.entries(LOCATION_ALIASES)) {
-    if (matchesLocationHint(normalized, hint)) return loc;
+  const parts = splitLocationParts(locationName);
+  for (const part of parts) {
+    const loc = matchCityInLocation(part);
+    if (loc) return loc;
   }
-  for (const [city, code] of Object.entries(CITY_TO_COUNTRY)) {
-    if (normalized.includes(city.toLowerCase())) return { country: code, city };
+  for (const part of parts) {
+    const loc = matchLocationAlias(part);
+    if (loc) return loc;
   }
-  for (const [hint, loc] of Object.entries(COUNTRY_HINTS)) {
-    if (matchesLocationHint(normalized, hint)) return loc;
+  for (const part of parts) {
+    const loc = matchCountryHintInLocation(part);
+    if (loc) return loc;
   }
   return null;
 }
 
-function matchesLocationHint(normalizedLocation, hint) {
-  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(hint)}([^a-z0-9]|$)`).test(normalizedLocation);
+function splitLocationParts(locationName) {
+  const raw = String(locationName || "");
+  const normalizedSeparators = raw
+    .replace(/\(([^)]+)\)/g, " | $1 | ")
+    .replace(/\b,\s*remote\b/gi, " | remote")
+    .split(/\s*(?:\/|\||;|,)\s*/);
+  const parts = [...normalizedSeparators, raw];
+  return [...new Set(parts.map(part => part.trim()).filter(Boolean))];
+}
+
+function matchCityInLocation(locationPart) {
+  const raw = String(locationPart || "").toLowerCase();
+  const normalized = normalizeSearchText(locationPart);
+  const matches = Object.entries(CITY_TO_COUNTRY)
+    .filter(([city]) => matchesNormalizedToken(normalized, normalizeSearchText(city)))
+    .map(([city, code]) => ({
+      city,
+      code,
+      exact: raw.includes(city.toLowerCase()),
+      normalizedLength: normalizeSearchText(city).length
+    }))
+    .sort((a, b) => Number(b.exact) - Number(a.exact)
+      || b.normalizedLength - a.normalizedLength
+      || b.city.length - a.city.length);
+  return matches.length ? { country: matches[0].code, city: matches[0].city } : null;
+}
+
+function matchCountryHintInLocation(locationPart) {
+  const normalized = normalizeSearchText(locationPart);
+  for (const [hint, loc] of Object.entries(COUNTRY_HINTS)) {
+    if (matchesNormalizedToken(normalized, normalizeSearchText(hint))) return loc;
+  }
+  return null;
+}
+
+function matchLocationAlias(locationPart) {
+  const normalized = normalizeSearchText(locationPart);
+  for (const [hint, loc] of Object.entries(LOCATION_ALIASES)) {
+    if (matchesNormalizedToken(normalized, normalizeSearchText(hint))) return loc;
+  }
+  return null;
+}
+
+function matchesNormalizedToken(normalizedText, normalizedHint) {
+  return new RegExp(`(^| )${escapeRegExp(normalizedHint)}(?= |$)`).test(normalizedText);
 }
 
 function escapeRegExp(value) {
@@ -386,12 +461,12 @@ function escapeRegExp(value) {
 
 function classifyRoleFamily(title) {
   if (!title) return false;
-  const t = title.toLowerCase();
-  if (EXCLUDED_TITLE_KEYWORDS.some(k => t.includes(k))) return false;
+  const t = normalizeSearchText(title);
+  if (EXCLUDED_TITLE_PATTERNS.some(pattern => pattern.test(t))) return false;
   for (const group of ROLE_FAMILIES) {
-    if (group.keywords.some(k => t.includes(k))) return group.family;
+    if (group.patterns.some(pattern => pattern.test(t))) return group.family;
   }
-  return ROLE_FALLBACK_KEYWORDS.some(k => t.includes(k)) ? "Other" : null;
+  return ROLE_FALLBACK_KEYWORDS.some(k => matchesNormalizedToken(t, normalizeSearchText(k))) ? "Other" : null;
 }
 
 function classifySeniority(title) {
@@ -430,6 +505,39 @@ function classifyVisa(token) {
   return "Unknown";
 }
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function applySearchAliases(value) {
+  let normalized = normalizeSearchText(value);
+  for (const [from, to] of SEARCH_ALIAS_REPLACEMENTS) {
+    normalized = normalized.replace(new RegExp(`(^| )${escapeRegExp(from)}(?= |$)`, "g"), `$1${to}`);
+  }
+  return normalized.trim().replace(/\s+/g, " ");
+}
+
+function searchTokens(value) {
+  const normalized = applySearchAliases(value);
+  return normalized
+    .split(" ")
+    .map(token => token.trim())
+    .filter(token => token && !SEARCH_STOP_WORDS.has(token) && (token.length > 1 || /\d/.test(token)));
+}
+
+function matchesSearchTokens(haystack, tokens) {
+  if (!tokens.length) return true;
+  const normalizedHaystack = ` ${applySearchAliases(haystack)} `;
+  return tokens.every(token => normalizedHaystack.includes(` ${token} `));
+}
+
 function canonicalCompany(token) {
   return COMPANY_ALIASES[token] || token;
 }
@@ -441,7 +549,7 @@ function techSource(source, token, fetcher) {
     company: canonicalCompany(token),
     industry: INDUSTRIES.TECH,
     niche: classifyNiche(token),
-    fetch: s => fetcher(s.token)
+    fetch: s => fetcher(s.token, s.fetchMeta)
   };
 }
 
@@ -467,7 +575,7 @@ function engineeringAtsSource({ source, token, company, niche, tier = "BigTech",
     niche,
     tier,
     visa,
-    fetch: s => fetcher(s.token)
+    fetch: s => fetcher(s.token, s.fetchMeta)
   };
 }
 
@@ -758,22 +866,55 @@ function postingSourceId(posting) {
   return `${posting.source}-${posting.source_token || posting.company}`;
 }
 
-async function fetchJSON(url, init = {}) {
+function recordFetchFailure(diagnostics, failure) {
+  if (!diagnostics) return;
+  diagnostics.failures ||= [];
+  diagnostics.failures.push({
+    url: String(failure.url || ""),
+    reason: failure.reason || "fetch_error",
+    ...(failure.status ? { status: failure.status } : {})
+  });
+}
+
+async function fetchWithTimeout(url, init = {}, diagnostics = null) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const r = await fetch(url, { cf: { cacheTtl: 0 }, ...init });
-    if (!r.ok) return null;
+    const r = await fetch(url, { cf: { cacheTtl: 0 }, ...init, signal: controller.signal });
+    if (!r.ok) {
+      recordFetchFailure(diagnostics, { url, reason: "http_error", status: r.status });
+      return null;
+    }
+    return r;
+  } catch (error) {
+    recordFetchFailure(diagnostics, {
+      url,
+      reason: error?.name === "AbortError" ? "timeout" : "fetch_error"
+    });
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchJSON(url, init = {}, diagnostics = null) {
+  const r = await fetchWithTimeout(url, init, diagnostics);
+  if (!r) return null;
+  try {
     return await r.json();
   } catch {
+    recordFetchFailure(diagnostics, { url, reason: "invalid_json" });
     return null;
   }
 }
 
-async function fetchText(url) {
+async function fetchText(url, diagnostics = null) {
+  const r = await fetchWithTimeout(url, {}, diagnostics);
+  if (!r) return null;
   try {
-    const r = await fetch(url, { cf: { cacheTtl: 0 } });
-    if (!r.ok) return null;
     return await r.text();
   } catch {
+    recordFetchFailure(diagnostics, { url, reason: "invalid_text" });
     return null;
   }
 }
@@ -784,6 +925,15 @@ function normalizeFetchResult(result) {
     return { jobs: result.jobs, meta: result.meta || null };
   }
   return { jobs: null, meta: null };
+}
+
+function sourceDiagnosticsMeta(fetchMeta) {
+  const failures = Array.isArray(fetchMeta?.failures) ? fetchMeta.failures : [];
+  if (!failures.length) return null;
+  return {
+    fetchFailures: failures.slice(0, 10),
+    lastFailure: failures[failures.length - 1]
+  };
 }
 
 function decodeHTML(value) {
@@ -998,13 +1148,17 @@ function normalizeYcJob(job, companyMap) {
   };
 }
 
-async function fetchYcStartupJobs() {
+async function fetchYcStartupJobs(source = {}) {
+  const diagnostics = source.fetchMeta;
   const [companies, pageResults] = await Promise.all([
-    fetchJSON(YC_COMPANIES_URL),
+    fetchJSON(YC_COMPANIES_URL, {}, diagnostics),
     Promise.allSettled(YC_SEED_PATHS.map(async path => {
       const url = absoluteUrl(YC_BASE_URL, path);
-      const html = await fetchText(url);
+      const html = await fetchText(url, diagnostics);
       const jobPostings = extractYcJobPostings(html);
+      if (html && !Array.isArray(jobPostings)) {
+        recordFetchFailure(diagnostics, { url, reason: "parse_miss" });
+      }
       return { path, ok: Array.isArray(jobPostings), jobPostings: jobPostings || [] };
     }))
   ]);
@@ -1039,8 +1193,8 @@ async function fetchYcStartupJobs() {
   };
 }
 
-async function fetchGreenhouse(token) {
-  const data = await fetchJSON(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=false`);
+async function fetchGreenhouse(token, diagnostics = null) {
+  const data = await fetchJSON(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=false`, {}, diagnostics);
   if (!data) return null;
   return (data.jobs || []).map(j => ({
     id: String(j.id),
@@ -1050,8 +1204,8 @@ async function fetchGreenhouse(token) {
   }));
 }
 
-async function fetchAshby(token) {
-  const data = await fetchJSON(`https://api.ashbyhq.com/posting-api/job-board/${token}`);
+async function fetchAshby(token, diagnostics = null) {
+  const data = await fetchJSON(`https://api.ashbyhq.com/posting-api/job-board/${token}`, {}, diagnostics);
   if (!data) return null;
   const out = [];
   for (const j of data.jobs || []) {
@@ -1070,7 +1224,8 @@ async function fetchAshby(token) {
   return out;
 }
 
-async function fetchAmazonJobs() {
+async function fetchAmazonJobs(source = {}) {
+  const diagnostics = source.fetchMeta;
   const out = [];
   let okPages = 0;
   const failedPages = [];
@@ -1082,7 +1237,7 @@ async function fetchAmazonJobs() {
       offset: "0"
     });
     const url = `https://www.amazon.jobs/en/search.json?${params.toString()}`;
-    const data = await fetchJSON(url);
+    const data = await fetchJSON(url, {}, diagnostics);
     if (!data) {
       failedPages.push(loc);
       continue;
@@ -1110,15 +1265,17 @@ async function fetchAmazonJobs() {
   };
 }
 
-async function fetchAppleJobs() {
+async function fetchAppleJobs(source = {}) {
+  const diagnostics = source.fetchMeta;
   const out = [];
   const failedPages = [];
   let okPages = 0;
   for (const path of APPLE_SEARCH_PATHS) {
     const url = absoluteUrl("https://jobs.apple.com", path);
-    const html = await fetchText(url);
+    const html = await fetchText(url, diagnostics);
     const data = html ? extractAppleSearchData(html) : null;
     if (!data || !Array.isArray(data.searchResults)) {
+      if (html) recordFetchFailure(diagnostics, { url, reason: "parse_miss" });
       failedPages.push(path);
       continue;
     }
@@ -1152,11 +1309,15 @@ async function fetchAppleJobs() {
   };
 }
 
-async function fetchNetflixJobs() {
+async function fetchNetflixJobs(source = {}) {
+  const diagnostics = source.fetchMeta;
   const url = "https://explore.jobs.netflix.net/careers";
-  const html = await fetchText(url);
+  const html = await fetchText(url, diagnostics);
   const data = html ? extractNetflixSmartApplyData(html) : null;
-  if (!data || !Array.isArray(data.positions)) return null;
+  if (!data || !Array.isArray(data.positions)) {
+    if (html) recordFetchFailure(diagnostics, { url, reason: "parse_miss" });
+    return null;
+  }
   const out = [];
   for (const job of data.positions) {
     const locations = Array.isArray(job.locations) && job.locations.length ? job.locations : [job.location];
@@ -1183,7 +1344,7 @@ async function fetchNetflixJobs() {
 }
 
 async function fetchRmkCategory(source) {
-  const html = await fetchText(source.url);
+  const html = await fetchText(source.url, source.fetchMeta);
   if (!html) return null;
   const jobs = [];
   const rowPattern = /<a[^>]+href=["']([^"']*\/job\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -1201,7 +1362,7 @@ async function fetchTribepad(source) {
   const base = source.url.replace(/\/$/, "");
   for (let page = 1; page <= 5; page++) {
     const url = page === 1 ? base : `${base}/-1/${page}`;
-    const html = await fetchText(url);
+    const html = await fetchText(url, source.fetchMeta);
     if (!html) return page === 1 ? null : out;
     const before = out.length;
     const linkPattern = /<a[^>]+href=["']([^"']*\/jobs\/job\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -1229,7 +1390,7 @@ async function fetchNlxJobs(source) {
   ];
   const out = [];
   for (const pageUrl of candidates) {
-    const html = await fetchText(pageUrl);
+    const html = await fetchText(pageUrl, source.fetchMeta);
     if (!html) continue;
     const linkPattern = /<a[^>]+href=["']([^"']*(?:\/job\/|\/jobs\/)[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
     for (const match of html.matchAll(linkPattern)) {
@@ -1262,7 +1423,7 @@ async function fetchWorkday(source) {
       offset: 0,
       searchText: source.searchText || ""
     })
-  });
+  }, source.fetchMeta);
   if (!data || !Array.isArray(data.jobPostings)) return null;
   return uniqueJobs(data.jobPostings.map(job => {
     const path = job.externalPath || job.externalUrl || "";
@@ -1286,8 +1447,8 @@ function inferLocationFromText(text) {
   return loc.city;
 }
 
-async function fetchLever(token) {
-  const data = await fetchJSON(`https://api.lever.co/v0/postings/${token}?mode=json`);
+async function fetchLever(token, diagnostics = null) {
+  const data = await fetchJSON(`https://api.lever.co/v0/postings/${token}?mode=json`, {}, diagnostics);
   if (!Array.isArray(data)) return null;
   const out = [];
   for (const j of data) {
@@ -1305,11 +1466,11 @@ async function fetchLever(token) {
   return out;
 }
 
-async function fetchSmartRecruiters(token) {
+async function fetchSmartRecruiters(token, diagnostics = null) {
   const out = [];
   let offset = 0;
   for (let page = 0; page < 10; page++) {
-    const data = await fetchJSON(`https://api.smartrecruiters.com/v1/companies/${token}/postings?limit=100&offset=${offset}`);
+    const data = await fetchJSON(`https://api.smartrecruiters.com/v1/companies/${token}/postings?limit=100&offset=${offset}`, {}, diagnostics);
     if (!data) return page === 0 ? null : out;
     const content = data.content || [];
     for (const j of content) {
@@ -1344,11 +1505,12 @@ export async function runScan(env) {
   for (let i = 0; i < sources.length; i += 8) {
     const batch = sources.slice(i, i + 8);
     const results = await Promise.allSettled(batch.map(async s => {
+      const sourceForFetch = { ...s, fetchMeta: { failures: [] } };
       try {
-        const result = normalizeFetchResult(await s.fetch(s));
-        return { s, ...result };
+        const result = normalizeFetchResult(await sourceForFetch.fetch(sourceForFetch));
+        return { s, fetchMeta: sourceForFetch.fetchMeta, ...result };
       } catch {
-        return { s, jobs: null };
+        return { s, fetchMeta: sourceForFetch.fetchMeta, jobs: null };
       }
     }));
 
@@ -1356,13 +1518,18 @@ export async function runScan(env) {
       if (r.status !== "fulfilled" || !r.value.jobs) {
         failCount++;
         const failed = r.status === "fulfilled" ? r.value.s : null;
-        if (failed) failedSources.add(sourceId(failed));
+        if (failed) {
+          failedSources.add(sourceId(failed));
+          const failureMeta = sourceDiagnosticsMeta(r.value.fetchMeta);
+          if (failureMeta) sourceMeta[sourceId(failed)] = failureMeta;
+        }
         continue;
       }
       okCount++;
-      const { s, jobs, meta } = r.value;
+      const { s, jobs, meta, fetchMeta } = r.value;
       okSources.add(sourceId(s));
-      if (meta) sourceMeta[sourceId(s)] = meta;
+      const diagnostics = sourceDiagnosticsMeta(fetchMeta);
+      if (meta || diagnostics) sourceMeta[sourceId(s)] = { ...(meta || {}), ...(diagnostics || {}) };
       for (const job of jobs) {
         const loc = matchCountry(job.location);
         if (!loc) continue;
@@ -1634,12 +1801,14 @@ function normalizeJobQuery(payload = {}) {
   const filters = payload.filters && typeof payload.filters === "object" ? payload.filters : {};
   const industryFilters = cleanStringArray(filters.industry || (payload.industry ? [payload.industry] : []), 5, 40)
     .filter(industry => Object.values(INDUSTRIES).includes(industry));
+  const search = cleanString(payload.search || filters.search);
   return {
     page: clampInteger(payload.page, 1, 1, 10000),
     per_page: clampInteger(payload.per_page, JOB_PAGE_SIZE, 1, MAX_JOB_PAGE_SIZE),
     sort: ["score", "company", "title", "role", "country", "status", "first_seen"].includes(payload.sort) ? payload.sort : "score",
     dir: payload.dir === "asc" ? "asc" : "desc",
-    search: cleanString(payload.search || filters.search).toLowerCase(),
+    search,
+    searchTokens: searchTokens(search),
     filters: {
       industry: industryFilters,
       niche: cleanStringArray(filters.niche),
@@ -1675,13 +1844,14 @@ function postingMatchesQuery(posting, query) {
   if (filters.presets.includes("senior") && !["Senior/Lead", "Manager", "Director/Head", "Executive"].includes(posting.seniority)) return false;
   if (filters.presets.includes("strong-visa") && posting.visa !== "Strong") return false;
   if (filters.presets.includes("new") && !postingIsNew(posting)) return false;
-  if (query.search) {
+  if (query.searchTokens.length) {
     const blob = [
       posting.company,
       posting.title,
       posting.city,
       posting.location,
       posting.country,
+      COUNTRY_NAMES[posting.country],
       industry,
       niche,
       tier,
@@ -1689,7 +1859,7 @@ function postingMatchesQuery(posting, query) {
       posting.seniority,
       posting.visa
     ].join(" ").toLowerCase();
-    if (!blob.includes(query.search)) return false;
+    if (!matchesSearchTokens(blob, query.searchTokens)) return false;
   }
   return true;
 }
