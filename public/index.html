@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-brand-theme="graphite">
+<html lang="en" data-theme="dark" data-brand-theme="cobalt">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -582,7 +582,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 <script>
 (function() {
   var validBrandThemes = ['cobalt', 'graphite', 'aurora'];
-  var brandTheme = 'graphite';
+  var brandTheme = 'cobalt';
   try {
     var stored = localStorage.getItem('livejobindex_brand_theme');
     if (validBrandThemes.indexOf(stored) !== -1) brandTheme = stored;
@@ -1459,7 +1459,7 @@ const STATUS_CLASS = { 'Not started': '', 'Saved': 'status-saved', 'Applied': 's
 const PIPELINE_STATUSES = new Set(['Saved', 'Applied', 'Recruiter screen', 'Interview', 'Final round', 'Offer']);
 const ARCHIVE_STATUSES = new Set(['Rejected', 'On hold']);
 const BRAND_THEME_KEY = 'livejobindex_brand_theme';
-const DEFAULT_BRAND_THEME = 'graphite';
+const DEFAULT_BRAND_THEME = 'cobalt';
 const BRAND_THEME_SEQUENCE = ['cobalt', 'graphite', 'aurora'];
 const BRAND_THEME_LABELS = { cobalt: 'Cobalt', graphite: 'Graphite', aurora: 'Aurora' };
 const VALID_BRAND_THEMES = new Set(BRAND_THEME_SEQUENCE);

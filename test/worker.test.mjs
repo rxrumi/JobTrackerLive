@@ -319,12 +319,12 @@ test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk J
   assert.match(source, /showAuth\(err\.message \|\| 'Sign-in could not be started\. Try again\.', isProtectedRoute\(\)\);/);
 });
 
-test("homepage defaults signed-out theme to graphite and uses icon-only header toggle", () => {
+test("homepage defaults signed-out theme to cobalt and uses icon-only header toggle", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-  assert.match(html, /<html lang="en" data-theme="dark" data-brand-theme="graphite">/);
-  assert.match(html, /var brandTheme = 'graphite'/);
-  assert.match(html, /const DEFAULT_BRAND_THEME = 'graphite'/);
+  assert.match(html, /<html lang="en" data-theme="dark" data-brand-theme="cobalt">/);
+  assert.match(html, /var brandTheme = 'cobalt'/);
+  assert.match(html, /const DEFAULT_BRAND_THEME = 'cobalt'/);
   assert.match(html, /<button class="theme-toggle" id="theme-toggle"[^>]*>◐<\/button>/);
   assert.match(html, /btn\.textContent = '◐'/);
   assert.doesNotMatch(html, /theme-toggle"[^>]*>Cobalt<\/button>/);
@@ -1126,7 +1126,7 @@ function createD1Fake({ user, rows = {} } = {}) {
           last_login_at: null,
           onboarding_completed: 0,
           account_type,
-          brand_theme: "graphite",
+          brand_theme: "cobalt",
           created_at,
           updated_at
         }, ["id"]);

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at TEXT,
   onboarding_completed INTEGER NOT NULL DEFAULT 0 CHECK (onboarding_completed IN (0, 1)),
   account_type TEXT NOT NULL DEFAULT 'individual' CHECK (account_type IN ('individual', 'agency')),
-  brand_theme TEXT NOT NULL DEFAULT 'graphite' CHECK (brand_theme IN ('cobalt', 'graphite', 'aurora')),
+  brand_theme TEXT NOT NULL DEFAULT 'cobalt' CHECK (brand_theme IN ('cobalt', 'graphite', 'aurora')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

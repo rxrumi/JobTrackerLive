@@ -2127,7 +2127,7 @@ async function ensureAccountRows(env, user, accountType = "individual") {
       id, email, full_name, last_login_at, onboarding_completed, account_type,
       brand_theme, created_at, updated_at
     )
-    values (?, ?, ?, null, 0, ?, 'graphite', ?, ?)
+    values (?, ?, ?, null, 0, ?, 'cobalt', ?, ?)
     on conflict(id) do update set
       email = excluded.email,
       full_name = coalesce(excluded.full_name, users.full_name),
