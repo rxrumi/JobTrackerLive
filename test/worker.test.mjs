@@ -1475,6 +1475,45 @@ test("public jobs endpoint filters by industry query parameter", async () => {
   assert.equal(payload.postings[0].niche, "AEC / Infrastructure");
 });
 
+test("public jobs endpoint schedules stale payload refresh", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch({
+    jobsByToken: {
+      hubspot: {
+        jobs: [{
+          id: 101,
+          title: "Revenue Operations Manager",
+          location: { name: "Dublin, Ireland" },
+          absolute_url: "https://example.com/hubspot-101"
+        }]
+      }
+    }
+  }));
+
+  const KV = createKV({ postings: {} }, {
+    last_scan: "2000-01-01",
+    last_scan_at: "2000-01-01T00:00:00.000Z",
+    postings: samplePostings(1)
+  });
+  const waitUntil = [];
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs"), { KV }, {
+    waitUntil(promise) {
+      waitUntil.push(promise);
+    }
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(waitUntil.length, 1);
+  assert.ok(KV.puts.some(p => p.key === "scan:stale-refresh-lock"));
+
+  await Promise.all(waitUntil);
+
+  const jobsPut = KV.puts.findLast(p => p.key === "jobs");
+  const payload = JSON.parse(jobsPut.value);
+  assert.equal(payload.last_scan, new Date().toISOString().slice(0, 10));
+  assert.ok(payload.postings.some(p => p.id === "greenhouse-hubspot-101"));
+});
+
 test("json responses include production security headers", async () => {
   const KV = createKV();
   await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(1) }));

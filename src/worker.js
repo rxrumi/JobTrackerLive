@@ -60,6 +60,9 @@ const ACTIVE_SOURCES = new Set([
 ]);
 const FAILURE_ABORT_RATIO = 0.5;
 const FETCH_TIMEOUT_MS = 12000;
+const STALE_SCAN_LOCK_KEY = "scan:stale-refresh-lock";
+const STALE_SCAN_LOCK_TTL_SECONDS = 20 * 60;
+const MAX_POSTINGS_PER_SOURCE = 100;
 const CUSTOM_SOURCE_LIMIT = 120;
 const AMAZON_SEARCH_LOCATIONS = [
   "United States", "United Kingdom", "Ireland", "Canada", "Australia", "Singapore",
@@ -1527,9 +1530,11 @@ export async function runScan(env) {
       }
       okCount++;
       const { s, jobs, meta, fetchMeta } = r.value;
-      okSources.add(sourceId(s));
+      const sid = sourceId(s);
+      okSources.add(sid);
       const diagnostics = sourceDiagnosticsMeta(fetchMeta);
-      if (meta || diagnostics) sourceMeta[sourceId(s)] = { ...(meta || {}), ...(diagnostics || {}) };
+      if (meta || diagnostics) sourceMeta[sid] = { ...(meta || {}), ...(diagnostics || {}) };
+      let retainedForSource = 0;
       for (const job of jobs) {
         const loc = matchCountry(job.location);
         if (!loc) continue;
@@ -1565,6 +1570,15 @@ export async function runScan(env) {
           last_seen: today,
           last_filled: null
         };
+        retainedForSource++;
+        if (retainedForSource >= MAX_POSTINGS_PER_SOURCE) {
+          sourceMeta[sid] = {
+            ...(sourceMeta[sid] || {}),
+            retainedLimit: MAX_POSTINGS_PER_SOURCE,
+            sourceJobs: jobs.length
+          };
+          break;
+        }
       }
     }
   }
@@ -2603,6 +2617,40 @@ async function readJobsPayloadSafe(env) {
   }
 }
 
+function jobsPayloadIsStale(data) {
+  return data.last_scan !== todayUTC();
+}
+
+async function persistSuccessfulScan(env, result, scanDate = null) {
+  if (result?.next && env.DB) {
+    await persistScanToD1(env, result.next, scanDate || result.next.last_scan);
+  }
+}
+
+async function maybeRefreshStaleJobs(env, ctx, data) {
+  if (!ctx?.waitUntil || !env.KV || !jobsPayloadIsStale(data)) return;
+
+  try {
+    const existingLock = await env.KV.get(STALE_SCAN_LOCK_KEY);
+    if (existingLock) return;
+
+    await env.KV.put(STALE_SCAN_LOCK_KEY, new Date().toISOString(), {
+      expirationTtl: STALE_SCAN_LOCK_TTL_SECONDS
+    });
+  } catch (error) {
+    console.error("stale_scan_lock_failed", error);
+    return;
+  }
+
+  ctx.waitUntil(
+    runScan(env)
+      .then(result => persistSuccessfulScan(env, result))
+      .catch(error => {
+        console.error("stale_scan_failed", error);
+      })
+  );
+}
+
 function countBy(postings, field) {
   const counts = new Map();
   for (const posting of postings) {
@@ -2791,11 +2839,12 @@ async function handleSeoPage(path, env) {
   }));
 }
 
-async function handlePublicJobs(request, env) {
+async function handlePublicJobs(request, env, ctx) {
   const url = new URL(request.url);
   const requestedIndustry = url.searchParams.get("industry") || INDUSTRIES.TECH;
   const industry = Object.values(INDUSTRIES).includes(requestedIndustry) ? requestedIndustry : INDUSTRIES.TECH;
   const data = await readJobsPayload(env);
+  await maybeRefreshStaleJobs(env, ctx, data);
   const payload = pagePostings(data, normalizeJobQuery({
     page: 1,
     per_page: JOB_PAGE_SIZE,
@@ -2822,7 +2871,7 @@ function handlePublicConfig(env) {
   });
 }
 
-async function handleJobsQuery(request, env) {
+async function handleJobsQuery(request, env, ctx) {
   if (isLowBotScore(request)) return errorResponse(403, "bot_check_failed");
 
   const payload = await readJSON(request);
@@ -2836,6 +2885,7 @@ async function handleJobsQuery(request, env) {
   }
 
   const data = await readJobsPayload(env);
+  await maybeRefreshStaleJobs(env, ctx, data);
   return jsonResponse(pagePostings(data, query));
 }
 
@@ -3009,7 +3059,7 @@ export default {
     }
 
     if (url.pathname === "/api/jobs") {
-      return handlePublicJobs(request, env);
+      return handlePublicJobs(request, env, ctx);
     }
 
     if (url.pathname === "/api/config" && request.method === "GET") {
@@ -3017,7 +3067,7 @@ export default {
     }
 
     if (url.pathname === "/api/jobs/query" && request.method === "POST") {
-      return handleJobsQuery(request, env);
+      return handleJobsQuery(request, env, ctx);
     }
 
     if (url.pathname === "/api/signup" && request.method === "POST") {
@@ -3117,7 +3167,7 @@ export default {
       }
       const result = await runScan(env);
       if (result.next && ctx?.waitUntil) {
-        ctx.waitUntil(persistScanToD1(env, result.next, result.next.last_scan));
+        ctx.waitUntil(persistSuccessfulScan(env, result));
       }
       return jsonResponse({ okCount: result.okCount, failCount: result.failCount, total: result.total });
     }
@@ -3128,9 +3178,7 @@ export default {
   async scheduled(event, env, ctx) {
     const today = todayUTC();
     const scanPromise = runScan(env).then(result => {
-      if (result.next) {
-        return persistScanToD1(env, result.next, today);
-      }
+      return persistSuccessfulScan(env, result, today);
     });
     if (ctx?.waitUntil) {
       ctx.waitUntil(scanPromise);
