@@ -319,17 +319,16 @@ test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk J
   assert.match(source, /showAuth\(err\.message \|\| 'Sign-in could not be started\. Try again\.', isProtectedRoute\(\)\);/);
 });
 
-test("homepage defaults signed-out theme to cobalt and uses icon-only header toggle", () => {
+test("homepage defaults signed-out theme to the light cobalt system and exposes a clear mode toggle", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-  assert.match(html, /<html lang="en" data-theme="dark" data-brand-theme="cobalt">/);
+  assert.match(html, /<html lang="en" data-theme="light" data-brand-theme="cobalt">/);
   assert.match(html, /var brandTheme = 'cobalt'/);
   assert.match(html, /const DEFAULT_BRAND_THEME = 'cobalt'/);
-  assert.match(html, /<button class="theme-toggle" id="theme-toggle"[^>]*>◐<\/button>/);
-  assert.match(html, /btn\.textContent = '◐'/);
-  assert.doesNotMatch(html, /theme-toggle"[^>]*>Cobalt<\/button>/);
-  assert.doesNotMatch(html, /theme-toggle"[^>]*>Graphite<\/button>/);
-  assert.doesNotMatch(html, /theme-toggle"[^>]*>Aurora<\/button>/);
+  assert.match(html, /<button class="theme-toggle" id="theme-toggle"[^>]*>Dark mode<\/button>/);
+  assert.match(html, /btn\.textContent = next === 'graphite' \? 'Dark mode' : 'Light mode'/);
+  assert.match(html, /const BRAND_THEME_SEQUENCE = \['cobalt', 'graphite'\]/);
+  assert.doesNotMatch(html, /<button class="brand-theme-btn"[^>]*data-brand-theme="aurora"/);
 });
 
 test("homepage exposes United States in market constants and generated country controls", () => {

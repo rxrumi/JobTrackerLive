@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-brand-theme="cobalt">
+<html lang="en" data-theme="light" data-brand-theme="cobalt">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -625,16 +625,17 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   .profile-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
+<link rel="stylesheet" href="/app.css">
 <script>
 (function() {
-  var validBrandThemes = ['cobalt', 'graphite', 'aurora'];
+  var validBrandThemes = ['cobalt', 'graphite'];
   var brandTheme = 'cobalt';
   try {
     var stored = localStorage.getItem('livejobindex_brand_theme');
     if (validBrandThemes.indexOf(stored) !== -1) brandTheme = stored;
   } catch (e) {
   }
-  document.documentElement.setAttribute('data-theme', 'dark');
+  document.documentElement.setAttribute('data-theme', brandTheme === 'graphite' ? 'dark' : 'light');
   document.documentElement.dataset.brandTheme = brandTheme;
 })();
 </script>
@@ -658,7 +659,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   <div class="header-actions">
     <button class="secondary-btn" id="header-login-btn" type="button">Login</button>
     <button class="primary-btn" id="header-signup-btn" type="button">Sign up</button>
-    <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch theme">◐</button>
+    <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch theme">Dark mode</button>
     <div class="profile-menu" id="profile-menu" hidden>
       <button class="account-pill" id="account-pill" type="button" aria-expanded="false" aria-controls="profile-dropdown"></button>
       <div class="profile-dropdown" id="profile-dropdown" role="menu" hidden>
@@ -972,12 +973,10 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
             <div class="setting-copy">Choose the visual direction for your account.</div>
           </div>
           <div class="brand-switcher" id="profile-brand-switcher" role="group" aria-label="Brand theme">
-            <span class="brand-switcher-label">Brand:</span>
-            <button class="brand-theme-btn" type="button" data-brand-theme="cobalt">Cobalt</button>
+            <span class="brand-switcher-label">Appearance:</span>
+            <button class="brand-theme-btn" type="button" data-brand-theme="cobalt">Light</button>
             <span class="brand-separator" aria-hidden="true">|</span>
-            <button class="brand-theme-btn" type="button" data-brand-theme="graphite">Graphite</button>
-            <span class="brand-separator" aria-hidden="true">|</span>
-            <button class="brand-theme-btn" type="button" data-brand-theme="aurora">Aurora</button>
+            <button class="brand-theme-btn" type="button" data-brand-theme="graphite">Dark</button>
           </div>
         </div>
         <div class="settings-message" id="settings-message"></div>
@@ -1127,18 +1126,33 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
     </div>
   </form>
 </section>
+<section class="dashboard-hero" aria-labelledby="dashboard-title">
+  <div>
+    <p class="dashboard-eyebrow" id="dashboard-eyebrow">Discover</p>
+    <h2 class="dashboard-title" id="dashboard-title">Live jobs</h2>
+    <p class="dashboard-copy" id="dashboard-copy">Fresh opportunities from public company career feeds, prioritized for your search.</p>
+  </div>
+  <div class="dashboard-metrics" aria-label="Job search overview">
+    <div class="metric-card"><strong id="metric-live">—</strong><span>Live roles</span></div>
+    <div class="metric-card"><strong id="metric-new">—</strong><span>New this week</span></div>
+    <div class="metric-card"><strong id="metric-visa">—</strong><span>Strong visa</span></div>
+  </div>
+</section>
 <nav class="tabs" id="tabs">
+  <span class="nav-group-label">Discover</span>
   <button class="tab active" type="button" data-tab="active">Live jobs <span class="count" id="count-active">—</span></button>
   <button class="tab" type="button" data-route="/visa-roles">Visa Roles</button>
   <button class="tab" type="button" data-tab="targets">Targets <span class="count" id="count-targets">—</span></button>
+  <span class="nav-group-label">Organize</span>
   <button class="tab" type="button" data-tab="pipeline">My pipeline <span class="count" id="count-pipeline">—</span></button>
   <button class="tab" type="button" data-tab="archive">Archive <span class="count" id="count-archive">—</span></button>
+  <span class="nav-group-label">Research</span>
   <button class="tab" type="button" data-route="/insights">Market Insights</button>
 </nav>
 
 <div class="utility-bar">
   <div class="search-wrap" id="search-wrap">
-    <input type="text" class="search" id="search" placeholder="Search company, role, family, city, notes..." />
+    <input type="text" class="search" id="search" placeholder="Search roles, companies, skills, or locations" />
     <button class="search-clear" id="search-clear" aria-label="Clear search">×</button>
   </div>
   <div class="filter-bar">
@@ -1179,6 +1193,15 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   <span class="results-count" id="results-count"></span>
 </div>
 
+<div class="filter-actions-row">
+  <div class="active-filters" id="active-filters" aria-live="polite"></div>
+  <button class="save-search-btn" id="save-search-btn" type="button">Save search</button>
+  <div class="view-toggle" role="group" aria-label="Results layout">
+    <button class="active" id="view-cards-btn" type="button" aria-pressed="true">Cards</button>
+    <button id="view-table-btn" type="button" aria-pressed="false">Compact</button>
+  </div>
+</div>
+
 <div class="form-message" id="profile-filter-notice" hidden></div>
 
 <div id="empty-state" class="empty-card" style="display:none">
@@ -1187,8 +1210,10 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   <button class="reset" id="empty-reset">Reset filters</button>
 </div>
 
-<div class="table-wrap" id="table-wrap">
-<table id="job-table">
+<div class="jobs-workspace" id="jobs-workspace">
+  <div>
+    <div class="table-wrap" id="table-wrap">
+    <table id="job-table">
   <thead>
     <tr>
       <th data-sort="company">Company</th>
@@ -1203,10 +1228,15 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
     </tr>
   </thead>
   <tbody id="job-tbody"></tbody>
-</table>
-</div>
+    </table>
+    </div>
 
-<div class="job-cards" id="job-cards"></div>
+    <div class="job-cards" id="job-cards"></div>
+  </div>
+  <aside class="job-detail-panel" id="job-detail-panel" aria-live="polite">
+    <div class="job-detail-empty">Select a role to see its key signals and actions.</div>
+  </aside>
+</div>
 
 <div class="pipeline-list" id="pipeline-view" hidden></div>
 
@@ -1227,6 +1257,13 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the United States, UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, New Zealand, France, Italy, Poland, Belgium, Finland, Austria, Japan, South Korea, India, and Taiwan, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
 </section>
 </main>
+
+<nav class="mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Mobile navigation">
+  <button class="mobile-nav-btn active" type="button" data-mobile-tab="active">Jobs</button>
+  <button class="mobile-nav-btn" type="button" data-mobile-route="/visa-roles">Visa roles</button>
+  <button class="mobile-nav-btn" type="button" data-mobile-route="/pipeline">Pipeline</button>
+  <button class="mobile-nav-btn" type="button" data-mobile-route="/profile">Profile</button>
+</nav>
 
 <footer class="site-footer">
   <div class="footer-brand">
@@ -1591,9 +1628,13 @@ const PIPELINE_STATUSES = new Set(['Saved', 'Applied', 'Recruiter screen', 'Inte
 const ARCHIVE_STATUSES = new Set(['Rejected', 'On hold']);
 const BRAND_THEME_KEY = 'livejobindex_brand_theme';
 const DEFAULT_BRAND_THEME = 'cobalt';
-const BRAND_THEME_SEQUENCE = ['cobalt', 'graphite', 'aurora'];
-const BRAND_THEME_LABELS = { cobalt: 'Cobalt', graphite: 'Graphite', aurora: 'Aurora' };
+const BRAND_THEME_SEQUENCE = ['cobalt', 'graphite'];
+const BRAND_THEME_LABELS = { cobalt: 'Light', graphite: 'Dark' };
 const VALID_BRAND_THEMES = new Set(BRAND_THEME_SEQUENCE);
+const VIEW_MODE_KEY = 'livejobindex_view_mode';
+const SAVED_SEARCH_KEY = 'livejobindex_saved_search';
+let SELECTED_JOB_ID = null;
+let INITIAL_FEED_LOADING = true;
 
 function normalizeTier(tier) {
   return tier === 'Ecosystem' ? 'GrowthSaaS' : (tier || 'BigTech');
@@ -1718,10 +1759,14 @@ function companyLogoDomain(j) {
   return COMPANY_LOGO_DOMAINS[key] || applyHostLogoDomain(j.apply);
 }
 
-function companyLogoHTML(j) {
+function companyLogoURL(j) {
   const domain = companyLogoDomain(j);
-  if (!domain) return '<span class="company-logo-placeholder" aria-hidden="true"></span>';
-  const src = `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(domain)}`;
+  return domain ? `https://www.google.com/s2/favicons?sz=96&domain_url=${encodeURIComponent(domain)}` : '';
+}
+
+function companyLogoHTML(j) {
+  const src = companyLogoURL(j);
+  if (!src) return '<span class="company-logo-placeholder" aria-hidden="true"></span>';
   return `<img class="company-logo" src="${escapeHTML(src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true" onerror="this.style.visibility='hidden'">`;
 }
 
@@ -2527,8 +2572,8 @@ function updateIndustryUI() {
   const search = document.getElementById('search');
   if (search) {
     search.placeholder = state.industry === 'engineering'
-      ? 'Search engineering company, role, niche, city, notes...'
-      : 'Search company, role, family, city, notes...';
+      ? 'Search engineering roles, companies, niches, or locations'
+      : 'Search roles, companies, skills, or locations';
   }
 }
 
@@ -3011,7 +3056,8 @@ function compactNote(note) {
 
 function renderTabs() {
   const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0 };
-  JOBS.filter(j => j.industry === state.industry).forEach(j => buckets[tabBucket(j)]++);
+  const industryJobs = JOBS.filter(j => j.industry === state.industry);
+  industryJobs.forEach(j => buckets[tabBucket(j)]++);
   document.getElementById('count-active').textContent = Math.max(buckets.active, HEADER_ACTIVE_TOTAL);
   document.getElementById('count-targets').textContent = buckets.targets;
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
@@ -3022,6 +3068,31 @@ function renderTabs() {
     const bucketActive = !route && t.dataset.tab === state.tab && CURRENT_ROUTE !== '/visa-roles' && CURRENT_ROUTE !== '/insights';
     t.classList.toggle('active', routeActive || bucketActive);
     if (t.dataset.tab === 'targets') t.style.display = ME?.user ? '' : 'none';
+  });
+
+  const page = CURRENT_ROUTE === '/visa-roles'
+    ? { eyebrow: 'Relocation', title: 'Visa-friendly roles', copy: 'Prioritize employers with stronger sponsorship history and international hiring signals.' }
+    : CURRENT_ROUTE === '/insights'
+      ? { eyebrow: 'Research', title: 'Market insights', copy: 'See where hiring demand and relocation-friendly opportunities are concentrated.' }
+      : state.tab === 'pipeline'
+        ? { eyebrow: 'Organize', title: 'Application pipeline', copy: 'Move from saved role to offer with every opportunity organized by stage.' }
+        : state.tab === 'targets'
+          ? { eyebrow: 'Research', title: 'Company targets', copy: 'Explore curated company and location combinations worth monitoring.' }
+          : state.tab === 'archive'
+            ? { eyebrow: 'Organize', title: 'Archive', copy: 'Review closed, paused, rejected, and recently filled opportunities.' }
+            : { eyebrow: 'Discover', title: 'Live jobs', copy: 'Fresh opportunities from public company career feeds, prioritized for your search.' };
+  document.getElementById('dashboard-eyebrow').textContent = page.eyebrow;
+  document.getElementById('dashboard-title').textContent = page.title;
+  document.getElementById('dashboard-copy').textContent = page.copy;
+  document.getElementById('metric-live').textContent = Math.max(buckets.active, HEADER_ACTIVE_TOTAL).toLocaleString();
+  document.getElementById('metric-new').textContent = industryJobs.filter(j => !j.is_static && j.is_new && !j.is_filled).length.toLocaleString();
+  document.getElementById('metric-visa').textContent = industryJobs.filter(j => !j.is_filled && j.visa === 'Strong').length.toLocaleString();
+
+  document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+    const active = (btn.dataset.mobileTab === 'active' && CURRENT_ROUTE === '/' && state.tab === 'active')
+      || btn.dataset.mobileRoute === CURRENT_ROUTE;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-current', active ? 'page' : 'false');
   });
 }
 
@@ -3063,27 +3134,56 @@ function cardHTML(j) {
   const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
   const note = compactNote(j.notes || '');
   const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
-  return `<article class="job-card ${cardCls.trim()}">
-    <div class="card-line-1">
-      ${starHTML(j.id)}
-      <span class="company">
+  return `<article class="job-card ${cardCls.trim()} ${String(SELECTED_JOB_ID) === String(j.id) ? 'selected' : ''}" data-job-id="${escapeHTML(j.id)}" tabindex="0">
+    <div class="job-card-main">
+      <div class="job-card-company">
         ${companyLogoHTML(j)}
-        <span class="company-name">${escapeHTML(j.company)}</span>
-        <span class="company-meta">${sourceBadge}${newBadge}${filledBadge}${viewedTime}</span>
-      </span>
-      <span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>
+        <div>
+          <div class="job-card-company-name">${escapeHTML(j.company)}</div>
+          <div class="card-line-2">${escapeHTML(j.role)}</div>
+        </div>
+      </div>
+      <div class="job-card-meta">
+        <span>${escapeHTML(j.location)}</span>
+        <span>${escapeHTML(j.is_static ? 'Curated target' : (j.is_new ? 'New this week' : 'Active listing'))}</span>
+        ${viewedTime ? `<span>${viewedTime}</span>` : ''}
+      </div>
+      <div class="job-card-signals">${sourceBadge}${newBadge}${filledBadge}${companyTypeCellHTML(j)}${functionCellHTML(j)}${visaSignalCellHTML(j)}</div>
+      ${note ? `<div class="notes-mobile" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</div>` : ''}
     </div>
-    <div class="card-line-2">${escapeHTML(j.role)}</div>
-    <div class="card-line-3">
-      <span style="color:var(--text-secondary);font-size:12px">${escapeHTML(j.location)}</span>
-    </div>
-    ${mobileSignalsHTML(j)}
-    ${note ? `<div class="notes-mobile" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</div>` : ''}
-    <div class="card-actions">
-      ${applyButtonHTML(j)}
+    <div class="job-card-actions">
+      <div class="job-card-actions-top">${starHTML(j.id)}${applyButtonHTML(j)}</div>
       ${statusSelectHTML(j.id)}
     </div>
   </article>`;
+}
+
+function renderJobDetail(j) {
+  const panel = document.getElementById('job-detail-panel');
+  if (!panel) return;
+  if (!j) {
+    panel.innerHTML = '<div class="job-detail-empty">Select a role to see its key signals and actions.</div>';
+    return;
+  }
+  const logo = companyLogoURL(j);
+  const source = j.is_static ? 'Curated company target' : 'Confirmed live posting';
+  const freshness = j.is_filled ? 'This posting is no longer listed.' : j.is_new ? 'First seen within the last seven days.' : 'Currently active in the source feed.';
+  panel.innerHTML = `
+    ${logo ? `<img class="job-detail-logo" src="${escapeHTML(logo)}" alt="" loading="lazy">` : '<div class="job-detail-logo"></div>'}
+    <div class="job-detail-company">${escapeHTML(j.company)}</div>
+    <h3 class="job-detail-title">${escapeHTML(j.role)}</h3>
+    <div class="job-detail-location">${escapeHTML(j.location)}</div>
+    <div class="job-detail-badges">${companyTypeCellHTML(j)}${functionCellHTML(j)}${visaSignalCellHTML(j)}</div>
+    <div class="job-detail-section">
+      <h3>${escapeHTML(source)}</h3>
+      <p>${escapeHTML(freshness)} ${j.visa === 'Strong' ? 'The employer has a strong company-level sponsorship signal.' : j.visa === 'Likely' ? 'The employer may sponsor some international hires.' : 'Sponsorship availability is not confirmed.'}</p>
+    </div>
+    ${j.notes ? `<div class="job-detail-section"><h3>Your notes</h3><p>${escapeHTML(j.notes)}</p></div>` : ''}
+    <div class="job-detail-section">
+      <h3>Before you apply</h3>
+      <p>Confirm sponsorship and location eligibility in the job description. Visa signals are prioritization guidance, not a guarantee.</p>
+    </div>
+    <div class="job-detail-actions">${applyButtonHTML(j)}${starHTML(j.id)}</div>`;
 }
 
 function pipelineItemHTML(j, history) {
@@ -3134,11 +3234,21 @@ function renderPipeline() {
   const start = (state.page - 1) * PAGE_SIZE;
   const pageRows = rows.slice(start, start + PAGE_SIZE);
 
-  const html = pageRows.map(j => {
-    const cached = JOB_HISTORY_CACHE.get(String(j.id));
-    return pipelineItemHTML(j, cached || null);
-  });
-  container.innerHTML = html.join('');
+  const stages = [
+    { label: 'Saved', statuses: ['Saved'] },
+    { label: 'Applied', statuses: ['Applied'] },
+    { label: 'Screening', statuses: ['Recruiter screen'] },
+    { label: 'Interview', statuses: ['Interview', 'Final round'] },
+    { label: 'Offer', statuses: ['Offer'] }
+  ];
+  container.innerHTML = stages.map(stage => {
+    const stageRows = pageRows.filter(j => stage.statuses.includes(loadStatus(j.id)));
+    const cards = stageRows.map(j => pipelineItemHTML(j, JOB_HISTORY_CACHE.get(String(j.id)) || null)).join('');
+    return `<section class="kanban-column" aria-label="${escapeHTML(stage.label)} stage">
+      <div class="kanban-column-head"><strong>${escapeHTML(stage.label)}</strong><span class="kanban-count">${stageRows.length}</span></div>
+      <div class="kanban-column-body">${cards || '<div class="active-filter-empty">No roles in this stage</div>'}</div>
+    </section>`;
+  }).join('');
 
   container.querySelectorAll('.toggle-history').forEach(btn => {
     btn.onclick = async () => {
@@ -3190,6 +3300,55 @@ function activeFilterSummary() {
   return labels;
 }
 
+function currentSavedSearchSnapshot() {
+  return { industry: state.industry, filters: currentFilterSnapshot() };
+}
+
+function renderActiveFilters() {
+  const container = document.getElementById('active-filters');
+  if (!container) return;
+  const items = [];
+  if (state.search.trim()) items.push({ group: 'search', value: state.search, label: `Search: ${state.search.trim()}` });
+  const labels = {
+    country: value => COUNTRY_NAMES[value] || value,
+    tier: value => TIER_LABELS[value] || value,
+    presets: value => ({ senior: 'Senior+ only', 'strong-visa': 'Strong visa', new: 'New this week', starred: 'Starred' }[value] || value)
+  };
+  ['niche', 'country', 'tier', 'family', 'seniority', 'visa', 'presets'].forEach(group => {
+    state[group].forEach(value => items.push({ group, value, label: labels[group] ? labels[group](value) : value }));
+  });
+  container.innerHTML = '';
+  if (!items.length) {
+    container.innerHTML = '<span class="active-filter-empty">All opportunities are visible. Add filters to focus your search.</span>';
+  } else {
+    items.forEach(item => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'active-filter-chip';
+      button.textContent = item.label;
+      button.setAttribute('aria-label', `Remove ${item.label} filter`);
+      button.onclick = () => {
+        if (item.group === 'search') {
+          state.search = '';
+          syncSearchInput();
+        } else {
+          state[item.group].delete(item.value);
+        }
+        filterChanged(item.group);
+      };
+      container.appendChild(button);
+    });
+  }
+
+  const saveButton = document.getElementById('save-search-btn');
+  if (!saveButton) return;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(SAVED_SEARCH_KEY) || 'null'); } catch {}
+  const matches = saved && JSON.stringify(saved) === JSON.stringify(currentSavedSearchSnapshot());
+  saveButton.classList.toggle('saved', Boolean(matches));
+  saveButton.textContent = matches ? 'Search saved' : 'Save search';
+}
+
 function renderDiscoveryGuidance(resultCount) {
   const notice = document.getElementById('profile-filter-notice');
   if (notice) {
@@ -3211,10 +3370,12 @@ function render() {
   renderTabs();
   renderFilterOptions();
   updateFilterBadges();
+  renderActiveFilters();
   const rows = sorted(filtered());
   const tbody = document.getElementById('job-tbody');
   const cards = document.getElementById('job-cards');
   const wrap = document.getElementById('table-wrap');
+  const workspace = document.getElementById('jobs-workspace');
   const pipelineView = document.getElementById('pipeline-view');
   const empty = document.getElementById('empty-state');
   const loadedTabTotal = JOBS.filter(j => tabBucket(j) === state.tab).length;
@@ -3234,21 +3395,32 @@ function render() {
     : `0 of ${total}`;
   renderDiscoveryGuidance(paginationTotal);
 
+  if (!paginationTotal && INITIAL_FEED_LOADING && state.tab === 'active') {
+    empty.style.display = 'none';
+    workspace.style.display = '';
+    wrap.style.display = 'none';
+    cards.style.display = '';
+    pipelineView.hidden = true;
+    cards.innerHTML = Array.from({ length: 5 }, () => '<div class="job-card skeleton-card" aria-hidden="true"><div class="skeleton skeleton-logo"></div><div><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line title"></div><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-tags"></div></div></div>').join('');
+    document.getElementById('job-detail-panel').innerHTML = '<div class="skeleton skeleton-detail" aria-hidden="true"></div>';
+    renderPagination(0, 1);
+    return;
+  }
+
   if (!paginationTotal) {
     empty.style.display = 'block';
-    wrap.style.display = 'none';
-    cards.style.display = 'none';
+    workspace.style.display = 'none';
     pipelineView.hidden = true;
     tbody.innerHTML = '';
     cards.innerHTML = '';
+    renderJobDetail(null);
     renderPagination(0, 1);
     return;
   }
   empty.style.display = 'none';
 
   if (state.tab === 'pipeline') {
-    wrap.style.display = 'none';
-    cards.style.display = 'none';
+    workspace.style.display = 'none';
     pipelineView.hidden = false;
     tbody.innerHTML = '';
     cards.innerHTML = '';
@@ -3257,11 +3429,14 @@ function render() {
     return;
   }
 
+  workspace.style.display = '';
   wrap.style.display = '';
   cards.style.display = '';
   pipelineView.hidden = true;
+  if (!pageRows.some(j => String(j.id) === String(SELECTED_JOB_ID))) SELECTED_JOB_ID = pageRows[0]?.id || null;
   tbody.innerHTML = pageRows.map(rowHTML).join('');
   cards.innerHTML = pageRows.map(cardHTML).join('');
+  renderJobDetail(pageRows.find(j => String(j.id) === String(SELECTED_JOB_ID)) || pageRows[0] || null);
   renderPagination(paginationTotal, totalPages);
   wireRowHandlers();
 
@@ -3272,6 +3447,25 @@ function render() {
 }
 
 function wireRowHandlers() {
+  document.querySelectorAll('.job-card[data-job-id]').forEach(card => {
+    const selectCard = () => {
+      SELECTED_JOB_ID = card.dataset.jobId;
+      document.querySelectorAll('.job-card.selected').forEach(item => item.classList.remove('selected'));
+      card.classList.add('selected');
+      renderJobDetail(JOBS.find(j => String(j.id) === String(SELECTED_JOB_ID)) || null);
+      wireRowHandlers();
+    };
+    card.onclick = (e) => {
+      if (e.target.closest('a, button, select')) return;
+      selectCard();
+    };
+    card.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectCard();
+      }
+    };
+  });
   document.querySelectorAll('.status-select').forEach(sel => {
     sel.onchange = (e) => { saveStatus(e.target.dataset.id, e.target.value); render(); };
   });
@@ -3325,6 +3519,18 @@ function resetAll() {
   updateFilterBadges();
   render();
   scheduleActiveRefresh();
+}
+
+function setViewMode(mode, persist = true) {
+  const next = mode === 'table' ? 'table' : 'cards';
+  document.body.dataset.viewMode = next;
+  document.getElementById('view-cards-btn')?.classList.toggle('active', next === 'cards');
+  document.getElementById('view-table-btn')?.classList.toggle('active', next === 'table');
+  document.getElementById('view-cards-btn')?.setAttribute('aria-pressed', next === 'cards' ? 'true' : 'false');
+  document.getElementById('view-table-btn')?.setAttribute('aria-pressed', next === 'table' ? 'true' : 'false');
+  if (persist) {
+    try { localStorage.setItem(VIEW_MODE_KEY, next); } catch {}
+  }
 }
 
 // Wire static handlers (called once at init)
@@ -3402,6 +3608,37 @@ function wireStaticHandlers() {
   // Reset buttons
   document.getElementById('reset-btn').onclick = resetAll;
   document.getElementById('empty-reset').onclick = resetAll;
+
+  let initialViewMode = 'cards';
+  try { initialViewMode = localStorage.getItem(VIEW_MODE_KEY) || 'cards'; } catch {}
+  setViewMode(initialViewMode, false);
+  document.getElementById('view-cards-btn').onclick = () => setViewMode('cards');
+  document.getElementById('view-table-btn').onclick = () => setViewMode('table');
+  document.getElementById('save-search-btn').onclick = () => {
+    const button = document.getElementById('save-search-btn');
+    let existing = null;
+    try { existing = JSON.parse(localStorage.getItem(SAVED_SEARCH_KEY) || 'null'); } catch {}
+    const snapshot = currentSavedSearchSnapshot();
+    const isSaved = existing && JSON.stringify(existing) === JSON.stringify(snapshot);
+    try {
+      if (isSaved) localStorage.removeItem(SAVED_SEARCH_KEY);
+      else localStorage.setItem(SAVED_SEARCH_KEY, JSON.stringify(snapshot));
+    } catch {}
+    button.classList.toggle('saved', !isSaved);
+    button.textContent = isSaved ? 'Save search' : 'Search saved';
+  };
+
+  document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+    btn.onclick = () => {
+      if (btn.dataset.mobileTab === 'active') {
+        state.tab = 'active';
+        if (CURRENT_ROUTE !== '/') navigateTo('/');
+        else { resetPage(); render(); scheduleActiveRefresh(); }
+        return;
+      }
+      if (btn.dataset.mobileRoute) navigateTo(btn.dataset.mobileRoute);
+    };
+  });
 
   // Header sort fallback
   document.querySelectorAll('thead th[data-sort]').forEach(th => {
@@ -3498,7 +3735,8 @@ function updateThemeToggle(theme = document.documentElement.dataset.brandTheme |
   if (!btn) return;
   const active = VALID_BRAND_THEMES.has(theme) ? theme : DEFAULT_BRAND_THEME;
   const next = nextBrandTheme(active);
-  btn.textContent = '◐';
+  document.documentElement.setAttribute('data-theme', active === 'graphite' ? 'dark' : 'light');
+  btn.textContent = next === 'graphite' ? 'Dark mode' : 'Light mode';
   btn.title = `Switch to ${BRAND_THEME_LABELS[next]} theme`;
   btn.setAttribute('aria-label', `Current theme ${BRAND_THEME_LABELS[active]}. Switch to ${BRAND_THEME_LABELS[next]}.`);
 }
@@ -3536,6 +3774,7 @@ function showPublicDashboard(route = '/') {
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
+  document.getElementById('mobile-bottom-nav').hidden = false;
   syncAgencyBanner();
   document.getElementById('account-pill').hidden = true;
   document.getElementById('profile-menu').hidden = true;
@@ -3554,6 +3793,7 @@ function showAuth(message = '', asPage = false) {
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = asPage;
+  document.getElementById('mobile-bottom-nav').hidden = asPage;
   document.getElementById('account-pill').hidden = true;
   document.getElementById('profile-menu').hidden = true;
   document.getElementById('logout-btn').hidden = true;
@@ -3577,6 +3817,7 @@ function showOnboarding() {
   document.getElementById('onboarding-panel').hidden = false;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = true;
+  document.getElementById('mobile-bottom-nav').hidden = true;
   document.getElementById('logout-btn').hidden = false;
   document.getElementById('header-login-btn').hidden = true;
   document.getElementById('header-signup-btn').hidden = true;
@@ -3592,6 +3833,7 @@ function showDashboard(route = '/') {
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
+  document.getElementById('mobile-bottom-nav').hidden = false;
   syncAgencyBanner();
   document.getElementById('logout-btn').hidden = false;
   document.getElementById('header-login-btn').hidden = true;
@@ -3792,6 +4034,12 @@ function showProfilePanel() {
   CURRENT_ROUTE = '/profile';
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('dashboard').hidden = true;
+  document.getElementById('mobile-bottom-nav').hidden = false;
+  document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+    const active = btn.dataset.mobileRoute === '/profile';
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-current', active ? 'page' : 'false');
+  });
   document.getElementById('profile-panel').hidden = false;
   document.getElementById('logout-btn').hidden = false;
   document.getElementById('header-login-btn').hidden = true;
@@ -4535,11 +4783,18 @@ async function init() {
       mergeDynamicPostings(data.postings || []);
       rebuildJobsFromCache();
       PUBLIC_FEED_LOADED = true;
+      INITIAL_FEED_LOADING = false;
       updateHeaderStatus();
       render();
     }
   } catch (e) {
+    INITIAL_FEED_LOADING = false;
     updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
+    render();
+  }
+  if (INITIAL_FEED_LOADING) {
+    INITIAL_FEED_LOADING = false;
+    render();
   }
 
   if (needsFilteredStartupPage) {
