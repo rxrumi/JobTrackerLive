@@ -421,7 +421,7 @@ The entire SPA lives in `public/index.html`. Features:
 - **Header**: logo, title, subtitle, last-scan status, login/signup buttons, profile pill (when signed in), theme toggle button.
 - **Brand themes**: Cobalt, Graphite (default), Aurora — selectable per-account via profile settings or header toggle.
 - **Auth modal**: Clerk hosted sign-in/sign-up redirects for Google and email/password.
-- **Onboarding flow**: account type choice (individual/agency), then profile form with target countries/role families.
+- **Onboarding flow**: account type choice (individual/agency), resumable profile setup, and server-validated default filters for target countries, role families, seniority, and visa need.
 - **Profile panel**: brand theme switcher, editable individual or agency profile.
 - **Tabs**: Live jobs, Visa Roles (SEO route), Targets, My pipeline, Archive, Market Insights (SEO route).
 - **Stats cards**: live roles count, new this week, strong visa, top markets, in-pipeline.
@@ -436,7 +436,7 @@ The entire SPA lives in `public/index.html`. Features:
 - **Legend**: score breakdown, badge meanings.
 - **Methodology note**: tracking methodology disclaimer.
 - **Footer**: social links, contact emails, legal/site links.
-- **Empty state**: shown when filters produce no results.
+- **Empty state**: identifies the active filters behind zero results and offers a reset action.
 
 ## Tabs
 
@@ -449,6 +449,8 @@ The entire SPA lives in `public/index.html`. Features:
 ## Personal State
 
 Job state (status, star, notes) and brand theme sync across devices via D1 after Clerk sign-in. Theme also caches in localStorage (`livejobindex_brand_theme`) for immediate apply on page load.
+
+Job-search filter snapshots are browser-local but scoped per Clerk user so one account cannot inherit another account's filters. Onboarding defaults are stored in D1 profile data and reapplied when no user-controlled filter snapshot exists.
 
 Statuses: Not started, Saved, Applied, Recruiter screen, Interview, Final round, Offer, Rejected, On hold.
 

@@ -729,7 +729,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
       <div class="onboarding-summary">
         <div class="onboarding-summary-item">
           <strong>Saved filters</strong>
-          <span>Your choices become default filters after onboarding.</span>
+          <span>Your countries, role families, seniority, and visa preference become your default job filters.</span>
         </div>
         <div class="onboarding-summary-item">
           <strong>Visa-aware matches</strong>
@@ -803,7 +803,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
         <section class="onboarding-step" data-individual-step="3" hidden>
           <div class="onboarding-step-head">
             <h3>Preferences and review</h3>
-            <p>Add optional details now, or finish setup and refine them later from Profile.</p>
+            <p>These optional details are saved to your profile for reference. Current job listings do not consistently include salary or work-mode data, so they are not used as filters yet.</p>
           </div>
           <div class="onboarding-review-grid">
             <div class="onboarding-card compact">
@@ -1179,9 +1179,11 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   <span class="results-count" id="results-count"></span>
 </div>
 
+<div class="form-message" id="profile-filter-notice" hidden></div>
+
 <div id="empty-state" class="empty-card" style="display:none">
   <h3>No jobs match</h3>
-  <p>Try clearing a filter or widening your search.</p>
+  <p id="empty-state-details">Try clearing a filter or widening your search.</p>
   <button class="reset" id="empty-reset">Reset filters</button>
 </div>
 
@@ -1576,6 +1578,7 @@ const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Gro
 const INDUSTRIES = { tech: 'Tech', engineering: 'Engineering' };
 const INDUSTRY_KEY = 'livejobindex_industry';
 const INDUSTRY_FILTERS_KEY = 'livejobindex_industry_filters';
+const ONBOARDING_DRAFT_KEY = 'livejobindex_onboarding_draft';
 const DEFAULT_INDUSTRY = 'tech';
 const ENGINEERING_NICHES = ['AEC / Infrastructure', 'Construction / EPC', 'Architecture / Built Environment', 'Energy / Power / Renewables', 'Water / Environment', 'Aerospace / Defense / Space', 'Semiconductors', 'Hardware / Consumer Devices', 'Robotics / Autonomy', 'Automotive / EV', 'Industrial Technology'];
 const ROLE_FAMILIES = ['Engineering', 'Product', 'Design', 'Data/Analytics', 'Security/IT', 'Sales', 'Marketing', 'Finance', 'Operations', 'Customer Success/Support', 'People/HR', 'Legal/Compliance', 'Strategy/Program', 'Other'];
@@ -1779,6 +1782,12 @@ let CLERK_READY_PROMISE = null;
 let ACTIVE_REFRESH_TIMER = null;
 let PROFILE_FILTERS_APPLIED = false;
 let PROFILE_FILTERS_RELAXED = false;
+let PROFILE_FILTERS_RELAXED_FIELDS = [];
+let PROFILE_FILTERS_FORCE_NEXT = false;
+let JOB_QUERY_SEQUENCE = 0;
+let AUTH_LOAD_ERROR = '';
+let ACCOUNT_TYPE_SAVE_PROMISE = null;
+let ACCOUNT_TYPE_SAVE_ERROR = '';
 const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
@@ -1980,7 +1989,7 @@ function navigateTo(path, replace = false) {
   }
   CURRENT_ROUTE = route;
   trackPageView(route);
-  applyRoute();
+  return applyRoute();
 }
 
 function mergeDynamicPostings(postings) {
@@ -2024,16 +2033,16 @@ function updateHeaderStatus(message) {
   el.textContent = `🟢 ${activeJobCount().toLocaleString()} ${INDUSTRIES[state.industry].toLowerCase()} jobs updated today`;
 }
 
-function serializedFilters() {
+function serializedFilters(controls = state) {
   return {
-    industry: [state.industry],
-    niche: [...state.niche],
-    country: [...state.country],
-    tier: [...state.tier].map(normalizeTier),
-    family: [...state.family],
-    seniority: [...state.seniority],
-    visa: [...state.visa],
-    presets: [...state.presets]
+    industry: [controls.industry],
+    niche: [...controls.niche],
+    country: [...controls.country],
+    tier: [...controls.tier].map(normalizeTier),
+    family: [...controls.family],
+    seniority: [...controls.seniority],
+    visa: [...controls.visa],
+    presets: [...controls.presets]
   };
 }
 
@@ -2132,6 +2141,15 @@ function buildJobs(dynamicPostings) {
   });
 }
 
+class ApiError extends Error {
+  constructor(message, status = 0, code = '') {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code || message;
+  }
+}
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
@@ -2141,8 +2159,9 @@ async function api(path, options = {}) {
   }
   const r = await fetch(path, { ...options, headers });
   const text = await r.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!r.ok) throw new Error(data?.error || 'Request failed');
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch {}
+  if (!r.ok) throw new ApiError(data?.error || 'Request failed', r.status, data?.error || 'request_failed');
   return data;
 }
 
@@ -2159,17 +2178,20 @@ async function loadPublicConfig() {
   }
 }
 
-async function fetchJobsPage(page) {
-  const query = {
+function createJobsQuery(page, controls = state) {
+  return {
     page,
     per_page: PAGE_SIZE,
-    sort: state.sort,
-    dir: state.dir,
-    search: state.search,
-    filters: serializedFilters(),
+    sort: controls.sort || state.sort,
+    dir: controls.dir || state.dir,
+    search: controls.search || '',
+    filters: serializedFilters(controls),
     active_only: true
   };
-  const queryHasActiveControls = Boolean(
+}
+
+function queryHasActiveControls(query) {
+  return Boolean(
     query.search.trim() ||
     query.filters.niche.length ||
     query.filters.country.length ||
@@ -2179,22 +2201,37 @@ async function fetchJobsPage(page) {
     query.filters.visa.length ||
     query.filters.presets.length
   );
-  const data = await api('/api/jobs/query', {
+}
+
+async function requestJobsPage(query) {
+  return api('/api/jobs/query', {
     method: 'POST',
     body: JSON.stringify(query)
   });
+}
+
+function commitJobsPage(data, query, requestedPage) {
+  const hasQueryControls = queryHasActiveControls(query);
   DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
-  const resolvedPage = DYNAMIC_PAGINATION.page || page;
+  const resolvedPage = DYNAMIC_PAGINATION.page || requestedPage;
   DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKeyFromPayload({ ...query, page: resolvedPage });
   DYNAMIC_PAGE_IDS = (data.postings || []).map(p => String(p.id));
   DYNAMIC_FACETS = data.facets || DYNAMIC_FACETS;
   LAST_SCAN = data.last_scan_at || LAST_SCAN;
   SCAN_CYCLE = data.scan_cycle || SCAN_CYCLE;
-  if (!queryHasActiveControls) HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || HEADER_ACTIVE_TOTAL;
+  if (!hasQueryControls) HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || HEADER_ACTIVE_TOTAL;
   mergeDynamicPostings(data.postings || []);
   rebuildJobsFromCache();
   PUBLIC_FEED_LOADED = true;
   updateHeaderStatus();
+}
+
+async function fetchJobsPage(page, controls = state) {
+  const requestId = ++JOB_QUERY_SEQUENCE;
+  const query = createJobsQuery(page, controls);
+  const data = await requestJobsPage(query);
+  if (requestId !== JOB_QUERY_SEQUENCE) return { ...data, stale: true };
+  commitJobsPage(data, query, page);
   return data;
 }
 
@@ -2204,7 +2241,8 @@ function scheduleActiveRefresh() {
   ACTIVE_REFRESH_TIMER = setTimeout(async () => {
     ACTIVE_REFRESH_TIMER = null;
     try {
-      await fetchJobsPage(1);
+      const data = await fetchJobsPage(1);
+      if (data.stale) return;
       render();
     } catch (e) {
       updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
@@ -2221,6 +2259,7 @@ async function setPage(page) {
   if (state.tab === 'active') {
     try {
       const data = await fetchJobsPage(target);
+      if (data.stale) return;
       target = data.pagination?.page || target;
     } catch (e) {
       updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
@@ -2336,9 +2375,17 @@ function normalizeFilterSnapshot(snapshot = {}, industry = DEFAULT_INDUSTRY) {
   };
 }
 
-function loadIndustryFilterSnapshots() {
+let FILTER_SCOPE = 'anonymous';
+
+function filterSnapshotsStorageKey(scope = FILTER_SCOPE) {
+  return `${INDUSTRY_FILTERS_KEY}:${scope || 'anonymous'}`;
+}
+
+function loadIndustryFilterSnapshots(scope = FILTER_SCOPE) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(INDUSTRY_FILTERS_KEY) || '{}');
+    const scoped = localStorage.getItem(filterSnapshotsStorageKey(scope));
+    const legacy = scope === 'anonymous' ? localStorage.getItem(INDUSTRY_FILTERS_KEY) : null;
+    const parsed = JSON.parse(scoped || legacy || '{}');
     return Object.fromEntries(Object.keys(INDUSTRIES).map(industry => [
       industry,
       normalizeFilterSnapshot(parsed[industry], industry)
@@ -2387,8 +2434,21 @@ function currentFilterSnapshot() {
 
 function persistIndustryFilterSnapshots() {
   try {
-    localStorage.setItem(INDUSTRY_FILTERS_KEY, JSON.stringify(INDUSTRY_FILTER_SNAPSHOTS));
+    localStorage.setItem(filterSnapshotsStorageKey(), JSON.stringify(INDUSTRY_FILTER_SNAPSHOTS));
   } catch {}
+}
+
+function switchFilterScope(scope, { apply = true } = {}) {
+  const nextScope = scope || 'anonymous';
+  if (FILTER_SCOPE === nextScope) return;
+  saveCurrentIndustryFilters();
+  FILTER_SCOPE = nextScope;
+  INDUSTRY_FILTER_SNAPSHOTS = loadIndustryFilterSnapshots(nextScope);
+  if (!apply) return;
+  applyFilterSnapshotToState(INDUSTRY_FILTER_SNAPSHOTS[state.industry], state.industry);
+  resetPage();
+  resetDynamicPageState();
+  syncSearchInput();
 }
 
 function saveCurrentIndustryFilters() {
@@ -2443,6 +2503,16 @@ function syncShareableFiltersToUrl() {
   }
 }
 
+function clearShareableFiltersFromUrl() {
+  if (!isDashboardRoute(CURRENT_ROUTE)) return;
+  const params = new URLSearchParams(window.location.search);
+  params.delete('country');
+  params.delete('family');
+  const search = params.toString();
+  const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, '', nextUrl);
+}
+
 function updateIndustryUI() {
   document.querySelectorAll('.industry-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.industry === state.industry);
@@ -2466,6 +2536,8 @@ async function setIndustry(industry) {
   if (!INDUSTRIES[industry] || state.industry === industry) return;
   saveCurrentIndustryFilters();
   state.industry = industry;
+  PROFILE_FILTERS_APPLIED = true;
+  clearProfileRelaxationNotice();
   applyFilterSnapshotToState(INDUSTRY_FILTER_SNAPSHOTS[industry], industry);
   state.page = 1;
   HEADER_ACTIVE_TOTAL = 0;
@@ -2500,6 +2572,8 @@ function buildFilters() {
 }
 
 function filterChanged(changedCat = '') {
+  clearProfileRelaxationNotice();
+  PROFILE_FILTERS_APPLIED = true;
   saveCurrentIndustryFilters();
   if (changedCat === 'country' || changedCat === 'family') syncShareableFiltersToUrl();
   updateFilterBadges();
@@ -2747,11 +2821,7 @@ function profileFilterState(profile) {
   return controls;
 }
 
-function activeMatchCountForControls(controls) {
-  return JOBS.filter(j => tabBucket(j) === 'active' && matchesControls(j, controls)).length;
-}
-
-function applyControlState(controls) {
+function applyControlState(controls, { persist = true, syncUrl = true } = {}) {
   state.industry = controls.industry || state.industry;
   state.niche = new Set(controls.niche || []);
   state.country = new Set(controls.country);
@@ -2761,7 +2831,8 @@ function applyControlState(controls) {
   state.visa = new Set(controls.visa);
   state.presets = new Set(controls.presets);
   state.search = controls.search;
-  saveCurrentIndustryFilters();
+  if (persist) saveCurrentIndustryFilters();
+  if (syncUrl) syncShareableFiltersToUrl();
   syncSearchInput();
   resetPage();
   resetDynamicPageState();
@@ -2770,21 +2841,52 @@ function applyControlState(controls) {
 function relaxedProfileFilterStates(profile) {
   const full = profileFilterState(profile);
   const withoutSeniority = { ...full, seniority: new Set() };
-  const withoutSeniorityOrVisa = { ...withoutSeniority, visa: new Set() };
-  const withoutSeniorityVisaOrCountry = { ...withoutSeniorityOrVisa, country: new Set() };
-  return [full, withoutSeniority, withoutSeniorityOrVisa, withoutSeniorityVisaOrCountry];
+  return [
+    { controls: full, relaxed: [] },
+    { controls: withoutSeniority, relaxed: ['seniority'] }
+  ];
 }
 
-function applyProfileFiltersOnce() {
-  if (PROFILE_FILTERS_APPLIED) return;
-  if (hasActiveControls()) return;
+async function applyProfileFiltersOnce({ force = PROFILE_FILTERS_FORCE_NEXT } = {}) {
+  if (PROFILE_FILTERS_APPLIED && !force) return false;
+  if (hasActiveControls() && !force) return false;
   const profile = ME?.individual_profile || ME?.agency_profile;
-  if (!profile) return;
+  if (!profile) return false;
   const candidates = relaxedProfileFilterStates(profile);
-  const selected = candidates.find(activeMatchCountForControls) || candidates[candidates.length - 1];
-  applyControlState(selected);
-  PROFILE_FILTERS_RELAXED = selected !== candidates[0];
+  const requestId = ++JOB_QUERY_SEQUENCE;
+  let selected = candidates[0];
+  let selectedData = null;
+  let selectedQuery = null;
+
+  try {
+    for (const candidate of candidates) {
+      const query = createJobsQuery(1, candidate.controls);
+      const data = await requestJobsPage(query);
+      if (requestId !== JOB_QUERY_SEQUENCE) return false;
+      selected = candidate;
+      selectedData = data;
+      selectedQuery = query;
+      if ((data.pagination?.total || 0) > 0) break;
+    }
+  } catch (error) {
+    selected = candidates[0];
+    selectedData = null;
+    selectedQuery = null;
+    updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
+  }
+
+  if (force) {
+    INDUSTRY_FILTER_SNAPSHOTS[state.industry] = emptyFilterSnapshot();
+    persistIndustryFilterSnapshots();
+  }
+  clearShareableFiltersFromUrl();
+  applyControlState(selected.controls, { persist: false, syncUrl: false });
+  if (selectedData && selectedQuery) commitJobsPage(selectedData, selectedQuery, 1);
+  PROFILE_FILTERS_RELAXED_FIELDS = [...selected.relaxed];
+  PROFILE_FILTERS_RELAXED = PROFILE_FILTERS_RELAXED_FIELDS.length > 0;
   PROFILE_FILTERS_APPLIED = true;
+  PROFILE_FILTERS_FORCE_NEXT = false;
+  return true;
 }
 
 function sorted(rows) {
@@ -3072,6 +3174,39 @@ function renderPipeline() {
   renderPagination(rows.length, totalPages);
 }
 
+function clearProfileRelaxationNotice() {
+  PROFILE_FILTERS_RELAXED = false;
+  PROFILE_FILTERS_RELAXED_FIELDS = [];
+}
+
+function activeFilterSummary() {
+  const labels = [];
+  if (state.search.trim()) labels.push(`search “${state.search.trim()}”`);
+  labels.push(...[...state.country].map(code => COUNTRY_NAMES[code] || code));
+  labels.push(...state.family);
+  labels.push(...state.seniority);
+  labels.push(...state.visa);
+  labels.push(...[...state.presets].map(value => ({ senior: 'Senior+', 'strong-visa': 'Strong visa', new: 'New', starred: 'Starred' }[value] || value)));
+  return labels;
+}
+
+function renderDiscoveryGuidance(resultCount) {
+  const notice = document.getElementById('profile-filter-notice');
+  if (notice) {
+    notice.hidden = !PROFILE_FILTERS_RELAXED;
+    notice.classList.remove('error');
+    notice.textContent = PROFILE_FILTERS_RELAXED
+      ? `No exact matches used every saved preference, so ${PROFILE_FILTERS_RELAXED_FIELDS.join(', ')} ${PROFILE_FILTERS_RELAXED_FIELDS.length === 1 ? 'was' : 'were'} broadened. Your role-family preference is still applied.`
+      : '';
+  }
+  const details = document.getElementById('empty-state-details');
+  if (!details || resultCount) return;
+  const labels = activeFilterSummary();
+  details.textContent = labels.length
+    ? `No active jobs match: ${labels.slice(0, 6).join(', ')}${labels.length > 6 ? ` and ${labels.length - 6} more` : ''}. Remove one filter or reset all filters.`
+    : 'No active jobs are available in this view right now. Try again after the next job refresh.';
+}
+
 function render() {
   renderTabs();
   renderFilterOptions();
@@ -3097,6 +3232,7 @@ function render() {
   document.getElementById('results-count').textContent = paginationTotal
     ? `${visibleStart}-${visibleEnd} of ${paginationTotal} filtered · ${total} total`
     : `0 of ${total}`;
+  renderDiscoveryGuidance(paginationTotal);
 
   if (!paginationTotal) {
     empty.style.display = 'block';
@@ -3175,6 +3311,9 @@ function wireRowHandlers() {
 }
 
 function resetAll() {
+  clearProfileRelaxationNotice();
+  PROFILE_FILTERS_APPLIED = true;
+  PROFILE_FILTERS_FORCE_NEXT = false;
   state.niche.clear(); state.country.clear(); state.tier.clear(); state.family.clear(); state.seniority.clear(); state.visa.clear(); state.presets.clear();
   state.search = '';
   saveCurrentIndustryFilters();
@@ -3224,6 +3363,8 @@ function wireStaticHandlers() {
   const searchEl = document.getElementById('search');
   const searchWrap = document.getElementById('search-wrap');
   searchEl.oninput = (e) => {
+    clearProfileRelaxationNotice();
+    PROFILE_FILTERS_APPLIED = true;
     state.search = e.target.value;
     saveCurrentIndustryFilters();
     searchWrap.classList.toggle('has-text', e.target.value.length > 0);
@@ -3234,6 +3375,8 @@ function wireStaticHandlers() {
     debouncedTrackSearch();
   };
   document.getElementById('search-clear').onclick = () => {
+    clearProfileRelaxationNotice();
+    PROFILE_FILTERS_APPLIED = true;
     searchEl.value = '';
     state.search = '';
     saveCurrentIndustryFilters();
@@ -3440,6 +3583,7 @@ function showOnboarding() {
   syncAccountHeader();
   syncIndividualNameField();
   selectAccountType(ME?.user?.account_type || 'individual', false);
+  restoreOnboardingValues();
 }
 
 function showDashboard(route = '/') {
@@ -3670,9 +3814,9 @@ async function applyRoute() {
     applyUrlFiltersToState();
     if (ME?.user?.onboarding_completed) {
       await loadUserJobs().catch(() => {});
-      applyProfileFiltersOnce();
       state.sort = 'first_seen'; state.dir = 'desc';
       document.getElementById('sort-select').value = 'first_seen|desc';
+      await applyProfileFiltersOnce();
       showDashboard(CURRENT_ROUTE);
       render();
       if (state.country.size || state.family.size) scheduleActiveRefresh();
@@ -3755,8 +3899,158 @@ function buildOnboardingOptions() {
   buildCheckGrid('profile-individual-role-families', familyEntries);
   buildCheckGrid('profile-agency-role-families', familyEntries);
   const seniorityOptions = SENIORITIES.map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join('');
-  document.getElementById('target-seniority').innerHTML = seniorityOptions;
+  document.getElementById('target-seniority').innerHTML = `<option value="" selected disabled>Choose a level</option>${seniorityOptions}`;
   document.getElementById('profile-target-seniority').innerHTML = seniorityOptions;
+}
+
+function onboardingDraftStorageKey() {
+  return `${ONBOARDING_DRAFT_KEY}:${ME?.user?.id || 'anonymous'}`;
+}
+
+function onboardingDraftData() {
+  const individual = {
+    full_name: onboardingValue('individual-name'),
+    current_title: onboardingValue('current-title'),
+    years_experience: onboardingValue('years-experience'),
+    target_seniority: onboardingValue('target-seniority'),
+    target_countries: checkedValues('individual-countries'),
+    target_role_families: checkedValues('individual-role-families'),
+    preferred_work_mode: onboardingValue('preferred-work-mode'),
+    salary_min_usd: onboardingValue('salary-min-usd'),
+    linkedin_url: onboardingValue('linkedin-url'),
+    resume_url: onboardingValue('resume-url'),
+    visa_needed: Boolean(document.getElementById('visa-needed')?.checked)
+  };
+  const agency = {
+    agency_name: onboardingValue('agency-name'),
+    agency_type: onboardingValue('agency-type'),
+    use_case: onboardingValue('agency-use-case'),
+    integration_interest: onboardingValue('integration-interest'),
+    monthly_data_volume: onboardingValue('monthly-data-volume'),
+    target_markets: onboardingValue('target-markets'),
+    target_countries: checkedValues('agency-countries'),
+    target_role_families: checkedValues('agency-role-families')
+  };
+  return { account_type: ONBOARDING_ACCOUNT_TYPE, step: ONBOARDING_STEP, individual, agency };
+}
+
+function individualOnboardingPayload() {
+  const form = new FormData(document.getElementById('individual-form'));
+  return {
+    full_name: form.get('full_name') || knownFullName(),
+    current_title: form.get('current_title'),
+    years_experience: form.get('years_experience'),
+    target_role_families: checkedValues('individual-role-families'),
+    target_seniority: form.get('target_seniority'),
+    target_countries: checkedValues('individual-countries'),
+    visa_needed: document.getElementById('visa-needed').checked,
+    preferred_work_mode: form.get('preferred_work_mode'),
+    salary_min_usd: form.get('salary_min_usd'),
+    linkedin_url: form.get('linkedin_url'),
+    resume_url: form.get('resume_url')
+  };
+}
+
+function agencyOnboardingPayload() {
+  const form = new FormData(document.getElementById('agency-form'));
+  return {
+    agency_name: form.get('agency_name'),
+    agency_type: form.get('agency_type'),
+    use_case: form.get('use_case'),
+    integration_interest: form.get('integration_interest'),
+    monthly_data_volume: form.get('monthly_data_volume'),
+    target_markets: commaList(form.get('target_markets')),
+    target_role_families: checkedValues('agency-role-families'),
+    target_countries: checkedValues('agency-countries')
+  };
+}
+
+async function persistOnboardingCheckpoint() {
+  if (ONBOARDING_STEP !== 2) return true;
+  setOnboardingBusy(true);
+  setMessage('onboarding-message', 'Saving your setup...');
+  try {
+    const isAgency = ONBOARDING_ACCOUNT_TYPE === 'agency';
+    ME = await api(isAgency ? '/api/onboarding/agency-profile' : '/api/onboarding/individual-profile', {
+      method: 'PATCH',
+      body: JSON.stringify(isAgency ? agencyOnboardingPayload() : individualOnboardingPayload())
+    });
+    saveOnboardingDraft();
+    return true;
+  } catch (error) {
+    setMessage('onboarding-message', 'Your setup could not be saved. Check your connection and try Continue again.', true);
+    return false;
+  } finally {
+    setOnboardingBusy(false);
+  }
+}
+
+function saveOnboardingDraft() {
+  if (!ME?.user || ME.user.onboarding_completed) return;
+  try { localStorage.setItem(onboardingDraftStorageKey(), JSON.stringify(onboardingDraftData())); } catch {}
+}
+
+function readOnboardingDraft() {
+  try { return JSON.parse(localStorage.getItem(onboardingDraftStorageKey()) || 'null'); } catch { return null; }
+}
+
+function clearOnboardingDraft() {
+  try { localStorage.removeItem(onboardingDraftStorageKey()); } catch {}
+}
+
+function restoreOnboardingValues() {
+  const profile = ME?.individual_profile || {};
+  setFieldValue('individual-name', profile.full_name || knownFullName());
+  setFieldValue('current-title', profile.current_title);
+  setFieldValue('years-experience', profile.years_experience);
+  setFieldValue('target-seniority', profile.target_seniority || '');
+  setCheckedValues('individual-countries', profile.target_countries || []);
+  setCheckedValues('individual-role-families', profile.target_role_families || []);
+  setFieldValue('preferred-work-mode', profile.preferred_work_mode || '');
+  setFieldValue('salary-min-usd', profile.salary_min_usd);
+  setFieldValue('linkedin-url', profile.linkedin_url);
+  setFieldValue('resume-url', profile.resume_url);
+  setCheckboxValue('visa-needed', profile.visa_needed !== false);
+
+  const agency = ME?.agency_profile || {};
+  setFieldValue('agency-name', agency.agency_name);
+  setFieldValue('agency-type', agency.agency_type || 'recruiting_agency');
+  setFieldValue('agency-use-case', agency.use_case || 'recruiting');
+  setFieldValue('integration-interest', agency.integration_interest || 'none');
+  setFieldValue('monthly-data-volume', agency.monthly_data_volume);
+  setFieldValue('target-markets', (agency.target_markets || []).join(', '));
+  setCheckedValues('agency-countries', agency.target_countries || []);
+  setCheckedValues('agency-role-families', agency.target_role_families || []);
+
+  const draft = readOnboardingDraft();
+  if (!draft || draft.account_type !== ONBOARDING_ACCOUNT_TYPE) {
+    const hasServerCheckpoint = ONBOARDING_ACCOUNT_TYPE === 'agency' ? Boolean(ME?.agency_profile) : Boolean(ME?.individual_profile);
+    return showOnboardingStep(hasServerCheckpoint ? onboardingStepCount() - 1 : 0);
+  }
+  const values = draft[ONBOARDING_ACCOUNT_TYPE] || {};
+  if (ONBOARDING_ACCOUNT_TYPE === 'individual') {
+    setFieldValue('individual-name', values.full_name || knownFullName());
+    setFieldValue('current-title', values.current_title);
+    setFieldValue('years-experience', values.years_experience);
+    setFieldValue('target-seniority', values.target_seniority || '');
+    setCheckedValues('individual-countries', values.target_countries || []);
+    setCheckedValues('individual-role-families', values.target_role_families || []);
+    setFieldValue('preferred-work-mode', values.preferred_work_mode);
+    setFieldValue('salary-min-usd', values.salary_min_usd);
+    setFieldValue('linkedin-url', values.linkedin_url);
+    setFieldValue('resume-url', values.resume_url);
+    setCheckboxValue('visa-needed', values.visa_needed !== false);
+  } else {
+    setFieldValue('agency-name', values.agency_name);
+    setFieldValue('agency-type', values.agency_type || 'recruiting_agency');
+    setFieldValue('agency-use-case', values.use_case || 'recruiting');
+    setFieldValue('integration-interest', values.integration_interest || 'none');
+    setFieldValue('monthly-data-volume', values.monthly_data_volume);
+    setFieldValue('target-markets', values.target_markets);
+    setCheckedValues('agency-countries', values.target_countries || []);
+    setCheckedValues('agency-role-families', values.target_role_families || []);
+  }
+  showOnboardingStep(Number(draft.step) || 0);
 }
 
 const ONBOARDING_STEP_LABELS = {
@@ -3767,9 +4061,9 @@ const ONBOARDING_STEP_LABELS = {
 const ONBOARDING_ASIDE_COPY = {
   individual: [
     ['Start with the path that fits you', 'The personal job-search setup is tuned for relocation-friendly technology roles. Agency and data use stays available for broader market workflows.'],
-    ['Keep the profile practical', 'Use your current title and target level so the tracker can start from realistic matches.'],
+    ['Keep the profile practical', 'Your target level is used for the first job filter; your current title and experience stay with your profile for reference.'],
     ['Prioritize the right feed', 'Countries and role families become your default filters after setup.'],
-    ['Finish with useful defaults', 'Visa and work-mode preferences help keep the first dashboard view aligned with your search.']
+    ['Finish with useful defaults', 'Visa need shapes the first job filter. Work mode and salary are saved for reference until listings provide reliable data for them.']
   ],
   agency: [
     ['Start with the path that fits you', 'Agency setup keeps the workflow lightweight while preserving access to market coverage and integration interest.'],
@@ -3868,10 +4162,27 @@ function setOnboardingValidationError(message) {
   return false;
 }
 
-function advanceOnboardingStep(direction) {
+function setOnboardingBusy(busy) {
+  ['choose-individual', 'choose-agency', 'onboarding-next-btn', 'onboarding-finish-btn'].forEach(id => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = Boolean(busy);
+  });
+}
+
+async function advanceOnboardingStep(direction) {
+  if (direction > 0 && ACCOUNT_TYPE_SAVE_PROMISE) {
+    try { await ACCOUNT_TYPE_SAVE_PROMISE; } catch {}
+  }
+  if (direction > 0 && ACCOUNT_TYPE_SAVE_ERROR) {
+    setMessage('onboarding-message', `${ACCOUNT_TYPE_SAVE_ERROR} Choose the account type again to retry.`, true);
+    return;
+  }
   if (direction > 0 && !validateOnboardingStep()) return;
+  saveOnboardingDraft();
+  if (direction > 0 && !await persistOnboardingCheckpoint()) return;
   setMessage('onboarding-message', '');
   showOnboardingStep(ONBOARDING_STEP + direction);
+  saveOnboardingDraft();
 }
 
 function submitActiveOnboardingForm() {
@@ -3884,31 +4195,49 @@ async function selectAccountType(accountType, persist = true) {
   ONBOARDING_ACCOUNT_TYPE = accountType;
   document.getElementById('choose-individual').classList.toggle('active', accountType === 'individual');
   document.getElementById('choose-agency').classList.toggle('active', accountType === 'agency');
+  document.getElementById('choose-individual').setAttribute('aria-pressed', accountType === 'individual' ? 'true' : 'false');
+  document.getElementById('choose-agency').setAttribute('aria-pressed', accountType === 'agency' ? 'true' : 'false');
   syncIndividualNameField();
   showOnboardingStep(0);
   setMessage('onboarding-message', '');
-  if (!persist) return;
+  if (!persist) return true;
+  ACCOUNT_TYPE_SAVE_ERROR = '';
+  setOnboardingBusy(true);
+  const request = api('/api/onboarding/account-type', {
+    method: 'PATCH',
+    body: JSON.stringify({ account_type: accountType })
+  });
+  ACCOUNT_TYPE_SAVE_PROMISE = request;
   try {
-    ME = await api('/api/onboarding/account-type', {
-      method: 'PATCH',
-      body: JSON.stringify({ account_type: accountType })
-    });
+    ME = await request;
     syncAccountHeader();
+    saveOnboardingDraft();
+    return true;
   } catch (e) {
-    setMessage('onboarding-message', e.message, true);
+    ACCOUNT_TYPE_SAVE_ERROR = 'Your account type could not be saved.';
+    setMessage('onboarding-message', `${ACCOUNT_TYPE_SAVE_ERROR} Check your connection and choose it again.`, true);
+    return false;
+  } finally {
+    if (ACCOUNT_TYPE_SAVE_PROMISE === request) ACCOUNT_TYPE_SAVE_PROMISE = null;
+    setOnboardingBusy(false);
   }
 }
 
 async function loadMe() {
   try {
     ME = await api('/api/me');
+    AUTH_LOAD_ERROR = '';
+    switchFilterScope(ME?.user?.id || 'anonymous');
     if (ME?.user?.brand_theme) {
       document.documentElement.dataset.brandTheme = ME.user.brand_theme;
       try { localStorage.setItem(BRAND_THEME_KEY, ME.user.brand_theme); } catch (e) {}
     }
     return ME;
-  } catch {
+  } catch (error) {
     ME = null;
+    AUTH_LOAD_ERROR = error?.status && error.status !== 401
+      ? 'Your account could not be loaded. Please retry; your saved setup has not been removed.'
+      : '';
     return null;
   }
 }
@@ -3922,8 +4251,13 @@ async function loadUserJobs() {
 
 async function completeOnboarding() {
   ME = await api('/api/onboarding/complete', { method: 'POST' });
-  await loadUserJobs();
-  navigateTo('/');
+  clearOnboardingDraft();
+  PROFILE_FILTERS_APPLIED = false;
+  PROFILE_FILTERS_FORCE_NEXT = true;
+  PROFILE_FILTERS_RELAXED = false;
+  PROFILE_FILTERS_RELAXED_FIELDS = [];
+  await loadUserJobs().catch(() => {});
+  await navigateTo('/');
   render();
 }
 
@@ -3953,6 +4287,13 @@ function readAuthProviderError() {
   if (!source) return '';
   const description = query.get('error_description') || hash.get('error_description');
   const code = query.get('error_code') || hash.get('error_code') || source;
+  ['error', 'error_description', 'error_code'].forEach(key => {
+    query.delete(key);
+    hash.delete(key);
+  });
+  const queryText = query.toString();
+  const hashText = hash.toString();
+  window.history.replaceState({}, '', `${window.location.pathname}${queryText ? `?${queryText}` : ''}${hashText ? `#${hashText}` : ''}`);
   return description || `Google sign-in could not be completed (${code}).`;
 }
 
@@ -4014,8 +4355,14 @@ function wireAuthHandlers() {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     ME = null;
     USER_JOBS = new Map();
+    AUTH_LOAD_ERROR = '';
+    PROFILE_FILTERS_APPLIED = false;
+    PROFILE_FILTERS_FORCE_NEXT = false;
+    PROFILE_FILTERS_RELAXED = false;
+    PROFILE_FILTERS_RELAXED_FIELDS = [];
+    switchFilterScope('anonymous');
     resetPage();
-    navigateTo('/');
+    await navigateTo('/');
   };
 
   document.getElementById('choose-individual').onclick = () => selectAccountType('individual');
@@ -4023,6 +4370,9 @@ function wireAuthHandlers() {
   document.getElementById('onboarding-back-btn').onclick = () => advanceOnboardingStep(-1);
   document.getElementById('onboarding-next-btn').onclick = () => advanceOnboardingStep(1);
   document.getElementById('onboarding-finish-btn').onclick = submitActiveOnboardingForm;
+  ['input', 'change'].forEach(eventName => {
+    document.getElementById('onboarding-panel').addEventListener(eventName, saveOnboardingDraft);
+  });
 
   document.getElementById('individual-form').onsubmit = async (e) => {
     e.preventDefault();
@@ -4031,20 +4381,7 @@ function wireAuthHandlers() {
       return;
     }
     if (!validateOnboardingStep()) return;
-    const form = new FormData(e.currentTarget);
-    const payload = {
-      full_name: form.get('full_name'),
-      current_title: form.get('current_title'),
-      years_experience: form.get('years_experience'),
-      target_role_families: checkedValues('individual-role-families'),
-      target_seniority: form.get('target_seniority'),
-      target_countries: checkedValues('individual-countries'),
-      visa_needed: document.getElementById('visa-needed').checked,
-      preferred_work_mode: form.get('preferred_work_mode'),
-      salary_min_usd: form.get('salary_min_usd'),
-      linkedin_url: form.get('linkedin_url'),
-      resume_url: form.get('resume_url')
-    };
+    const payload = individualOnboardingPayload();
     try {
       setMessage('onboarding-message', 'Saving profile...');
       ME = await api('/api/onboarding/individual-profile', {
@@ -4064,17 +4401,7 @@ function wireAuthHandlers() {
       return;
     }
     if (!validateOnboardingStep()) return;
-    const form = new FormData(e.currentTarget);
-    const payload = {
-      agency_name: form.get('agency_name'),
-      agency_type: form.get('agency_type'),
-      use_case: form.get('use_case'),
-      integration_interest: form.get('integration_interest'),
-      monthly_data_volume: form.get('monthly_data_volume'),
-      target_markets: commaList(form.get('target_markets')),
-      target_role_families: checkedValues('agency-role-families'),
-      target_countries: checkedValues('agency-countries')
-    };
+    const payload = agencyOnboardingPayload();
     try {
       setMessage('onboarding-message', 'Saving profile...');
       ME = await api('/api/onboarding/agency-profile', {
@@ -4109,9 +4436,11 @@ function wireAuthHandlers() {
         method: 'PATCH',
         body: JSON.stringify(payload)
       });
+      PROFILE_FILTERS_APPLIED = false;
+      PROFILE_FILTERS_FORCE_NEXT = true;
       syncAccountHeader();
       syncProfilePanel();
-      setMessage('profile-message', 'Profile saved.');
+      setMessage('profile-message', 'Profile saved. Your updated defaults will apply when you return to jobs.');
     } catch (err) {
       setMessage('profile-message', err.message, true);
     }
@@ -4136,9 +4465,11 @@ function wireAuthHandlers() {
         method: 'PATCH',
         body: JSON.stringify(payload)
       });
+      PROFILE_FILTERS_APPLIED = false;
+      PROFILE_FILTERS_FORCE_NEXT = true;
       syncAccountHeader();
       syncProfilePanel();
-      setMessage('profile-message', 'Profile saved.');
+      setMessage('profile-message', 'Profile saved. Your updated defaults will apply when you return to jobs.');
     } catch (err) {
       setMessage('profile-message', err.message, true);
     }
@@ -4223,8 +4554,9 @@ async function init() {
 
   const me = ME || await loadMe();
   if (!me) {
-    if (oauthError || (authError && CURRENT_ROUTE === '/')) console.warn(oauthError || authError);
-    await applyRoute();
+    const visibleAuthError = oauthError || authError || AUTH_LOAD_ERROR;
+    if (visibleAuthError) showAuth(visibleAuthError, isProtectedRoute());
+    else await applyRoute();
   } else if (!me.user?.onboarding_completed) {
     if (CURRENT_ROUTE === '/') navigateTo('/onboarding', true);
     else await applyRoute();

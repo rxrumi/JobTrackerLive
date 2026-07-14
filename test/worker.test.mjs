@@ -375,18 +375,25 @@ test("homepage preserves onboarding role families when relaxing profile defaults
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const relaxationSource = html.slice(
     html.indexOf("function relaxedProfileFilterStates(profile)"),
-    html.indexOf("function applyProfileFiltersOnce()")
+    html.indexOf("async function applyProfileFiltersOnce")
+  );
+  const applicationSource = html.slice(
+    html.indexOf("async function applyProfileFiltersOnce"),
+    html.indexOf("function sorted(rows)")
   );
 
   assert.match(html, /function relaxedProfileFilterStates\(profile\)/);
   assert.doesNotMatch(relaxationSource, /withoutRole/);
   assert.doesNotMatch(relaxationSource, /family:\s*new Set\(\)/);
   assert.match(relaxationSource, /const withoutSeniority = \{ \.\.\.full, seniority: new Set\(\) \};/);
-  assert.match(relaxationSource, /const withoutSeniorityOrVisa = \{ \.\.\.withoutSeniority, visa: new Set\(\) \};/);
-  assert.match(relaxationSource, /const withoutSeniorityVisaOrCountry = \{ \.\.\.withoutSeniorityOrVisa, country: new Set\(\) \};/);
-  assert.match(relaxationSource, /return \[full, withoutSeniority, withoutSeniorityOrVisa, withoutSeniorityVisaOrCountry\];/);
-  assert.match(html, /const selected = candidates\.find\(activeMatchCountForControls\) \|\| candidates\[candidates\.length - 1\];/);
-  assert.match(html, /PROFILE_FILTERS_RELAXED = selected !== candidates\[0\];/);
+  assert.match(relaxationSource, /\{ controls: full, relaxed: \[\] \}/);
+  assert.match(relaxationSource, /\{ controls: withoutSeniority, relaxed: \['seniority'\] \}/);
+  assert.doesNotMatch(relaxationSource, /visa:\s*new Set\(\)/);
+  assert.doesNotMatch(relaxationSource, /country:\s*new Set\(\)/);
+  assert.match(applicationSource, /const data = await requestJobsPage\(query\);/);
+  assert.match(applicationSource, /if \(\(data\.pagination\?\.total \|\| 0\) > 0\) break;/);
+  assert.match(applicationSource, /applyControlState\(selected\.controls, \{ persist: false, syncUrl: false \}\);/);
+  assert.match(applicationSource, /PROFILE_FILTERS_RELAXED_FIELDS = \[\.\.\.selected\.relaxed\];/);
 });
 
 test("homepage renders active pages from page-scoped server results", () => {
@@ -410,23 +417,68 @@ test("homepage renders active pages from page-scoped server results", () => {
 test("homepage honors worker-clamped active pages", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const fetchSource = html.slice(
-    html.indexOf("async function fetchJobsPage(page)"),
+    html.indexOf("async function fetchJobsPage(page,"),
     html.indexOf("function scheduleActiveRefresh()")
+  );
+  const commitSource = html.slice(
+    html.indexOf("function commitJobsPage(data, query, requestedPage)"),
+    html.indexOf("async function fetchJobsPage(page,")
   );
   const setPageSource = html.slice(
     html.indexOf("async function setPage(page)"),
     html.indexOf("function resetPage()")
   );
 
-  assert.match(fetchSource, /const resolvedPage = DYNAMIC_PAGINATION\.page \|\| page;/);
-  assert.match(fetchSource, /DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKeyFromPayload\(\{ \.\.\.query, page: resolvedPage \}\);/);
-  assert.match(fetchSource, /if \(!queryHasActiveControls\) HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION\.total \|\| HEADER_ACTIVE_TOTAL;/);
-  assert.match(fetchSource, /DYNAMIC_PAGE_IDS = \(data\.postings \|\| \[\]\)\.map\(p => String\(p\.id\)\);/);
+  assert.match(commitSource, /const resolvedPage = DYNAMIC_PAGINATION\.page \|\| requestedPage;/);
+  assert.match(commitSource, /DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKeyFromPayload\(\{ \.\.\.query, page: resolvedPage \}\);/);
+  assert.match(commitSource, /if \(!hasQueryControls\) HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION\.total \|\| HEADER_ACTIVE_TOTAL;/);
+  assert.match(commitSource, /DYNAMIC_PAGE_IDS = \(data\.postings \|\| \[\]\)\.map\(p => String\(p\.id\)\);/);
+  assert.match(fetchSource, /if \(requestId !== JOB_QUERY_SEQUENCE\) return \{ \.\.\.data, stale: true \};/);
   assert.match(setPageSource, /let target = Math\.max\(1, page\);/);
   assert.match(setPageSource, /if \(state\.tab === 'active'\)/);
   assert.match(setPageSource, /const data = await fetchJobsPage\(target\);/);
   assert.match(setPageSource, /target = data\.pagination\?\.page \|\| target;/);
   assert.match(setPageSource, /state\.page = target;/);
+});
+
+test("homepage scopes filters by account and forces onboarding defaults", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /function filterSnapshotsStorageKey\(scope = FILTER_SCOPE\)/);
+  assert.match(html, /`\$\{INDUSTRY_FILTERS_KEY\}:\$\{scope \|\| 'anonymous'\}`/);
+  assert.match(html, /switchFilterScope\(ME\?\.user\?\.id \|\| 'anonymous'\);/);
+  assert.match(html, /PROFILE_FILTERS_FORCE_NEXT = true;/);
+  assert.match(html, /await applyProfileFiltersOnce\(\);/);
+});
+
+test("homepage makes onboarding resumable and target seniority explicit", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /Choose a level<\/option>/);
+  assert.match(html, /function saveOnboardingDraft\(\)/);
+  assert.match(html, /async function persistOnboardingCheckpoint\(\)/);
+  assert.match(html, /restoreOnboardingValues\(\);/);
+  assert.match(html, /if \(direction > 0 && !await persistOnboardingCheckpoint\(\)\) return;/);
+});
+
+test("homepage exposes auth failures and blocks account-type races", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /class ApiError extends Error/);
+  assert.match(html, /AUTH_LOAD_ERROR = error\?\.status && error\.status !== 401/);
+  assert.match(html, /if \(visibleAuthError\) showAuth\(visibleAuthError, isProtectedRoute\(\)\);/);
+  assert.match(html, /if \(direction > 0 && ACCOUNT_TYPE_SAVE_PROMISE\)/);
+  assert.match(html, /setOnboardingBusy\(true\);/);
+});
+
+test("homepage refreshes saved preferences and explains discovery recovery", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /Your updated defaults will apply when you return to jobs\./);
+  assert.match(html, /Current job listings do not consistently include salary or work-mode data/);
+  assert.match(html, /function renderDiscoveryGuidance\(resultCount\)/);
+  assert.match(html, /id="empty-state-details"/);
+  assert.match(html, /await loadUserJobs\(\)\.catch\(\(\) => \{\}\);/);
 });
 
 test("homepage fetches filtered startup pages without poisoning global active counts", () => {
