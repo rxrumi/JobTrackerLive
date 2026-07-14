@@ -635,6 +635,24 @@ test("runScan applies company aliases for display and classification", async t =
   assert.equal(payload.postings[0].visa, "Likely");
 });
 
+test("runScan retains complete ATS boards larger than one hundred matching jobs", async t => {
+  const jobs = Array.from({ length: 130 }, (_, index) => ({
+    id: `large-${index + 1}`,
+    title: `Revenue Operations Manager ${index + 1}`,
+    location: { name: "Dublin, Ireland" },
+    absolute_url: `https://example.com/large-${index + 1}`
+  }));
+  t.mock.method(globalThis, "fetch", mockFetch({ jobsByToken: { hubspot: { jobs } } }));
+
+  const KV = createKV();
+  const result = await runScan({ KV });
+
+  assert.equal(result.error, undefined);
+  const payload = JSON.parse(KV.puts.find(p => p.key === "jobs").value);
+  assert.equal(payload.postings.filter(p => p.source_token === "hubspot").length, 130);
+  assert.equal(payload.scan_meta.sourceMeta["greenhouse-hubspot"].retainedJobs, 130);
+});
+
 test("runScan classifies broad professional role families", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     jobsByToken: {
@@ -679,8 +697,13 @@ test("runScan classifies broad professional role families", async t => {
           name: "Customer Success Manager",
           location: { fullLocation: "Sydney, NSW, Australia" },
           company: { identifier: "Canva" }
+        }, {
+          id: "generic-eng-1",
+          name: "Reliability Engineer II",
+          location: { fullLocation: "Sydney, NSW, Australia" },
+          company: { identifier: "Canva" }
         }],
-        totalFound: 8
+        totalFound: 9
       }
     }
   }));
@@ -692,7 +715,7 @@ test("runScan classifies broad professional role families", async t => {
   const jobsPut = KV.puts.find(p => p.key === "jobs");
   const payload = JSON.parse(jobsPut.value);
   const families = new Set(payload.postings.map(p => p.role_family));
-  assert.equal(payload.postings.length, 8);
+  assert.equal(payload.postings.length, 9);
   assert.deepEqual(families, new Set([
     "Engineering",
     "Sales",
@@ -703,6 +726,8 @@ test("runScan classifies broad professional role families", async t => {
     "People/HR",
     "Customer Success/Support"
   ]));
+  assert.equal(payload.postings.find(p => p.id.endsWith("sales-1"))?.seniority, "Unknown");
+  assert.equal(payload.postings.find(p => p.id.endsWith("generic-eng-1"))?.role_family, "Engineering");
 });
 
 test("runScan applies ordered role classification precedence", async t => {
@@ -947,10 +972,8 @@ test("runScan maps Netflix Eightfold positions", async t => {
   const netflixPostings = payload.postings.filter(p => p.source === "eightfold" && p.source_token === "netflix");
 
   assert.equal(netflixPostings.length, 2);
-  assert.deepEqual(new Set(netflixPostings.map(p => p.id)), new Set([
-    "eightfold-netflix-790-0",
-    "eightfold-netflix-790-1"
-  ]));
+  assert.ok(netflixPostings.some(p => p.id === "eightfold-netflix-790"));
+  assert.ok(netflixPostings.some(p => /^eightfold-netflix-790-loc-[a-z0-9]+$/.test(p.id)));
   assert.ok(netflixPostings.every(p => p.company === "netflix"));
   assert.ok(netflixPostings.every(p => p.url === "https://explore.jobs.netflix.net/careers/job/790"));
   assert.equal(netflixPostings.find(p => p.country === "SG")?.city, "Singapore");
@@ -1177,7 +1200,7 @@ test("runScan deduplicates YC jobs and maps YC visa/location variants", async t 
   const payload = JSON.parse(jobsPut.value);
   const ycPostings = payload.postings.filter(p => p.source === "yc");
 
-  assert.equal(ycPostings.length, 3);
+  assert.equal(ycPostings.length, 4);
   assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-1").visa, "Likely");
   assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-1").city, "San Francisco");
   assert.equal(ycPostings.find(p => p.id === "yc-yc-waas-2").visa, "Unknown");
@@ -1386,6 +1409,30 @@ function createD1Fake({ user, rows = {} } = {}) {
       rows = data.account_access.filter(row => row.user_id === params[0]);
     } else if (q === "select * from user_jobs where user_id = ? order by updated_at desc") {
       rows = data.user_jobs.filter(row => row.user_id === params[0]).sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    } else if (q === "select job_id from user_jobs where user_id = ? and starred = 1") {
+      rows = data.user_jobs.filter(row => row.user_id === params[0] && Number(row.starred) === 1).map(row => ({ job_id: row.job_id }));
+    } else if (q.startsWith("select uj.job_id, jp.source,")) {
+      rows = data.user_jobs.filter(row => row.user_id === params[0]).flatMap(userJob => {
+        const posting = data.job_postings.find(row => row.id === userJob.job_id);
+        if (!posting) return [];
+        const snapshot = data.job_snapshots
+          .filter(row => row.job_id === userJob.job_id)
+          .sort((a, b) => String(b.scan_date || "").localeCompare(String(a.scan_date || "")) || Number(b.id) - Number(a.id))[0] || {};
+        return [{
+          job_id: userJob.job_id,
+          ...posting,
+          industry: snapshot.industry || posting.industry,
+          niche: snapshot.niche || posting.niche,
+          location: snapshot.location,
+          city: snapshot.city,
+          country: snapshot.country,
+          role_family: snapshot.role_family,
+          seniority: snapshot.seniority,
+          visa: snapshot.visa,
+          score: snapshot.score,
+          tier: snapshot.tier
+        }];
+      });
     } else if (q === "select * from user_jobs where user_id = ? and job_id = ?") {
       rows = data.user_jobs.filter(row => row.user_id === params[0] && row.job_id === params[1]);
     } else if (q === "select * from user_job_history where user_id = ? and job_id = ? order by created_at desc") {
@@ -1475,6 +1522,21 @@ test("public jobs endpoint filters by industry query parameter", async () => {
   assert.equal(payload.postings[0].niche, "AEC / Infrastructure");
 });
 
+test("public jobs returns active jobs only with full-dataset country facets", async () => {
+  const KV = createKV();
+  const postings = samplePostings(3);
+  postings[2] = { ...postings[2], last_filled: "2026-06-02" };
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings }));
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs"), { KV });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.pagination.total, 2);
+  assert.equal(payload.postings.some(posting => posting.last_filled), false);
+  assert.deepEqual(payload.facets.country, { AU: 1, IE: 1 });
+});
+
 test("public jobs endpoint schedules stale payload refresh", async t => {
   t.mock.method(globalThis, "fetch", mockFetch({
     jobsByToken: {
@@ -1504,13 +1566,14 @@ test("public jobs endpoint schedules stale payload refresh", async t => {
 
   assert.equal(response.status, 200);
   assert.equal(waitUntil.length, 1);
-  assert.ok(KV.puts.some(p => p.key === "scan:stale-refresh-lock"));
+  assert.ok(KV.puts.some(p => p.key.startsWith("scan:stale-refresh-lock:")));
 
   await Promise.all(waitUntil);
 
   const jobsPut = KV.puts.findLast(p => p.key === "jobs");
   const payload = JSON.parse(jobsPut.value);
-  assert.equal(payload.last_scan, new Date().toISOString().slice(0, 10));
+  assert.equal(payload.last_scan, null);
+  assert.deepEqual(payload.scan_cycle.completed_shards, [0]);
   assert.ok(payload.postings.some(p => p.id === "greenhouse-hubspot-101"));
 });
 
@@ -1673,6 +1736,35 @@ test("jobs query rejects anonymous page two", async () => {
   }), { KV });
 
   assert.equal(response.status, 401);
+});
+
+test("jobs query enforces the signed-in user's starred filter", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000019", email: "king@example.com" };
+  const fake = createD1Fake({
+    user,
+    rows: {
+      user_jobs: [{ user_id: user.id, job_id: "job-2", starred: 1, updated_at: new Date().toISOString() }]
+    }
+  });
+  const KV = createKV();
+  await KV.put("jobs", JSON.stringify({ last_scan: "2026-06-02", postings: samplePostings(3) }));
+  const requestBody = JSON.stringify({ page: 1, active_only: true, filters: { presets: ["starred"] } });
+
+  const anonymous = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    body: requestBody
+  }), { KV, DB: fake.DB });
+  assert.equal(anonymous.status, 401);
+
+  const response = await worker.fetch(new Request("https://example.com/api/jobs/query", {
+    method: "POST",
+    headers: { Cookie: "session=1" },
+    body: requestBody
+  }), { KV, DB: fake.DB, CLERK_USER: fake.user });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.pagination.total, 1);
+  assert.equal(payload.postings[0].id, "job-2");
 });
 
 test("jobs query allows authenticated page two without human verification", async () => {
@@ -1999,6 +2091,59 @@ test("user job upsert stores status, star, and derived timestamps", async () => 
   assert.equal(payload.job.archived_at, null);
 });
 
+test("user jobs hydrate historical posting details for pipeline rendering", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000013", email: "king@example.com" };
+  const fake = createD1Fake({
+    user,
+    rows: {
+      user_jobs: [{
+        id: "saved-1",
+        user_id: user.id,
+        job_id: "greenhouse-hubspot-older",
+        status: "Applied",
+        starred: 1,
+        updated_at: "2026-06-10T00:00:00.000Z"
+      }],
+      job_postings: [{
+        id: "greenhouse-hubspot-older",
+        source: "greenhouse",
+        source_token: "hubspot",
+        company: "hubspot",
+        title: "Revenue Operations Manager",
+        url: "https://example.com/older",
+        industry: "tech",
+        niche: "Software",
+        first_seen_date: "2026-05-01",
+        last_seen_date: "2026-05-20",
+        last_filled_date: "2026-05-21"
+      }],
+      job_snapshots: [{
+        id: 1,
+        job_id: "greenhouse-hubspot-older",
+        scan_date: "2026-05-21",
+        location: "Dublin, Ireland",
+        city: "Dublin",
+        country: "IE",
+        role_family: "Operations",
+        seniority: "Manager",
+        visa: "Strong",
+        score: 88,
+        tier: "GrowthSaaS"
+      }]
+    }
+  });
+
+  const response = await worker.fetch(new Request("https://example.com/api/user-jobs", {
+    headers: { Cookie: "session=1" }
+  }), { DB: fake.DB, CLERK_USER: fake.user });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.jobs[0].posting.id, "greenhouse-hubspot-older");
+  assert.equal(payload.jobs[0].posting.country, "IE");
+  assert.equal(payload.jobs[0].posting.last_filled, "2026-05-21");
+});
+
 test("settings route stores per-user brand theme", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000004", email: "king@example.com" };
   const fake = createD1Fake({
@@ -2106,6 +2251,40 @@ test("runScan preserves previous postings when a custom parser source fails", as
   assert.ok(payload.scan_meta.failedSources.includes("eightfold-netflix"));
 });
 
+test("runScan closes missing jobs after a complete custom source snapshot", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch());
+  const today = new Date().toISOString().slice(0, 10);
+  const previousPosting = {
+    id: "eightfold-netflix-790",
+    source: "eightfold",
+    source_token: "netflix",
+    company: "netflix",
+    title: "Partner Integration Manager",
+    location: "Singapore, Singapore",
+    city: "Singapore",
+    country: "SG",
+    url: "https://explore.jobs.netflix.net/careers/job/790",
+    tier: "BigTech",
+    industry: "tech",
+    niche: "Software",
+    role_family: "Strategy/Program",
+    seniority: "Manager",
+    visa: "Likely",
+    score: 80,
+    first_seen: today,
+    last_seen: today,
+    last_filled: null
+  };
+  const KV = createKV({ postings: { [previousPosting.id]: previousPosting } });
+
+  const result = await runScan({ KV });
+
+  assert.equal(result.error, undefined);
+  const payload = JSON.parse(KV.puts.find(p => p.key === "jobs").value);
+  assert.equal(payload.postings.find(p => p.id === previousPosting.id)?.last_filled, today);
+  assert.equal(payload.scan_meta.sourceMeta["eightfold-netflix"].status, "complete");
+});
+
 test("runScan preserves previous YC postings when YC seed pages partially fail", async t => {
   t.mock.method(globalThis, "fetch", async url => {
     const href = String(url);
@@ -2122,6 +2301,7 @@ test("runScan preserves previous YC postings when YC seed pages partially fail",
     return Response.json(token ? emptyPayload(href) : {});
   });
 
+  const today = new Date().toISOString().slice(0, 10);
   const previousPosting = {
     id: "yc-yc-waas-42",
     source: "yc",
@@ -2139,8 +2319,8 @@ test("runScan preserves previous YC postings when YC seed pages partially fail",
     seniority: "Senior/Lead",
     visa: "Strong",
     score: 96,
-    first_seen: "2026-05-20",
-    last_seen: "2026-05-20",
+    first_seen: today,
+    last_seen: today,
     last_filled: null
   };
 
@@ -2203,7 +2383,7 @@ test("runScan aborts KV writes when too many sources fail", async t => {
 test("manual scan accepts X-Scan-Key and rejects missing auth", async t => {
   t.mock.method(globalThis, "fetch", mockFetch());
 
-  const unauthorized = await worker.fetch(new Request("https://example.com/api/scan-now"), {
+  const unauthorized = await worker.fetch(new Request("https://example.com/api/scan-now", { method: "POST" }), {
     KV: createKV(),
     SCAN_KEY: "secret"
   });
@@ -2211,6 +2391,7 @@ test("manual scan accepts X-Scan-Key and rejects missing auth", async t => {
 
   const KV = createKV();
   const authorized = await worker.fetch(new Request("https://example.com/api/scan-now", {
+    method: "POST",
     headers: { "X-Scan-Key": "secret" }
   }), {
     KV,
@@ -2226,6 +2407,7 @@ test("manual scan uses json security responses for wrong keys", async t => {
   t.mock.method(globalThis, "fetch", mockFetch());
 
   const response = await worker.fetch(new Request("https://example.com/api/scan-now", {
+    method: "POST",
     headers: { "X-Scan-Key": "wrong" }
   }), {
     KV: createKV(),
@@ -2235,6 +2417,21 @@ test("manual scan uses json security responses for wrong keys", async t => {
   assert.equal(response.status, 401);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal((await response.json()).error, "unauthorized");
+});
+
+test("manual scan is POST-only and validates shard numbers", async () => {
+  const env = { KV: createKV(), SCAN_KEY: "secret" };
+  const getResponse = await worker.fetch(new Request("https://example.com/api/scan-now", {
+    headers: { "X-Scan-Key": "secret" }
+  }), env);
+  assert.equal(getResponse.status, 405);
+  assert.equal(getResponse.headers.get("allow"), "POST");
+
+  const invalidShard = await worker.fetch(new Request("https://example.com/api/scan-now?shard=9", {
+    method: "POST",
+    headers: { "X-Scan-Key": "secret" }
+  }), env);
+  assert.equal(invalidShard.status, 400);
 });
 
 test("manual scan persists D1 analytics", async t => {
@@ -2254,10 +2451,16 @@ test("manual scan persists D1 analytics", async t => {
     return Response.json(emptyPayload(href));
   });
 
-  const KV = createKV();
+  const today = new Date().toISOString().slice(0, 10);
+  const KV = createKV({
+    last_scan: null,
+    postings: {},
+    scan_cycle: { date: today, completed_shards: [1, 2, 3, 4], total_shards: 5, complete: false }
+  });
   const fake = createD1Fake();
   const waitUntil = [];
-  const response = await worker.fetch(new Request("https://example.com/api/scan-now", {
+  const response = await worker.fetch(new Request("https://example.com/api/scan-now?shard=0", {
+    method: "POST",
     headers: { "X-Scan-Key": "scan-secret" }
   }), {
     KV,
@@ -2351,7 +2554,7 @@ test("analytics endpoints require owner allowlist", async () => {
     user: { id: "00000000-0000-4000-8000-000000000041", email: "owner@example.com" },
     rows: {
       daily_scan_stats: [{
-        scan_date: "2026-06-05",
+        scan_date: new Date().toISOString().slice(0, 10),
         total_jobs: 3,
         per_source: "{}",
         per_industry: "{}",
@@ -2371,7 +2574,7 @@ test("analytics endpoints require owner allowlist", async () => {
   assert.equal(allowed.status, 200);
   assert.deepEqual(await allowed.json(), {
     stats: [{
-      scan_date: "2026-06-05",
+      scan_date: new Date().toISOString().slice(0, 10),
       total_jobs: 3,
       per_source: {},
       per_industry: {},

@@ -62,14 +62,15 @@ Cloudflare Worker: job-tracker
 │   ├── GET /api/analytics/jobs       -> daily scan stats (owner allowlist required)
 │   ├── GET /api/analytics/searches   -> search query history (owner allowlist required)
 │   ├── GET /api/analytics/views      -> job view history (owner allowlist required)
-│   └── GET /api/scan-now      -> manual scan, requires X-Scan-Key
+│   └── POST /api/scan-now     -> manual scan shard, requires X-Scan-Key
 │
 ├── HTTP redirects
 │   ├── http:// -> https:// (301)
 │   └── www.livejobindex.com -> livejobindex.com (301)
 │
-└── scheduled handler (cron: 0 3 * * * UTC)
-    └── runScan(env) -> scan ATS feeds -> filter + score -> diff KV state -> KV write -> persistScanToD1()
+└── scheduled handler (five crons from 03:00-03:40 UTC)
+    └── runScan(env, { shardIndex }) -> scan bounded source shard -> filter + score -> safe diff -> KV write
+        └── final shard -> persistScanToD1()
 
 Clerk
 └── hosted sign-in/sign-up              -> Google and email/password identity
@@ -100,11 +101,11 @@ Configured Cloudflare resources live in `wrangler.toml`:
 
 - Worker name: `job-tracker`
 - Main file: `src/worker.js`
-- Compatibility date: `2026-06-05`
+- Compatibility date: `2026-07-15`
 - Static assets directory: `./public` (with SPA fallback for `/profile`, `/onboarding`)
 - KV binding: `KV` (namespace ID `8cf95c7c04054745bff09d88ea57d707`)
 - D1 binding: `DB` (`job-tracker-app-db`, database ID `d0b81077-9b5d-425a-a821-979375f63e89`)
-- Cron: `0 3 * * *`
+- Crons: `0, 10, 20, 30, 40` minutes past `03:00 UTC`
 - Custom domains: `livejobindex.com` and `www.livejobindex.com`
 - Observability: enabled
 
@@ -130,7 +131,7 @@ Configured Cloudflare resources live in `wrangler.toml`:
 ├── src/
 │   └── worker.js          # Worker routes, cron handler, scanner, scoring, auth, analytics
 └── test/
-    └── worker.test.mjs    # Node test suite (1260+ lines, ~80 tests)
+    └── worker.test.mjs    # Node test suite
 ```
 
 ## Runtime Stack
@@ -175,6 +176,7 @@ Returns the first page (15 items) of the latest dynamic job payload from KV key 
 {
   "last_scan": "2026-06-01",
   "last_scan_at": "2026-06-01T03:00:00.000Z",
+  "scan_cycle": { "date": "2026-06-01", "completed_shards": [0, 1, 2, 3, 4], "total_shards": 5, "complete": true },
   "scan_meta": {
     "okCount": 40,
     "failCount": 0,
@@ -182,6 +184,7 @@ Returns the first page (15 items) of the latest dynamic job payload from KV key 
     "okSources": ["greenhouse-hubspot"],
     "failedSources": []
   },
+  "facets": { "country": { "GB": 120, "IE": 45 } },
   "postings": [],
   "pagination": { "page": 1, "per_page": 15, "total": 0, "total_pages": 1, "has_next": false, "has_prev": false }
 }
@@ -191,15 +194,16 @@ Headers: `Cache-Control: public, max-age=300`. No CORS wildcard.
 
 ### `POST /api/jobs/query`
 
-Returns paged, filtered, sorted dynamic jobs. `per_page` capped at 15.
+Returns paged, filtered, sorted dynamic jobs. `per_page` is capped at 15. The frontend sends `active_only: true`, so filled jobs do not inflate active totals.
 
 Accepts body fields:
 - `page`, `per_page`, `sort` (`score`, `company`, `title`, `role`, `country`, `status`, `first_seen`), `dir` (`asc`/`desc`)
 - `search` — free text search across company, title, city, country, industry, niche, family, seniority, visa, tier
-- `filters` — object with optional arrays: `industry`, `niche`, `country`, `tier`, `family`, `seniority`, `visa`, `presets` (`senior`, `strong-visa`, `new`)
+- `filters` — object with optional arrays: `industry`, `niche`, `country`, `tier`, `family`, `seniority`, `visa`, `presets` (`senior`, `strong-visa`, `new`, `starred`)
+- `active_only` — excludes filled postings when true
 - `ids` — specific posting IDs to fetch
 
-Page 1 is public. Page 2+ requires an authenticated Clerk session token. Low bot score requests (`cf.botManagement.score < 30`, non-verified) are rejected before processing.
+Page 1 is public. Page 2+ and the user-specific `starred` preset require an authenticated Clerk session token. Responses include country facets calculated from the full filtered result set, not just the current page. Low bot score requests (`cf.botManagement.score < 30`, non-verified) are rejected before processing.
 
 Legacy `Ecosystem` tier values are normalized to `GrowthSaaS`.
 
@@ -248,7 +252,7 @@ Clerk-backed account routes verify `Authorization: Bearer <Clerk session token>`
 | POST | `/api/onboarding/complete` | Validates profile exists for account type, sets `onboarding_completed: true`. |
 | PATCH | `/api/settings` | Updates brand theme (`cobalt`, `graphite`, `aurora`). |
 | POST | `/api/agency-feedback` | Submits agency feature request (requires completed agency onboarding). |
-| GET | `/api/user-jobs` | Returns all authenticated user's job states sorted by `updated_at` desc. |
+| GET | `/api/user-jobs` | Returns all authenticated user's job states plus D1-hydrated posting details for historical pipeline rows. |
 | PUT | `/api/user-jobs/:job_id` | Upserts job status, star, notes. Auto-sets `saved_at`, `applied_at`, `archived_at` on transition. Records job history events. |
 | GET | `/api/user-jobs/:job_id/history` | Returns job timeline (viewed, status_changed, starred, note_added). |
 | POST | `/api/activity` | Logs a user activity event to `user_activity`. |
@@ -266,21 +270,23 @@ Owner-only authenticated GET endpoints. The signed-in user's email must be prese
 | `GET /api/analytics/searches?days=7` | Returns `search_queries` history. |
 | `GET /api/analytics/views?days=7` | Returns `job_views` history. |
 
-### `GET /api/scan-now`
+### `POST /api/scan-now`
 
-Runs the scanner manually. Requires `X-Scan-Key` header matching the `SCAN_KEY` secret. No query-string key accepted. On success, also persists scan results to D1 via `ctx.waitUntil`:
+Runs one scanner shard manually. Requires `X-Scan-Key` matching the `SCAN_KEY` secret; no query-string key is accepted. Use `?shard=0` through `?shard=4` for a deterministic full cycle, or omit it to run the next incomplete shard. D1 analytics are persisted only when the fifth shard completes the daily cycle.
 
 ```json
-{ "okCount": 40, "failCount": 0, "total": 26 }
+{ "okCount": 23, "failCount": 0, "partialCount": 0, "total": 3267, "shardIndex": 0, "completedShards": [0], "cycleComplete": false }
 ```
 
 Error responses:
 - `{ "error": "all_fetch_failed", "okCount": 0, "failCount": 40, "failedSources": [] }`
 - `{ "error": "too_many_fetch_failures", "okCount": 10, "failCount": 30, "totalBoards": 40, "failedSources": [] }`
 
+`GET /api/scan-now` returns `405 Method Not Allowed`. A shard-level scan failure returns HTTP `503` rather than a misleading success response.
+
 ## Scheduled Scan
 
-The cron trigger runs daily at `0 3 * * *` UTC (7 AM Dubai). The `scheduled()` handler calls `runScan(env)` and on success persists to D1 via `ctx.waitUntil(persistScanToD1(...))`.
+Five cron triggers run daily at `03:00`, `03:10`, `03:20`, `03:30`, and `03:40` UTC. Each invocation scans one bounded source shard so the Worker stays below Cloudflare's free-plan external-subrequest limit. KV exposes cycle progress after every shard; `last_scan` advances and D1 is updated only after all five shards complete.
 
 ## Dynamic Sources
 
@@ -309,7 +315,7 @@ Company aliases normalize non-obvious ATS tokens: `talkdesk2` → `talkdesk`, `b
 
 Popular-tech custom sources are defined through structured source objects with `source`, `token`, `company`, `industry`, `niche`, `tier`, `visa`, and `fetch`. They remain bounded by fixed country/page/result caps and failures are isolated by source so one fragile parser does not abort the whole scan.
 
-Engineering live sources use structured source objects with `industry`, `niche`, `company`, `source`, `token`/`url`, and `fetch`. V1 includes conservative live fetchers for RMK/SuccessFactors-style category pages, Tribepad, NLX/Solr-style jobs domains, and Workday CXS JSON feeds. Initial Workday coverage includes Intel, Boeing, Airbus, Aurecon, GE Vernova, Gensler, Samsung, 3M, Rockwell Automation, and Boston Dynamics. Static engineering targets live in `ENGINEERING_STATIC_COMPANIES`.
+Bot-protected and unreliable engineering ATS pages are not live-scraped. Those companies remain curated company-location targets in `ENGINEERING_STATIC_COMPANIES` until a stable public endpoint is verified and covered by tests.
 
 ## ATS Fetching
 
@@ -317,10 +323,6 @@ Each fetcher returns a normalized object: `{ id, title, location, url }`.
 
 - **Greenhouse**: `https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=false`
 - **Ashby**: `https://api.ashbyhq.com/posting-api/job-board/{token}` — secondary locations expanded into separate postings.
-- **RMK / SuccessFactors category pages**: HTML category listings such as Bechtel engineering jobs.
-- **Tribepad**: HTML listings such as Buro Happold vacancies.
-- **NLX / Solr-style jobs domains**: branded jobs domains such as AECOM/Stantec-style sites.
-- **Workday CXS**: `https://{host}/wday/cxs/{tenant}/{site}/jobs` — one structured page per engineering source to keep Worker subrequests bounded.
 - **Lever**: `https://api.lever.co/v0/postings/{token}?mode=json` — `allLocations` expanded into separate postings.
 - **SmartRecruiters**: `https://api.smartrecruiters.com/v1/companies/{token}/postings?limit=100&offset={offset}` — paginated up to 10 pages of 100.
 - **Amazon Jobs**: `https://www.amazon.jobs/en/search.json` — searches a bounded list of target countries with a fixed per-location result limit.
@@ -393,15 +395,18 @@ UI thresholds: High ≥80, Medium ≥70, Low <70.
 The scanner compares current scan results against previous `state.postings`:
 
 - **Same posting found** → preserves `first_seen`, updates `last_seen`, clears `last_filled`.
-- **Posting disappeared from successful source** → marked filled with `last_filled`, retained in feed for 7 days, then pruned.
+- **Posting disappeared from a complete successful source snapshot** → marked filled with `last_filled`, retained in feed for 7 days, then pruned.
 - **Source failed** → previous postings from that source are preserved (no filled markers).
-- **>50% boards fail** → scan aborts, KV not written (prevents mass false filled markers).
+- **Source is paginated, truncated, or only partially parsed** → new results are accepted, but unmatched prior jobs are preserved instead of being falsely marked filled.
+- **Partial source remains unmatched for more than 30 days** → treated as stale and enters the normal 7-day filled retention window.
+- **Unscanned shard** → previous postings are preserved unchanged.
+- **All sources in a shard fail, or a larger shard exceeds the failure threshold** → shard aborts, KV is not written.
 - **All sources fail** → returns `all_fetch_failed`, KV not written.
 - **Retired sources** (`ACTIVE_SOURCES`) → postings from non-active sources are dropped.
 
 ## D1 Persistence
 
-After each successful scan, `persistScanToD1()` writes three data sets:
+After a complete five-shard daily cycle, `persistScanToD1()` writes three data sets:
 
 1. **job_postings** — upsert by `id`: master record with `first_seen_date`, `last_seen_date`, `last_filled_date`, `is_active`.
 2. **job_snapshots** — upsert by `(job_id, scan_date)`: daily snapshot with title, location, city, country, role_family, seniority, visa, score, tier, `is_new`, `is_filled`.
@@ -488,10 +493,15 @@ npx wrangler secret put CLERK_SIGN_UP_URL
 npx wrangler secret put ANALYTICS_ALLOWED_EMAILS
 ```
 
-3. Trigger the first scan:
+3. Trigger the five shards for the first complete scan:
 ```bash
-curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
+for shard in 0 1 2 3 4; do
+  curl -X POST -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now?shard=$shard"
+  [ "$shard" = 4 ] || sleep 65
+done
 ```
+
+The pause avoids Cloudflare KV propagation races between separate manual requests. The scheduled crons are already spaced ten minutes apart.
 
 For D1 schema migrations (if changing tables):
 ```bash
@@ -505,8 +515,7 @@ npx wrangler d1 migrations apply job-tracker-app-db --remote
 npx wrangler tail                          # Tail live logs
 npx wrangler kv:key get jobs --binding KV  # Read public jobs payload
 npx wrangler kv:key get state --binding KV # Read full scan state
-npx wrangler kv:key delete state --binding KV  # Force clean re-scan
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now"
+curl -X POST -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now?shard=0"
 ```
 
 Debug a Greenhouse board:
@@ -516,7 +525,7 @@ curl "https://boards-api.greenhouse.io/v1/boards/<token>/jobs?content=false" | j
 
 ## Tests
 
-The test suite (~80 tests, 1260 lines) covers:
+The test suite (83 tests) covers:
 
 - Location matching (lowercase, country-hint, multi-city)
 - Visa classification and company aliases

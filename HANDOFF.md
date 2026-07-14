@@ -21,9 +21,9 @@ Cloudflare Worker (job-tracker)
 ├── fetch handler
 │   ├── GET /              -> public/index.html
 │   ├── GET /api/jobs      -> KV "jobs" key, 5-minute cache
-│   └── GET /api/scan-now  -> manual scan trigger, requires X-Scan-Key
-└── scheduled handler
-    └── runScan()          -> scans public ATS APIs, filters, diffs, writes KV
+│   └── POST /api/scan-now -> manual scan shard, requires X-Scan-Key
+└── scheduled handler (five crons from 03:00-03:40 UTC)
+    └── runScan({ shardIndex }) -> bounded source shard, safe diff, KV write
 
 KV namespace: job-tracker-state
 ├── state -> full scan history
@@ -65,9 +65,9 @@ Each source has a fetcher that normalizes jobs to:
 
 ## Filter Rules
 
-Target cities map to 15 country codes in `CITY_TO_COUNTRY`:
+Target cities map to 26 country codes in `CITY_TO_COUNTRY`:
 
-`GB`, `IE`, `CA`, `AU`, `SG`, `DE`, `NL`, `CH`, `SE`, `DK`, `NO`, `ES`, `PT`, `EE`, `NZ`.
+`GB`, `IE`, `CA`, `AU`, `US`, `SG`, `DE`, `NL`, `CH`, `SE`, `DK`, `NO`, `ES`, `PT`, `EE`, `NZ`, `FR`, `IT`, `PL`, `BE`, `FI`, `AT`, `JP`, `KR`, `IN`, `TW`.
 
 Country-level fallback matching lives in `COUNTRY_HINTS`.
 
@@ -91,23 +91,24 @@ The cron is configured in `wrangler.toml`:
 
 ```toml
 [triggers]
-crons = ["0 3 * * *"]
+crons = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *"]
 ```
 
-`runScan(env)`:
+`runScan(env, { shardIndex })`:
 
 1. Reads prior KV state.
-2. Fetches ATS boards in batches of 8.
+2. Fetches one source shard while staying below the free-plan subrequest limit.
 3. Keeps jobs whose title and location match the configured rules.
 4. Preserves `first_seen` for recurring jobs.
-5. Marks missing jobs as filled for 7 days.
+5. Marks missing jobs as filled only after a complete source snapshot; partial-source jobs get a 30-day grace period.
 6. Writes `state` and `jobs` back to KV.
 
 Failed source protection:
 
-- Existing postings from a failed source are preserved during partial scans.
-- If more than half of sources fail, the scan aborts without writing KV.
-- `scan_meta` records `okSources` and `failedSources`.
+- Existing postings from failed and unscanned sources are preserved.
+- Truncated or partially parsed sources cannot immediately mark unmatched jobs filled.
+- A failed shard aborts without overwriting KV.
+- `scan_meta` records complete, partial, and failed sources plus cycle progress.
 
 Postings from retired sources are ignored during cloud scans and dropped from the regenerated payload.
 
@@ -122,7 +123,10 @@ npx wrangler tail
 Manual scan:
 
 ```bash
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now"
+for shard in 0 1 2 3 4; do
+  curl -X POST -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now?shard=$shard"
+  [ "$shard" = 4 ] || sleep 65
+done
 ```
 
 Inspect KV:
@@ -132,12 +136,7 @@ npx wrangler kv:key get jobs --binding KV
 npx wrangler kv:key get state --binding KV
 ```
 
-Force a clean re-scan:
-
-```bash
-npx wrangler kv:key delete state --binding KV
-curl -H "X-Scan-Key: <SCAN_KEY>" "https://livejobindex.com/api/scan-now"
-```
+Avoid deleting KV state because it holds `first_seen` and filled-history continuity. Run all five manual shards for a complete refresh.
 
 ## Common Changes
 
@@ -163,5 +162,5 @@ npx wrangler deploy --dry-run
 - Static target entries are not live postings.
 - Role matching is title-based; job descriptions are not fetched.
 - Visa classification is heuristic and company-level.
-- User status and starred jobs are stored in browser `localStorage`.
-- There is no email digest or server-side status sync yet.
+- User status, stars, notes, and pipeline history are stored per Clerk user in D1.
+- There is no email digest yet.

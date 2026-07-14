@@ -11,9 +11,9 @@ Cloudflare Worker (job-tracker)
 ├── fetch handler
 │   ├── GET /              -> public/index.html (static asset)
 │   ├── GET /api/jobs      -> KV "jobs" key (300s cache)
-│   └── GET /api/scan-now  -> manual scan trigger (requires X-Scan-Key)
-└── scheduled handler (cron: 0 3 * * * UTC)
-    └── runScan() -> fetches public ATS boards in batches of 8 -> filters -> KV write
+│   └── POST /api/scan-now -> manual scan shard (requires X-Scan-Key)
+└── scheduled handler (five crons from 03:00-03:40 UTC)
+    └── runScan({ shardIndex }) -> bounded source shard -> filters -> safe diff -> KV write
 
 KV namespace: job-tracker-state (id 8cf95c7c04054745bff09d88ea57d707)
 ├── "state" -> { last_scan, postings: { [id]: { first_seen, last_seen, last_filled? } } }
@@ -39,7 +39,7 @@ The local scanner has been removed. The app is cloud-only. On load, `public/inde
 
 ## Target geography
 
-16 countries: GB, IE, CA, AU, US, SG, DE, NL, CH, SE, DK, NO, ES, PT, EE, NZ.
+26 countries: GB, IE, CA, AU, US, SG, DE, NL, CH, SE, DK, NO, ES, PT, EE, NZ, FR, IT, PL, BE, FI, AT, JP, KR, IN, TW.
 City matching is in `CITY_TO_COUNTRY` and country-level fallback matching is in `COUNTRY_HINTS` in `src/worker.js`.
 
 ## Role matching
@@ -103,7 +103,10 @@ npx wrangler secret put CLERK_JWT_KEY
 npx wrangler secret put CLERK_SIGN_IN_URL
 npx wrangler secret put CLERK_SIGN_UP_URL
 npx wrangler secret put SCAN_KEY
-curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
+for shard in 0 1 2 3 4; do
+  curl -X POST -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now?shard=$shard"
+  [ "$shard" = 4 ] || sleep 65
+done
 ```
 
 ## Common follow-ups
@@ -113,10 +116,9 @@ curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
 - **Add a new country**: extend `CITY_TO_COUNTRY` / `COUNTRY_HINTS` in `src/worker.js` with country-level aliases plus key city/remote-location variants, and update `COUNTRY_NAMES` / `COUNTRY_FLAGS` in `public/index.html`.
 - **Add or change role matching**: update `ROLE_FAMILIES`, `ROLE_FALLBACK_KEYWORDS`, or `EXCLUDED_TITLE_KEYWORDS`; mirror display fallback changes in `public/index.html` if needed.
 - **Change scoring**: update `calcScore()` in both `src/worker.js` and `public/index.html`.
-- **Sync status across devices**: build a `POST /api/status` endpoint that writes to KV, keyed by a session cookie. Replace localStorage calls in `public/index.html` with fetches to `/api/status`.
 - **Email digest on new postings**: in `runScan()`, after KV write, count entries where `first_seen === today` and post to a Resend / MailChannels endpoint if count > 0.
 - **Debug a specific Greenhouse board**: `curl "https://boards-api.greenhouse.io/v1/boards/<token>/jobs?content=false" | jq '.jobs[] | {title, location: .location.name}'`
-- **Force a clean re-scan**: `npx wrangler kv:key delete state --binding KV` then hit `/api/scan-now` with `X-Scan-Key`.
+- **Force a complete re-scan**: call `POST /api/scan-now?shard=0` through `?shard=4`. Avoid deleting KV state because it holds `first_seen` and filled-history continuity.
 
 ## Known limits
 
@@ -125,8 +127,8 @@ curl -H "X-Scan-Key: <your-secret>" "https://livejobindex.com/api/scan-now"
 - Static target entries are not live postings.
 - Role matching is title-based; job descriptions are not fetched.
 - Visa classification is heuristic and company-level.
-- Status workflow lives in browser localStorage, so it is per-device.
-- There is no email digest or server-side status sync yet.
+- Status, stars, notes, and pipeline history are stored per Clerk user in D1 and sync across devices.
+- There is no email digest yet.
 - Cloudflare Worker free tier covers expected personal usage.
 
 ## Verification

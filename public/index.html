@@ -1726,7 +1726,7 @@ function inferRoleFamily(title) {
   // Display fallback for dynamic payloads and static rows; keep aligned with ROLE_FAMILIES in src/worker.js.
   const t = normalizeSearchText(title);
   if (/\bmarketing\b|\bgrowth\b|\bdemand gen(eration)?\b|\bproduct marketing\b|\bcontent marketing\b|\bfield marketing\b|\bbrand marketing\b|\bmarketing operations\b|\bmarketing ops\b|\bseo\b|\bperformance marketing\b|\blifecycle marketing\b/.test(t)) return 'Marketing';
-  if (/\bproduct (manager|owner|lead|strategy|operations|ops)\b|\bgroup product\b/.test(t)) return 'Product';
+  if (/\bproduct (manager|owner|lead|strategy|management|operations|ops)\b|\bgroup product\b/.test(t)) return 'Product';
   if (/\b(product|ux|ui|content|brand|visual) designer\b|\bdesign manager\b|\buser researcher\b|\bux researcher\b/.test(t)) return 'Design';
   if (/\bdata (analyst|scientist|science|engineer)\b|\bbusiness analyst\b|\banalytics?\b|\bbusiness intelligence\b|\bbi analyst\b|\banalytics engineer\b|\binsights analyst\b/.test(t)) return 'Data/Analytics';
   if (/\bsecurity\b|\bcybersecurity\b|\binformation security\b|\btrust and safety\b|\bit support\b|\bsystems administrator\b|\bnetwork engineer\b|\bcloud infrastructure\b|\bprivacy engineer\b/.test(t)) return 'Security/IT';
@@ -1738,16 +1738,21 @@ function inferRoleFamily(title) {
   if (/\blegal counsel\b|\bsenior legal counsel\b|\bcommercial counsel\b|\bprivacy counsel\b|\bcompliance\b|\bregulatory\b|\brisk manager\b|\blegal operations\b|\bcontract manager\b/.test(t)) return 'Legal/Compliance';
   if (/\bstrategy\b|\bstrategic programs\b|\bprogram manager\b|\bproject manager\b|\bchief of staff\b|\bbusiness planning\b|\brevenue strategy\b|\bstrategy and operations\b/.test(t)) return 'Strategy/Program';
   if (/\baccount executive\b|\bsales\b|\bbusiness development\b|\bbdr\b|\bsdr\b|\baccount manager\b|\bpartnerships\b|\bpartner manager\b|\benterprise account\b|\bcommercial account\b|\bsales strategy\b|\bsales excellence\b/.test(t)) return 'Sales';
+  if (/\b(engineer|engineering|developer)\b/.test(t)) return 'Engineering';
+  if (/\bdesigner\b/.test(t)) return 'Design';
+  if (/\b(data scientist|scientist|analytics?)\b/.test(t)) return 'Data/Analytics';
+  if (/\b(accountant|accounting|finance)\b/.test(t)) return 'Finance';
+  if (/\b(counsel|attorney|lawyer)\b/.test(t)) return 'Legal/Compliance';
   return 'Other';
 }
 
 function inferSeniority(title) {
   const t = (title || '').toLowerCase();
-  if (/\b(chief|cfo|cto|cio|coo|cmo|cro|ceo|vp|vice president|executive)\b/.test(t)) return 'Executive';
+  if (/\b(chief|cfo|cto|cio|coo|cmo|cro|ceo|vp|vice president)\b/.test(t)) return 'Executive';
   if (/\b(director|head of|global head|regional head)\b/.test(t)) return 'Director/Head';
   if (/\b(senior|sr\.?|lead|principal|staff)\b/.test(t)) return 'Senior/Lead';
   if (/\b(manager|mgr)\b/.test(t)) return 'Manager';
-  if (/\b(associate|analyst|specialist|coordinator|administrator|consultant)\b/.test(t)) return 'Associate/Analyst';
+  if (/\b(associate|analyst|specialist|coordinator|administrator|consultant|junior|jr\.?|entry[ -]level|graduate)\b/.test(t)) return 'Associate/Analyst';
   return 'Unknown';
 }
 
@@ -1756,7 +1761,9 @@ let DYNAMIC_POSTINGS = new Map();
 let DYNAMIC_PAGINATION = { page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 };
 let DYNAMIC_PAGINATION_QUERY_KEY = '';
 let DYNAMIC_PAGE_IDS = [];
+let DYNAMIC_FACETS = { country: {} };
 let LAST_SCAN = null;
+let SCAN_CYCLE = null;
 let PUBLIC_FEED_LOADED = false;
 let HEADER_ACTIVE_TOTAL = 0;
 let ME = null;
@@ -2002,6 +2009,18 @@ function updateHeaderStatus(message) {
     el.textContent = '🟢 Active jobs updating today';
     return;
   }
+  if (SCAN_CYCLE && !SCAN_CYCLE.complete) {
+    const completed = Array.isArray(SCAN_CYCLE.completed_shards) ? SCAN_CYCLE.completed_shards.length : 0;
+    el.textContent = `🟡 Job refresh in progress (${completed}/${SCAN_CYCLE.total_shards || 5})`;
+    return;
+  }
+  const scanDate = String(LAST_SCAN || '').slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  if (scanDate && scanDate !== today) {
+    const readable = new Date(`${scanDate}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    el.textContent = `🟡 ${activeJobCount().toLocaleString()} jobs · last complete refresh ${readable}`;
+    return;
+  }
   el.textContent = `🟢 ${activeJobCount().toLocaleString()} ${INDUSTRIES[state.industry].toLowerCase()} jobs updated today`;
 }
 
@@ -2147,7 +2166,8 @@ async function fetchJobsPage(page) {
     sort: state.sort,
     dir: state.dir,
     search: state.search,
-    filters: serializedFilters()
+    filters: serializedFilters(),
+    active_only: true
   };
   const queryHasActiveControls = Boolean(
     query.search.trim() ||
@@ -2167,7 +2187,9 @@ async function fetchJobsPage(page) {
   const resolvedPage = DYNAMIC_PAGINATION.page || page;
   DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKeyFromPayload({ ...query, page: resolvedPage });
   DYNAMIC_PAGE_IDS = (data.postings || []).map(p => String(p.id));
+  DYNAMIC_FACETS = data.facets || DYNAMIC_FACETS;
   LAST_SCAN = data.last_scan_at || LAST_SCAN;
+  SCAN_CYCLE = data.scan_cycle || SCAN_CYCLE;
   if (!queryHasActiveControls) HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || HEADER_ACTIVE_TOTAL;
   mergeDynamicPostings(data.postings || []);
   rebuildJobsFromCache();
@@ -2185,7 +2207,7 @@ function scheduleActiveRefresh() {
       await fetchJobsPage(1);
       render();
     } catch (e) {
-      updateHeaderStatus('🟢 Active jobs updated today');
+      updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
     }
   }, 250);
 }
@@ -2201,7 +2223,7 @@ async function setPage(page) {
       const data = await fetchJobsPage(target);
       target = data.pagination?.page || target;
     } catch (e) {
-      updateHeaderStatus('🟢 Active jobs updated today');
+      updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
       return;
     }
   }
@@ -2229,6 +2251,8 @@ function loadStar(id) { return Boolean(loadUserJob(id)?.starred); }
 function loadViewedAt(id) { return loadUserJob(id)?.viewed_at || null; }
 
 async function persistUserJob(id, patch) {
+  const key = String(id);
+  const previous = USER_JOBS.has(key) ? { ...USER_JOBS.get(key) } : null;
   setUserJob(id, patch);
   render();
   try {
@@ -2243,7 +2267,10 @@ async function persistUserJob(id, patch) {
       if (!document.getElementById('profile-panel')?.hidden) syncProfilePanel();
     }
   } catch (e) {
-    updateHeaderStatus();
+    if (previous) USER_JOBS.set(key, previous);
+    else USER_JOBS.delete(key);
+    render();
+    updateHeaderStatus('Could not save that change. Please try again.');
   }
 }
 
@@ -2455,7 +2482,7 @@ async function setIndustry(industry) {
     await fetchJobsPage(1);
     render();
   } catch {
-    updateHeaderStatus('🟢 Active jobs updating today');
+    updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
   }
 }
 
@@ -2490,7 +2517,11 @@ function toggleFilterValue(cat, val) {
   filterChanged(cat);
 }
 
-function togglePreset(val) {
+async function togglePreset(val) {
+  if (val === 'starred' && !ME?.user) {
+    await startClerkAuth('login', CURRENT_ROUTE);
+    return;
+  }
   if (state.presets.has(val)) state.presets.delete(val);
   else state.presets.add(val);
   filterChanged();
@@ -2553,6 +2584,9 @@ function filterSection(title, items) {
 }
 
 function countryCountsForFilters() {
+  if (state.tab === 'active' && Object.keys(DYNAMIC_FACETS.country || {}).length) {
+    return DYNAMIC_FACETS.country;
+  }
   const countryRows = JOBS.filter(j => passesControls(j, { ignoreCountry: true }));
   const byCountry = {};
   countryRows.forEach(j => { byCountry[j.country] = (byCountry[j.country] || 0) + 1; });
@@ -2826,7 +2860,7 @@ function functionCellHTML(j) {
 function visaSignalLabel(visa) {
   if (visa === 'Strong') return 'Strong';
   if (visa === 'Likely') return 'Likely';
-  return 'Unlikely';
+  return 'Unknown';
 }
 
 function visaSignalTitle(visa) {
@@ -3882,6 +3916,8 @@ async function loadMe() {
 async function loadUserJobs() {
   const data = await api('/api/user-jobs');
   USER_JOBS = new Map((data.jobs || []).map(job => [String(job.job_id), job]));
+  mergeDynamicPostings((data.jobs || []).map(job => job.posting).filter(Boolean));
+  rebuildJobsFromCache();
 }
 
 async function completeOnboarding() {
@@ -4159,8 +4195,10 @@ async function init() {
     if (r.ok) {
       const data = await r.json();
       LAST_SCAN = data.last_scan_at;
+      SCAN_CYCLE = data.scan_cycle || null;
       DYNAMIC_PAGINATION = data.pagination || DYNAMIC_PAGINATION;
       DYNAMIC_PAGE_IDS = (data.postings || []).map(p => String(p.id));
+      DYNAMIC_FACETS = data.facets || DYNAMIC_FACETS;
       if (!needsFilteredStartupPage) DYNAMIC_PAGINATION_QUERY_KEY = dynamicQueryKey(DYNAMIC_PAGINATION.page || 1);
       HEADER_ACTIVE_TOTAL = DYNAMIC_PAGINATION.total || data.postings?.length || 0;
       mergeDynamicPostings(data.postings || []);
@@ -4170,7 +4208,7 @@ async function init() {
       render();
     }
   } catch (e) {
-    updateHeaderStatus('🟢 Active jobs updating today');
+    updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
   }
 
   if (needsFilteredStartupPage) {
@@ -4179,7 +4217,7 @@ async function init() {
       state.page = data.pagination?.page || 1;
       render();
     } catch (e) {
-      updateHeaderStatus('🟢 Active jobs updating today');
+      updateHeaderStatus('Job refresh unavailable. Showing last loaded results.');
     }
   }
 

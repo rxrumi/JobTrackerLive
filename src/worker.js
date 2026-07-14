@@ -2,8 +2,8 @@ import { createClerkClient, verifyToken } from "@clerk/backend";
 
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
-// Cron handler (0 3 * * * UTC = 7 AM Dubai) scans supported ATS APIs daily.
-// After each scan, results are persisted to D1 for trend analysis.
+// Five cron invocations from 03:00-03:40 UTC scan one bounded source shard each day.
+// After the full cycle completes, results are persisted to D1 for trend analysis.
 
 const GREENHOUSE_TOKENS = [
   "gongio", "klaviyo", "datadog", "cloudflare", "hubspot",
@@ -60,10 +60,11 @@ const ACTIVE_SOURCES = new Set([
 ]);
 const FAILURE_ABORT_RATIO = 0.5;
 const FETCH_TIMEOUT_MS = 12000;
-const STALE_SCAN_LOCK_KEY = "scan:stale-refresh-lock";
+const STALE_SCAN_LOCK_KEY_PREFIX = "scan:stale-refresh-lock";
 const STALE_SCAN_LOCK_TTL_SECONDS = 20 * 60;
-const MAX_POSTINGS_PER_SOURCE = 100;
+const PARTIAL_SOURCE_STALE_DAYS = 30;
 const CUSTOM_SOURCE_LIMIT = 120;
+const SCAN_CRONS = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *"];
 const AMAZON_SEARCH_LOCATIONS = [
   "United States", "United Kingdom", "Ireland", "Canada", "Australia", "Singapore",
   "Germany", "Netherlands", "Switzerland", "Sweden", "Denmark", "Norway", "Spain",
@@ -125,6 +126,7 @@ const YC_SOURCES = [{
   industry: INDUSTRIES.TECH,
   niche: TECH_NICHE,
   tier: "Scaleup",
+  snapshotComplete: false,
   fetch: fetchYcStartupJobs
 }];
 
@@ -152,6 +154,7 @@ const POPULAR_TECH_SOURCES = [
     company: "netflix",
     tier: "BigTech",
     visa: "Likely",
+    snapshotComplete: true,
     fetch: fetchNetflixJobs
   })
 ];
@@ -210,6 +213,9 @@ const LOCATION_ALIASES = {
 };
 
 const COUNTRY_HINTS = {
+  "northern ireland": { country: "GB", city: "Northern Ireland" },
+  "scotland": { country: "GB", city: "Scotland" },
+  "wales": { country: "GB", city: "Wales" },
   "united kingdom": { country: "GB", city: "United Kingdom" },
   "great britain": { country: "GB", city: "United Kingdom" },
   "england": { country: "GB", city: "United Kingdom" },
@@ -302,7 +308,7 @@ const ROLE_FAMILIES = [
   },
   {
     family: "Product",
-    patterns: [/\bproduct (manager|owner|lead|strategy|operations|ops)\b/, /\bgroup product\b/]
+    patterns: [/\bproduct (manager|owner|lead|strategy|operations|ops|management)\b/, /\bgroup product\b/]
   },
   {
     family: "Design",
@@ -394,31 +400,50 @@ const SCALEUP_COMPANIES = new Set([
 ]);
 
 function matchCountry(locationName) {
-  if (!locationName) return null;
-  const parts = splitLocationParts(locationName);
-  for (const part of parts) {
-    const loc = matchCityInLocation(part);
-    if (loc) return loc;
-  }
-  for (const part of parts) {
-    const loc = matchLocationAlias(part);
-    if (loc) return loc;
-  }
-  for (const part of parts) {
-    const loc = matchCountryHintInLocation(part);
-    if (loc) return loc;
-  }
-  return null;
+  return matchLocations(locationName)[0] || null;
 }
 
 function splitLocationParts(locationName) {
-  const raw = String(locationName || "");
-  const normalizedSeparators = raw
-    .replace(/\(([^)]+)\)/g, " | $1 | ")
-    .replace(/\b,\s*remote\b/gi, " | remote")
-    .split(/\s*(?:\/|\||;|,)\s*/);
-  const parts = [...normalizedSeparators, raw];
-  return [...new Set(parts.map(part => part.trim()).filter(Boolean))];
+  const raw = String(locationName || "").trim();
+  if (!raw) return [];
+  const parts = raw
+    .replace(/\s+or\s+(?=(?:remote|[A-Z][A-Za-z .'-]+)(?:,|$))/g, " | ")
+    .split(/\s*(?:\/|\||;)\s*/)
+    .map(part => part.trim())
+    .filter(Boolean);
+  return [...new Set(parts.length ? parts : [raw])];
+}
+
+function matchLocationPart(locationPart) {
+  const countryHint = matchCountryHintInLocation(locationPart);
+  const alias = matchLocationAlias(locationPart);
+  const city = matchCityInLocation(locationPart);
+  if (countryHint) {
+    return {
+      country: countryHint.country,
+      city: city?.city || alias?.city || countryHint.city
+    };
+  }
+  return alias || city || null;
+}
+
+function matchLocations(locationName) {
+  const parts = splitLocationParts(locationName);
+  const matches = [];
+  const seen = new Set();
+  for (const part of parts) {
+    const loc = matchLocationPart(part);
+    if (!loc) continue;
+    const key = `${loc.country}|${normalizeSearchText(loc.city)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matches.push({ ...loc, location_part: part });
+  }
+  if (!matches.length && locationName) {
+    const loc = matchLocationPart(String(locationName));
+    if (loc) matches.push({ ...loc, location_part: String(locationName) });
+  }
+  return matches;
 }
 
 function matchCityInLocation(locationPart) {
@@ -469,17 +494,22 @@ function classifyRoleFamily(title) {
   for (const group of ROLE_FAMILIES) {
     if (group.patterns.some(pattern => pattern.test(t))) return group.family;
   }
+  if (/\b(engineer|engineering|developer)\b/.test(t)) return "Engineering";
+  if (/\bdesigner\b/.test(t)) return "Design";
+  if (/\b(data scientist|scientist|analytics)\b/.test(t)) return "Data/Analytics";
+  if (/\b(accountant|finance)\b/.test(t)) return "Finance";
+  if (/\b(counsel|attorney|lawyer)\b/.test(t)) return "Legal/Compliance";
   return ROLE_FALLBACK_KEYWORDS.some(k => matchesNormalizedToken(t, normalizeSearchText(k))) ? "Other" : null;
 }
 
 function classifySeniority(title) {
   if (!title) return "Unknown";
   const t = title.toLowerCase();
-  if (/\b(chief|cfo|cto|cio|coo|cmo|cro|ceo|vp|vice president|executive)\b/.test(t)) return "Executive";
+  if (/\b(chief|cfo|cto|cio|coo|cmo|cro|ceo|vp|vice president)\b/.test(t)) return "Executive";
   if (/\b(director|head of|global head|regional head)\b/.test(t)) return "Director/Head";
   if (/\b(senior|sr\.?|lead|principal|staff)\b/.test(t)) return "Senior/Lead";
   if (/\b(manager|mgr)\b/.test(t)) return "Manager";
-  if (/\b(associate|analyst|specialist|coordinator|administrator|consultant)\b/.test(t)) return "Associate/Analyst";
+  if (/\b(junior|jr\.?|entry[ -]level|graduate|associate|analyst|specialist|coordinator|administrator|consultant)\b/.test(t)) return "Associate/Analyst";
   return "Unknown";
 }
 
@@ -519,6 +549,16 @@ function normalizeSearchText(value) {
     .replace(/\s+/g, " ");
 }
 
+function stableTextKey(value) {
+  const normalized = normalizeSearchText(value);
+  let hash = 2166136261;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function applySearchAliases(value) {
   let normalized = normalizeSearchText(value);
   for (const [from, to] of SEARCH_ALIAS_REPLACEMENTS) {
@@ -552,11 +592,12 @@ function techSource(source, token, fetcher) {
     company: canonicalCompany(token),
     industry: INDUSTRIES.TECH,
     niche: classifyNiche(token),
+    snapshotComplete: true,
     fetch: s => fetcher(s.token, s.fetchMeta)
   };
 }
 
-function customTechSource({ source, token, company, tier = "BigTech", visa, niche = TECH_NICHE, fetch }) {
+function customTechSource({ source, token, company, tier = "BigTech", visa, niche = TECH_NICHE, snapshotComplete = false, fetch }) {
   return {
     source,
     token,
@@ -565,6 +606,7 @@ function customTechSource({ source, token, company, tier = "BigTech", visa, nich
     niche,
     tier,
     visa,
+    snapshotComplete,
     fetch
   };
 }
@@ -578,6 +620,7 @@ function engineeringAtsSource({ source, token, company, niche, tier = "BigTech",
     niche,
     tier,
     visa,
+    snapshotComplete: true,
     fetch: s => fetcher(s.token, s.fetchMeta)
   };
 }
@@ -608,6 +651,39 @@ function scanSources() {
     ...YC_SOURCES,
     ...ENGINEERING_SOURCES
   ];
+}
+
+function scanSourceShards() {
+  const sources = scanSources();
+  const standard = sources.filter(source => ["greenhouse", "ashby", "lever"].includes(source.source));
+  return [
+    standard.slice(0, 23),
+    standard.slice(23),
+    sources.filter(source => source.source === "smartrecruiters"),
+    sources.filter(source => ["amazon", "apple"].includes(source.source)),
+    sources.filter(source => ["eightfold", "yc"].includes(source.source) || ![
+      "greenhouse", "ashby", "lever", "smartrecruiters", "amazon", "apple"
+    ].includes(source.source))
+  ];
+}
+
+function normalizeShardIndex(value, fallback = 0) {
+  return clampInteger(value, fallback, 0, scanSourceShards().length - 1);
+}
+
+function scanShardForCron(cron) {
+  const index = SCAN_CRONS.indexOf(String(cron || ""));
+  return index >= 0 ? index : 0;
+}
+
+function nextIncompleteShard(state, today = todayUTC()) {
+  const cycle = state?.scan_cycle;
+  if (cycle?.date !== today) return 0;
+  const completed = new Set(Array.isArray(cycle.completed_shards) ? cycle.completed_shards : []);
+  for (let i = 0; i < scanSourceShards().length; i++) {
+    if (!completed.has(i)) return i;
+  }
+  return 0;
 }
 
 export function scanSourceInventory() {
@@ -875,7 +951,8 @@ function recordFetchFailure(diagnostics, failure) {
   diagnostics.failures.push({
     url: String(failure.url || ""),
     reason: failure.reason || "fetch_error",
-    ...(failure.status ? { status: failure.status } : {})
+    ...(failure.status ? { status: failure.status } : {}),
+    ...(failure.message ? { message: cleanString(failure.message, 300) } : {})
   });
 }
 
@@ -892,7 +969,8 @@ async function fetchWithTimeout(url, init = {}, diagnostics = null) {
   } catch (error) {
     recordFetchFailure(diagnostics, {
       url,
-      reason: error?.name === "AbortError" ? "timeout" : "fetch_error"
+      reason: error?.name === "AbortError" ? "timeout" : "fetch_error",
+      message: error instanceof Error ? error.message : String(error || "")
     });
     return null;
   } finally {
@@ -937,6 +1015,14 @@ function sourceDiagnosticsMeta(fetchMeta) {
     fetchFailures: failures.slice(0, 10),
     lastFailure: failures[failures.length - 1]
   };
+}
+
+function sourceSnapshotIsComplete(source, meta, fetchMeta) {
+  if (source.snapshotComplete === false || meta?.snapshotComplete === false) return false;
+  if (meta?.truncated) return false;
+  if (Array.isArray(meta?.failedPages) && meta.failedPages.length) return false;
+  if (Array.isArray(fetchMeta?.failures) && fetchMeta.failures.length) return false;
+  return true;
 }
 
 function decodeHTML(value) {
@@ -1218,7 +1304,7 @@ async function fetchAshby(token, diagnostics = null) {
       .filter(Boolean);
     const locs = [j.location, ...secondary].filter(Boolean);
     locs.forEach((loc, i) => out.push({
-      id: i === 0 ? String(j.id) : `${j.id}-${i}`,
+      id: i === 0 ? String(j.id) : `${j.id}-loc-${stableTextKey(loc)}`,
       title: j.title,
       location: loc,
       url: j.jobUrl
@@ -1263,7 +1349,8 @@ async function fetchAmazonJobs(source = {}) {
       okPages,
       failedPages,
       totalPages: AMAZON_SEARCH_LOCATIONS.length,
-      truncated: out.length >= CUSTOM_SOURCE_LIMIT
+      truncated: out.length >= CUSTOM_SOURCE_LIMIT,
+      snapshotComplete: false
     }
   };
 }
@@ -1307,7 +1394,8 @@ async function fetchAppleJobs(source = {}) {
       okPages,
       failedPages,
       totalPages: APPLE_SEARCH_PATHS.length,
-      truncated: out.length >= CUSTOM_SOURCE_LIMIT
+      truncated: out.length >= CUSTOM_SOURCE_LIMIT,
+      snapshotComplete: false
     }
   };
 }
@@ -1326,7 +1414,9 @@ async function fetchNetflixJobs(source = {}) {
     const locations = Array.isArray(job.locations) && job.locations.length ? job.locations : [job.location];
     locations.filter(Boolean).forEach((loc, i) => {
       out.push({
-        id: `${job.id || job.ats_job_id}-${i}`,
+        id: i === 0
+          ? String(job.id || job.ats_job_id)
+          : `${job.id || job.ats_job_id}-loc-${stableTextKey(loc)}`,
         title: job.posting_name || job.name,
         location: loc,
         url: job.canonicalPositionUrl || absoluteUrl(url, `/careers/job/${job.id}`)
@@ -1341,7 +1431,8 @@ async function fetchNetflixJobs(source = {}) {
       failedPages: [],
       totalPages: 1,
       parsedCount: data.positions.length,
-      truncated: out.length >= CUSTOM_SOURCE_LIMIT
+      truncated: out.length >= CUSTOM_SOURCE_LIMIT,
+      snapshotComplete: out.length < CUSTOM_SOURCE_LIMIT
     }
   };
 }
@@ -1460,7 +1551,7 @@ async function fetchLever(token, diagnostics = null) {
       : [j.categories?.location];
     const locs = all.filter(Boolean);
     locs.forEach((loc, i) => out.push({
-      id: i === 0 ? String(j.id) : `${j.id}-${i}`,
+      id: i === 0 ? String(j.id) : `${j.id}-loc-${stableTextKey(loc)}`,
       title: j.text,
       location: loc,
       url: j.hostedUrl
@@ -1472,9 +1563,20 @@ async function fetchLever(token, diagnostics = null) {
 async function fetchSmartRecruiters(token, diagnostics = null) {
   const out = [];
   let offset = 0;
+  let totalFound = null;
+  let pagesFetched = 0;
   for (let page = 0; page < 10; page++) {
-    const data = await fetchJSON(`https://api.smartrecruiters.com/v1/companies/${token}/postings?limit=100&offset=${offset}`, {}, diagnostics);
-    if (!data) return page === 0 ? null : out;
+    const url = `https://api.smartrecruiters.com/v1/companies/${token}/postings?limit=100&offset=${offset}`;
+    const data = await fetchJSON(url, {}, diagnostics);
+    if (!data) {
+      if (page === 0) return null;
+      return {
+        jobs: out,
+        meta: { pagesFetched, totalFound, fetchedCount: out.length, snapshotComplete: false, failedPages: [page] }
+      };
+    }
+    pagesFetched++;
+    totalFound = Number.isFinite(Number(data.totalFound)) ? Number(data.totalFound) : totalFound;
     const content = data.content || [];
     for (const j of content) {
       const loc = j.location?.fullLocation
@@ -1488,22 +1590,44 @@ async function fetchSmartRecruiters(token, diagnostics = null) {
       });
     }
     offset += content.length;
-    if (content.length < 100 || offset >= (data.totalFound || 0)) break;
+    if (content.length < 100 || offset >= (data.totalFound || 0)) {
+      return {
+        jobs: out,
+        meta: { pagesFetched, totalFound, fetchedCount: out.length, snapshotComplete: true }
+      };
+    }
   }
-  return out;
+  return {
+    jobs: out,
+    meta: {
+      pagesFetched,
+      totalFound,
+      fetchedCount: out.length,
+      snapshotComplete: totalFound != null && offset >= totalFound,
+      truncated: totalFound == null || offset < totalFound
+    }
+  };
 }
 
-export async function runScan(env) {
+export async function runScan(env, options = {}) {
   const today = todayUTC();
+  const now = new Date().toISOString();
   const prev = (await env.KV.get("state", "json")) || { postings: {} };
+  prev.postings ||= {};
+
+  const allSources = scanSources();
+  const shards = scanSourceShards();
+  const sharded = options.shardIndex !== undefined && options.shardIndex !== null;
+  const shardIndex = sharded ? normalizeShardIndex(options.shardIndex) : null;
+  const sources = sharded ? shards[shardIndex] : allSources;
+  const scannedSourceIds = new Set(sources.map(sourceId));
   const found = {};
   const failedSources = new Set();
+  const partialSources = new Set();
   const okSources = new Set();
   const sourceMeta = {};
   let okCount = 0;
   let failCount = 0;
-
-  const sources = scanSources();
 
   for (let i = 0; i < sources.length; i += 8) {
     const batch = sources.slice(i, i + 8);
@@ -1512,7 +1636,11 @@ export async function runScan(env) {
       try {
         const result = normalizeFetchResult(await sourceForFetch.fetch(sourceForFetch));
         return { s, fetchMeta: sourceForFetch.fetchMeta, ...result };
-      } catch {
+      } catch (error) {
+        recordFetchFailure(sourceForFetch.fetchMeta, {
+          reason: "source_exception",
+          message: error instanceof Error ? error.message : String(error || "")
+        });
         return { s, fetchMeta: sourceForFetch.fetchMeta, jobs: null };
       }
     }));
@@ -1522,78 +1650,106 @@ export async function runScan(env) {
         failCount++;
         const failed = r.status === "fulfilled" ? r.value.s : null;
         if (failed) {
-          failedSources.add(sourceId(failed));
-          const failureMeta = sourceDiagnosticsMeta(r.value.fetchMeta);
-          if (failureMeta) sourceMeta[sourceId(failed)] = failureMeta;
+          const sid = sourceId(failed);
+          failedSources.add(sid);
+          sourceMeta[sid] = {
+            status: "failed",
+            ...(sourceDiagnosticsMeta(r.value.fetchMeta) || {})
+          };
         }
         continue;
       }
+
       okCount++;
       const { s, jobs, meta, fetchMeta } = r.value;
       const sid = sourceId(s);
+      const snapshotComplete = sourceSnapshotIsComplete(s, meta, fetchMeta);
       okSources.add(sid);
-      const diagnostics = sourceDiagnosticsMeta(fetchMeta);
-      if (meta || diagnostics) sourceMeta[sid] = { ...(meta || {}), ...(diagnostics || {}) };
-      let retainedForSource = 0;
+      if (!snapshotComplete) partialSources.add(sid);
+
+      let retainedJobs = 0;
+      let rejectedLocation = 0;
+      let rejectedRole = 0;
       for (const job of jobs) {
-        const loc = matchCountry(job.location);
-        if (!loc) continue;
+        const locations = matchLocations(job.location);
+        if (!locations.length) {
+          rejectedLocation++;
+          continue;
+        }
         const roleFamily = job.role_family || classifyRoleFamily(job.title);
-        if (!roleFamily) continue;
+        if (!roleFamily) {
+          rejectedRole++;
+          continue;
+        }
 
-        const id = `${s.source}-${s.token}-${job.id}`;
-        const existed = prev.postings[id];
-        const visa = job.visa || s.visa || classifyVisa(s.token);
-        const firstSeen = existed?.first_seen || today;
-        const seniority = job.seniority || classifySeniority(job.title);
-        const industry = job.industry || s.industry || INDUSTRIES.TECH;
-        const niche = job.niche || s.niche || TECH_NICHE;
+        const baseId = `${s.source}-${s.token}-${job.id}`;
+        for (let locationIndex = 0; locationIndex < locations.length; locationIndex++) {
+          const loc = locations[locationIndex];
+          const id = locationIndex === 0
+            ? baseId
+            : `${baseId}-loc-${loc.country.toLowerCase()}-${stableTextKey(loc.location_part)}`;
+          const existed = prev.postings[id];
+          const visa = job.visa || s.visa || classifyVisa(s.token);
+          const firstSeen = existed?.first_seen || today;
+          const seniority = job.seniority || classifySeniority(job.title);
+          const industry = job.industry || s.industry || INDUSTRIES.TECH;
+          const niche = job.niche || s.niche || TECH_NICHE;
 
-        found[id] = {
-          id,
-          source: s.source,
-          source_token: s.token,
-          company: job.company || s.company || canonicalCompany(s.token),
-          title: job.title,
-          location: job.location,
-          city: loc.city,
-          country: loc.country,
-          url: job.url,
-          tier: job.tier || s.tier || classifyTier(s.token),
-          industry,
-          niche,
-          role_family: roleFamily,
-          seniority,
-          visa,
-          score: calcScore({ visa, seniority, firstSeen, lastFilled: null, today }),
-          first_seen: firstSeen,
-          last_seen: today,
-          last_filled: null
-        };
-        retainedForSource++;
-        if (retainedForSource >= MAX_POSTINGS_PER_SOURCE) {
-          sourceMeta[sid] = {
-            ...(sourceMeta[sid] || {}),
-            retainedLimit: MAX_POSTINGS_PER_SOURCE,
-            sourceJobs: jobs.length
+          found[id] = {
+            id,
+            source: s.source,
+            source_token: s.token,
+            company: job.company || s.company || canonicalCompany(s.token),
+            title: job.title,
+            location: loc.location_part || job.location,
+            city: loc.city,
+            country: loc.country,
+            url: job.url,
+            tier: job.tier || s.tier || classifyTier(s.token),
+            industry,
+            niche,
+            role_family: roleFamily,
+            seniority,
+            visa,
+            score: calcScore({ visa, seniority, firstSeen, lastFilled: null, today }),
+            first_seen: firstSeen,
+            last_seen: today,
+            last_filled: null
           };
-          break;
+          retainedJobs++;
         }
       }
+
+      sourceMeta[sid] = {
+        ...(meta || {}),
+        ...(sourceDiagnosticsMeta(fetchMeta) || {}),
+        status: snapshotComplete ? "complete" : "partial",
+        fetchedJobs: jobs.length,
+        retainedJobs,
+        rejectedLocation,
+        rejectedRole
+      };
     }
   }
 
   if (okCount === 0) {
-    return { error: "all_fetch_failed", okCount, failCount, failedSources: [...failedSources] };
-  }
-
-  const totalBoards = sources.length;
-  if (failCount / totalBoards > FAILURE_ABORT_RATIO) {
     return {
-      error: "too_many_fetch_failures",
+      error: "all_fetch_failed",
+      shardIndex,
       okCount,
       failCount,
-      totalBoards,
+      failedSources: [...failedSources]
+    };
+  }
+
+  const scannedBoards = sources.length;
+  if (failCount === scannedBoards || (scannedBoards >= 3 && failCount / scannedBoards > FAILURE_ABORT_RATIO)) {
+    return {
+      error: "too_many_fetch_failures",
+      shardIndex,
+      okCount,
+      failCount,
+      scannedBoards,
       failedSources: [...failedSources]
     };
   }
@@ -1602,11 +1758,12 @@ export async function runScan(env) {
   for (const [id, p] of Object.entries(prev.postings)) {
     if (found[id]) continue;
     if (!ACTIVE_SOURCES.has(p.source)) continue;
-    if (failedSources.has(postingSourceId(p))) {
+    const sid = postingSourceId(p);
+    if (!scannedSourceIds.has(sid) || failedSources.has(sid)) {
       merged[id] = normalizePosting(p, today);
       continue;
     }
-    if (sourceMeta[postingSourceId(p)]?.failedPages?.length) {
+    if (partialSources.has(sid) && daysBetween(p.last_seen || p.first_seen || today, today) <= PARTIAL_SOURCE_STALE_DAYS) {
       merged[id] = normalizePosting(p, today);
       continue;
     }
@@ -1617,17 +1774,47 @@ export async function runScan(env) {
   }
   Object.assign(merged, found);
 
+  const previousCycleIsCurrent = prev.scan_cycle?.date === today;
+  const completedShards = new Set(previousCycleIsCurrent ? prev.scan_cycle.completed_shards || [] : []);
+  if (sharded) completedShards.add(shardIndex);
+  else shards.forEach((_, index) => completedShards.add(index));
+  const cycleComplete = completedShards.size === shards.length;
+
+  const previousMeta = previousCycleIsCurrent ? prev.scan_meta || {} : {};
+  const aggregateOkSources = new Set(previousMeta.okSources || []);
+  const aggregateFailedSources = new Set(previousMeta.failedSources || []);
+  const aggregatePartialSources = new Set(previousMeta.partialSources || []);
+  for (const sid of scannedSourceIds) {
+    aggregateOkSources.delete(sid);
+    aggregateFailedSources.delete(sid);
+    aggregatePartialSources.delete(sid);
+  }
+  okSources.forEach(sid => aggregateOkSources.add(sid));
+  failedSources.forEach(sid => aggregateFailedSources.add(sid));
+  partialSources.forEach(sid => aggregatePartialSources.add(sid));
+
   const next = {
-    last_scan: today,
-    last_scan_at: new Date().toISOString(),
+    last_scan: cycleComplete ? today : prev.last_scan || null,
+    last_scan_at: cycleComplete ? now : prev.last_scan_at || null,
+    last_partial_scan_at: now,
+    scan_cycle: {
+      date: today,
+      completed_shards: [...completedShards].sort((a, b) => a - b),
+      total_shards: shards.length,
+      complete: cycleComplete
+    },
     postings: merged,
     scan_meta: {
-      okCount,
-      failCount,
-      totalBoards,
-      okSources: [...okSources],
-      failedSources: [...failedSources],
-      sourceMeta
+      okCount: aggregateOkSources.size,
+      failCount: aggregateFailedSources.size,
+      partialCount: aggregatePartialSources.size,
+      totalBoards: allSources.length,
+      scannedBoards,
+      lastShard: shardIndex,
+      okSources: [...aggregateOkSources],
+      failedSources: [...aggregateFailedSources],
+      partialSources: [...aggregatePartialSources],
+      sourceMeta: { ...(previousMeta.sourceMeta || {}), ...sourceMeta }
     }
   };
 
@@ -1635,11 +1822,22 @@ export async function runScan(env) {
   await env.KV.put("jobs", JSON.stringify({
     last_scan: next.last_scan,
     last_scan_at: next.last_scan_at,
+    last_partial_scan_at: next.last_partial_scan_at,
+    scan_cycle: next.scan_cycle,
     scan_meta: next.scan_meta,
     postings: Object.values(merged)
   }));
 
-  return { okCount, failCount, total: Object.keys(merged).length, next };
+  return {
+    shardIndex,
+    cycleComplete,
+    completedShards: next.scan_cycle.completed_shards,
+    okCount,
+    failCount,
+    partialCount: partialSources.size,
+    total: Object.keys(merged).length,
+    next
+  };
 }
 
 const ACCOUNT_TYPES = new Set(["individual", "agency"]);
@@ -1821,6 +2019,8 @@ function normalizeJobQuery(payload = {}) {
     dir: payload.dir === "asc" ? "asc" : "desc",
     search,
     searchTokens: searchTokens(search),
+    activeOnly: payload.active_only === true || filters.lifecycle === "active",
+    starredIds: null,
     filters: {
       industry: industryFilters,
       niche: cleanStringArray(filters.niche),
@@ -1840,14 +2040,15 @@ function postingIsNew(posting) {
   return daysBetween(posting.first_seen, todayUTC()) <= 7;
 }
 
-function postingMatchesQuery(posting, query) {
+function postingMatchesQuery(posting, query, options = {}) {
+  if (query.activeOnly && posting.last_filled) return false;
   if (query.ids.length && !query.ids.includes(posting.id)) return false;
   const filters = query.filters;
   const industry = posting.industry || INDUSTRIES.TECH;
   const niche = posting.niche || (industry === INDUSTRIES.ENGINEERING ? "Engineering" : TECH_NICHE);
   if (filters.industry.length && !filters.industry.includes(industry)) return false;
   if (filters.niche.length && !filters.niche.includes(niche)) return false;
-  if (filters.country.length && !filters.country.includes(posting.country)) return false;
+  if (!options.ignoreCountry && filters.country.length && !filters.country.includes(posting.country)) return false;
   const tier = normalizeTier(posting.tier);
   if (filters.tier.length && !filters.tier.includes(tier)) return false;
   if (filters.family.length && !filters.family.includes(posting.role_family)) return false;
@@ -1856,6 +2057,7 @@ function postingMatchesQuery(posting, query) {
   if (filters.presets.includes("senior") && !["Senior/Lead", "Manager", "Director/Head", "Executive"].includes(posting.seniority)) return false;
   if (filters.presets.includes("strong-visa") && posting.visa !== "Strong") return false;
   if (filters.presets.includes("new") && !postingIsNew(posting)) return false;
+  if (filters.presets.includes("starred") && !query.starredIds?.has(String(posting.id))) return false;
   if (query.searchTokens.length) {
     const blob = [
       posting.company,
@@ -1905,6 +2107,11 @@ function pagePostings(data, query) {
     }))
     : [];
   const matching = sortPostings(all.filter(posting => postingMatchesQuery(posting, query)), query);
+  const countryMatches = all.filter(posting => postingMatchesQuery(posting, query, { ignoreCountry: true }));
+  const country = {};
+  for (const posting of countryMatches) {
+    if (posting.country) country[posting.country] = (country[posting.country] || 0) + 1;
+  }
   const total = matching.length;
   const totalPages = Math.max(1, Math.ceil(total / query.per_page));
   const page = Math.min(query.page, totalPages);
@@ -1913,6 +2120,8 @@ function pagePostings(data, query) {
     last_scan: data.last_scan || null,
     last_scan_at: data.last_scan_at || null,
     scan_meta: data.scan_meta || null,
+    scan_cycle: data.scan_cycle || null,
+    facets: { country },
     postings: matching.slice(start, start + query.per_page),
     pagination: {
       page,
@@ -2622,7 +2831,7 @@ function jobsPayloadIsStale(data) {
 }
 
 async function persistSuccessfulScan(env, result, scanDate = null) {
-  if (result?.next && env.DB) {
+  if (result?.next && result.cycleComplete && env.DB) {
     await persistScanToD1(env, result.next, scanDate || result.next.last_scan);
   }
 }
@@ -2630,23 +2839,32 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
 async function maybeRefreshStaleJobs(env, ctx, data) {
   if (!ctx?.waitUntil || !env.KV || !jobsPayloadIsStale(data)) return;
 
+  const shardIndex = nextIncompleteShard(data, todayUTC());
+  const lockKey = `${STALE_SCAN_LOCK_KEY_PREFIX}:${todayUTC()}:${shardIndex}`;
+
   try {
-    const existingLock = await env.KV.get(STALE_SCAN_LOCK_KEY);
+    const existingLock = await env.KV.get(lockKey);
     if (existingLock) return;
 
-    await env.KV.put(STALE_SCAN_LOCK_KEY, new Date().toISOString(), {
+    await env.KV.put(lockKey, new Date().toISOString(), {
       expirationTtl: STALE_SCAN_LOCK_TTL_SECONDS
     });
   } catch (error) {
-    console.error("stale_scan_lock_failed", error);
+    console.error(JSON.stringify({ event: "stale_scan_lock_failed", shardIndex, message: error?.message || String(error) }));
     return;
   }
 
   ctx.waitUntil(
-    runScan(env)
-      .then(result => persistSuccessfulScan(env, result))
+    runScan(env, { shardIndex })
+      .then(result => {
+        if (result.error) {
+          console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, ...result }));
+          return;
+        }
+        return persistSuccessfulScan(env, result);
+      })
       .catch(error => {
-        console.error("stale_scan_failed", error);
+        console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, message: error?.message || String(error) }));
       })
   );
 }
@@ -2850,7 +3068,8 @@ async function handlePublicJobs(request, env, ctx) {
     per_page: JOB_PAGE_SIZE,
     sort: "first_seen",
     dir: "desc",
-    industry
+    industry,
+    active_only: true
   }));
   return jsonResponse(payload, {
     headers: {
@@ -2879,9 +3098,17 @@ async function handleJobsQuery(request, env, ctx) {
 
   const query = normalizeJobQuery(payload);
 
-  if (query.page > 1) {
+  if (query.page > 1 || query.filters.presets.includes("starred")) {
     const auth = await requireUser(request, env);
     if (auth.response) return auth.response;
+    if (query.filters.presets.includes("starred")) {
+      const starred = await dbAll(
+        env,
+        "select job_id from user_jobs where user_id = ? and starred = 1",
+        auth.user.id
+      );
+      query.starredIds = new Set(starred.map(row => String(row.job_id)));
+    }
   }
 
   const data = await readJobsPayload(env);
@@ -2894,7 +3121,66 @@ async function handleGetUserJobs(request, env) {
   if (auth.response) return auth.response;
 
   const rows = await dbAll(env, "select * from user_jobs where user_id = ? order by updated_at desc", auth.user.id);
-  return jsonResponse({ jobs: rows.map(normalizeUserJob) });
+  const hydratedRows = await dbAll(env, `
+    select
+      uj.job_id,
+      jp.source,
+      jp.source_token,
+      jp.company,
+      jp.title,
+      jp.url,
+      jp.first_seen_date,
+      jp.last_seen_date,
+      jp.last_filled_date,
+      coalesce(js.industry, jp.industry) as industry,
+      coalesce(js.niche, jp.niche) as niche,
+      js.location,
+      js.city,
+      js.country,
+      js.role_family,
+      js.seniority,
+      js.visa,
+      js.score,
+      js.tier
+    from user_jobs uj
+    join job_postings jp on jp.id = uj.job_id
+    left join job_snapshots js on js.id = (
+      select latest.id
+      from job_snapshots latest
+      where latest.job_id = uj.job_id
+      order by latest.scan_date desc, latest.id desc
+      limit 1
+    )
+    where uj.user_id = ?
+  `, auth.user.id);
+  const postings = new Map(hydratedRows.map(row => [String(row.job_id), {
+    id: row.job_id,
+    source: row.source,
+    source_token: row.source_token,
+    company: row.company,
+    title: row.title,
+    url: row.url,
+    industry: row.industry || INDUSTRIES.TECH,
+    niche: row.niche || TECH_NICHE,
+    location: row.location,
+    city: row.city || row.location,
+    country: row.country,
+    role_family: row.role_family || classifyRoleFamily(row.title) || "Other",
+    seniority: row.seniority || classifySeniority(row.title),
+    visa: row.visa || "Unknown",
+    score: row.score,
+    tier: normalizeTier(row.tier),
+    first_seen: row.first_seen_date,
+    last_seen: row.last_seen_date,
+    last_filled: row.last_filled_date
+  }]));
+  return jsonResponse({
+    jobs: rows.map(row => {
+      const job = normalizeUserJob(row);
+      const posting = postings.get(String(job.job_id));
+      return posting ? { ...job, posting } : job;
+    })
+  });
 }
 
 async function handlePutUserJob(request, env, jobId) {
@@ -3161,15 +3447,38 @@ export default {
     }
 
     if (url.pathname === "/api/scan-now") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "method_not_allowed" }, {
+          status: 405,
+          headers: { Allow: "POST" }
+        });
+      }
       const auth = request.headers.get("X-Scan-Key");
       if (!await timingSafeSecretEqual(auth, env.SCAN_KEY)) {
         return errorResponse(401, "unauthorized");
       }
-      const result = await runScan(env);
-      if (result.next && ctx?.waitUntil) {
-        ctx.waitUntil(persistSuccessfulScan(env, result));
+      const current = await readJobsPayloadSafe(env);
+      const requestedShard = url.searchParams.get("shard");
+      if (requestedShard != null && (!/^\d+$/.test(requestedShard) || Number(requestedShard) >= SCAN_CRONS.length)) {
+        return errorResponse(400, "shard must be an integer from 0 to 4");
       }
-      return jsonResponse({ okCount: result.okCount, failCount: result.failCount, total: result.total });
+      const shardIndex = requestedShard == null
+        ? nextIncompleteShard(current, todayUTC())
+        : normalizeShardIndex(requestedShard);
+      const result = await runScan(env, { shardIndex });
+      if (result.error) {
+        return jsonResponse(result, { status: 503 });
+      }
+      await persistSuccessfulScan(env, result);
+      return jsonResponse({
+        okCount: result.okCount,
+        failCount: result.failCount,
+        partialCount: result.partialCount,
+        total: result.total,
+        shardIndex: result.shardIndex,
+        completedShards: result.completedShards,
+        cycleComplete: result.cycleComplete
+      });
     }
 
     return fetchAsset(request, env);
@@ -3177,7 +3486,12 @@ export default {
 
   async scheduled(event, env, ctx) {
     const today = todayUTC();
-    const scanPromise = runScan(env).then(result => {
+    const shardIndex = scanShardForCron(event?.cron);
+    const scanPromise = runScan(env, { shardIndex }).then(result => {
+      if (result.error) {
+        console.error(JSON.stringify({ event: "scheduled_scan_failed", shardIndex, ...result }));
+        return;
+      }
       return persistSuccessfulScan(env, result, today);
     });
     if (ctx?.waitUntil) {
