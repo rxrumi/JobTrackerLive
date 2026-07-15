@@ -2710,6 +2710,16 @@ test("homepage render helpers escape dynamic job HTML and constrain apply URLs",
   assert.doesNotMatch(html, /jobs_page_access/);
 });
 
+test("applied jobs remain visible in live jobs with an updated visual state", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /function jobAppearsInTab/);
+  assert.match(html, /tab === 'active' && loadStatus\(j\.id\) === 'Applied'/);
+  assert.match(html, /const label = j\.is_static \? 'Search' : applied \? 'Applied' : 'Apply'/);
+  assert.match(html, /class="apply-btn\$\{applied \? ' is-applied' : ''\}"/);
+  assert.match(html, /persistUserJob\(id, \{ viewed: true, status: 'Applied' \}\)/);
+});
+
 test("job cards and details use self-explanatory signals", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const cardRenderer = html.slice(html.indexOf("function cardHTML"), html.indexOf("function renderJobDetail"));

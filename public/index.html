@@ -358,6 +358,8 @@ tbody tr.is-viewed { background: var(--bg-soft); opacity: 0.72; }
 tbody tr.is-viewed:hover { opacity: 0.85; }
 .job-card.is-viewed { background: var(--bg-soft); opacity: 0.72; }
 .job-card.is-viewed:hover { opacity: 0.85; }
+tbody tr.is-applied, .job-card.is-applied { background: var(--bg-soft); opacity: 0.78; }
+tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
 
 .star-btn { background: transparent; border: 0; cursor: pointer; font-size: 15px; padding: 0 4px 0 0; color: var(--text-muted); line-height: 1; transition: color 0.15s; vertical-align: middle; }
 .star-btn:hover { color: var(--accent); }
@@ -407,6 +409,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 
 .apply-btn { padding: 5px 12px; background: var(--button-primary-bg); color: var(--button-primary-text); border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: 500; display: inline-block; transition: filter 0.15s, transform 0.15s; white-space: nowrap; border: 0; cursor: pointer; font-family: inherit; }
 .apply-btn:hover { filter: brightness(1.08); }
+.apply-btn.is-applied { background: var(--neutral-bg); color: var(--neutral-fg); box-shadow: inset 0 0 0 0.5px var(--border); }
 
 .status-select { padding: 4px 8px; border-radius: 6px; border: 0.5px solid var(--border); font-size: 12px; background: var(--panel); color: var(--text); cursor: pointer; min-width: 110px; font-family: inherit; }
 .status-saved { background: var(--tier-bigtech-bg); color: var(--tier-bigtech-fg); }
@@ -2117,7 +2120,7 @@ function dynamicPageRows() {
   const byId = new Map(JOBS.map(j => [String(j.id), j]));
   return DYNAMIC_PAGE_IDS
     .map(id => byId.get(String(id)))
-    .filter(j => j && tabBucket(j) === 'active' && passesControls(j));
+    .filter(j => j && jobAppearsInTab(j, 'active') && passesControls(j));
 }
 
 function buildJobs(dynamicPostings) {
@@ -2610,6 +2613,11 @@ function tabBucket(j) {
   return 'active';
 }
 
+function jobAppearsInTab(j, tab = state.tab) {
+  if (tab === 'active' && loadStatus(j.id) === 'Applied' && !j.is_static && !j.is_filled) return true;
+  return tabBucket(j) === tab;
+}
+
 function buildFilters() {
   renderFilterOptions();
 }
@@ -2826,7 +2834,7 @@ function passesControls(j, opts = {}) {
 
 function filtered() {
   return JOBS.filter(j => {
-    if (tabBucket(j) !== state.tab) return false;
+    if (!jobAppearsInTab(j)) return false;
     return passesControls(j);
   });
 }
@@ -3074,8 +3082,9 @@ function statusSelectHTML(id) {
 }
 
 function applyButtonHTML(j) {
-  const label = j.is_static ? 'Search' : 'Apply';
-  return `<a class="apply-btn" href="${escapeHTML(safeExternalURL(j.apply))}" target="_blank" rel="noopener noreferrer" data-id="${escapeHTML(j.id)}">${escapeHTML(label)}</a>`;
+  const applied = !j.is_static && loadStatus(j.id) === 'Applied';
+  const label = j.is_static ? 'Search' : applied ? 'Applied' : 'Apply';
+  return `<a class="apply-btn${applied ? ' is-applied' : ''}" href="${escapeHTML(safeExternalURL(j.apply))}" target="_blank" rel="noopener noreferrer" data-id="${escapeHTML(j.id)}">${escapeHTML(label)}</a>`;
 }
 
 function starHTML(id) {
@@ -3135,7 +3144,8 @@ function rowHTML(j) {
   const filledBadge = j.is_filled ? `<span class="filled-badge">FILLED</span>` : '';
   const sourceBadge = `<span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
   const isViewed = !!loadViewedAt(j.id);
-  const rowCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
+  const isApplied = loadStatus(j.id) === 'Applied';
+  const rowCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed ' : '') + (isApplied ? 'is-applied' : '');
   const note = compactNote(j.notes || '');
   const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
   return `<tr class="${rowCls.trim()}">
@@ -3183,7 +3193,8 @@ function groupCardRows(rows) {
 
 function cardHTML(j) {
   const isViewed = !!loadViewedAt(j.id);
-  const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
+  const isApplied = loadStatus(j.id) === 'Applied';
+  const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed ' : '') + (isApplied ? 'is-applied' : '');
   const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
   const listingState = listingStateLabel(j);
   const listingStateClass = j.is_static ? 'is-target' : j.is_filled ? 'is-filled' : 'is-freshness';
@@ -3445,7 +3456,7 @@ function render() {
   const workspace = document.getElementById('jobs-workspace');
   const pipelineView = document.getElementById('pipeline-view');
   const empty = document.getElementById('empty-state');
-  const loadedTabTotal = JOBS.filter(j => tabBucket(j) === state.tab).length;
+  const loadedTabTotal = JOBS.filter(j => jobAppearsInTab(j)).length;
   const total = state.tab === 'active' ? Math.max(loadedTabTotal, HEADER_ACTIVE_TOTAL) : loadedTabTotal;
   const serverBackedActive = activeServerPageReady();
   const paginationTotal = serverBackedActive ? DYNAMIC_PAGINATION.total || 0 : rows.length;
@@ -3549,7 +3560,6 @@ function wireRowHandlers() {
     a.onclick = () => {
       const id = a.dataset.id;
       const job = JOBS.find(j => String(j.id) === String(id));
-      recordViewed(id);
       trackEvent('job_view', {
         job_id: id,
         source: job?.is_static ? 'static_target' : 'live_feed'
@@ -3563,10 +3573,15 @@ function wireRowHandlers() {
           metadata: { company: job?.company, role: job?.role, url: job?.apply }
         })
       }).catch(() => {});
-      if (job?.is_static) return;
+      if (job?.is_static) {
+        recordViewed(id);
+        return;
+      }
       const cur = loadStatus(id);
       if (cur === 'Not started' || cur === 'Saved') {
-        saveStatus(id, 'Applied');
+        persistUserJob(id, { viewed: true, status: 'Applied' });
+      } else {
+        recordViewed(id);
       }
     };
   });
