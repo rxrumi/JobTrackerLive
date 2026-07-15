@@ -31,6 +31,7 @@ Cloudflare Worker: job-tracker
 │   ├── GET /jobs              -> server-rendered SEO page (Explore Live Jobs)
 │   ├── GET /visa-roles        -> server-rendered SEO page (Visa-Aware Roles)
 │   ├── GET /pipeline          -> server-rendered SEO page (My Pipeline)
+│   ├── GET /history           -> protected SPA application history and status tracker
 │   ├── GET /insights          -> server-rendered SEO page (Market Insights)
 │   ├── GET /privacy           -> static asset privacy.html
 │   ├── GET /terms             -> static asset terms.html
@@ -152,7 +153,7 @@ There is no separate backend server, frontend build step, or local scanner.
 
 ### `GET /`
 
-Serves `public/index.html` through the Worker's assets binding. All paths not matching a known API route, SEO page, legal page, or crawler file fall through to this SPA entry point. The SPA handles client-side routing for `/`, `/visa-roles`, `/profile`, `/onboarding`, `/pipeline`, `/insights`.
+Serves `public/index.html` through the Worker's assets binding. All paths not matching a known API route, SEO page, legal page, or crawler file fall through to this SPA entry point. The SPA handles client-side routing for `/`, `/visa-roles`, `/profile`, `/onboarding`, `/pipeline`, `/history`, `/insights`.
 
 ### SEO Pillar Pages: `GET /jobs`, `/visa-roles`, `/pipeline`, `/insights`
 
@@ -423,7 +424,7 @@ The entire SPA lives in `public/index.html`. Features:
 - **Auth modal**: Clerk hosted sign-in/sign-up redirects for Google and email/password.
 - **Onboarding flow**: account type choice (individual/agency), resumable profile setup, and server-validated default filters for target countries, role families, seniority, and visa need.
 - **Profile panel**: brand theme switcher, editable individual or agency profile.
-- **Tabs**: Live jobs, Visa Roles (SEO route), Targets, My pipeline, Archive, Market Insights (SEO route).
+- **Tabs**: Live jobs, Visa Roles (SEO route), Targets, My pipeline, Application history, Archive, Market Insights (SEO route).
 - **Stats cards**: live roles count, new this week, strong visa, top markets, in-pipeline.
 - **Filters**: role family, seniority, visa eligibility, country, quick presets (Senior+, Strong visa, New, Starred).
 - **Search + sort**: free text search across company/role/family/city/notes, sort by newest, company, role, country, status.
@@ -431,6 +432,7 @@ The entire SPA lives in `public/index.html`. Features:
 - **Mobile cards**: responsive card layout replaces table on screens <800px.
 - **Pagination**: page buttons, with page 2+ requiring Clerk sign-in.
 - **Pipeline view**: timeline history with event dots (viewed, status_changed, starred, note_added) and time formatting.
+- **Application history**: protected, newest-update-first tracker for every job ever marked Applied, with inline stage updates and an expandable status-only timeline.
 - **Anonymous session + tracking**: `lji_session` cookie, event tracking (job_view, search, page_view) to D1.
 - **Agency banner**: feedback form for agency users.
 - **Legend**: score breakdown, badge meanings.

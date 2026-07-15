@@ -1136,9 +1136,9 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
     <p class="dashboard-copy" id="dashboard-copy">Fresh opportunities from public company career feeds, prioritized for your search.</p>
   </div>
   <div class="dashboard-metrics" aria-label="Job search overview">
-    <div class="metric-card"><strong id="metric-live">—</strong><span>Live roles</span></div>
-    <div class="metric-card"><strong id="metric-new">—</strong><span>Added this week</span></div>
-    <div class="metric-card"><strong id="metric-visa">—</strong><span>Strong visa</span></div>
+    <div class="metric-card"><strong id="metric-live">—</strong><span id="metric-live-label">Live roles</span></div>
+    <div class="metric-card"><strong id="metric-new">—</strong><span id="metric-new-label">Added this week</span></div>
+    <div class="metric-card"><strong id="metric-visa">—</strong><span id="metric-visa-label">Strong visa</span></div>
   </div>
 </section>
 <nav class="tabs" id="tabs">
@@ -1148,12 +1148,13 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
   <button class="tab" type="button" data-tab="targets">Targets <span class="count" id="count-targets">—</span></button>
   <span class="nav-group-label">Organize</span>
   <button class="tab" type="button" data-tab="pipeline">My pipeline <span class="count" id="count-pipeline">—</span></button>
+  <button class="tab" type="button" data-route="/history">Application history <span class="count" id="count-history">—</span></button>
   <button class="tab" type="button" data-tab="archive">Archive <span class="count" id="count-archive">—</span></button>
   <span class="nav-group-label">Research</span>
   <button class="tab" type="button" data-route="/insights">Market Insights</button>
 </nav>
 
-<div class="utility-bar">
+<div class="utility-bar" id="utility-bar">
   <div class="search-wrap" id="search-wrap">
     <input type="text" class="search" id="search" placeholder="Search roles, companies, skills, or locations" />
     <button class="search-clear" id="search-clear" aria-label="Clear search">×</button>
@@ -1196,7 +1197,7 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
   <span class="results-count" id="results-count"></span>
 </div>
 
-<div class="filter-actions-row">
+<div class="filter-actions-row" id="filter-actions-row">
   <div class="active-filters" id="active-filters" aria-live="polite"></div>
   <button class="save-search-btn" id="save-search-btn" type="button">Save search</button>
   <div class="view-toggle" role="group" aria-label="Results layout">
@@ -1242,6 +1243,7 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
 </div>
 
 <div class="pipeline-list" id="pipeline-view" hidden></div>
+<section class="application-history" id="history-view" aria-live="polite" hidden></section>
 
 <nav class="pagination-bar" id="pagination-bottom" aria-label="Jobs pages" hidden></nav>
 
@@ -1266,6 +1268,7 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
   <button class="mobile-nav-btn active" type="button" data-mobile-tab="active">Jobs</button>
   <button class="mobile-nav-btn" type="button" data-mobile-route="/visa-roles">Visa roles</button>
   <button class="mobile-nav-btn" type="button" data-mobile-route="/pipeline">Pipeline</button>
+  <button class="mobile-nav-btn" type="button" data-mobile-route="/history">History</button>
   <button class="mobile-nav-btn" type="button" data-mobile-route="/profile">Profile</button>
 </nav>
 
@@ -1846,9 +1849,16 @@ let AUTH_LOAD_ERROR = '';
 let AUTH_RESOLVED = false;
 let ACCOUNT_TYPE_SAVE_PROMISE = null;
 let ACCOUNT_TYPE_SAVE_ERROR = '';
-const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
+const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/history', '/insights']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
 const JOB_HISTORY_CACHE = new Map();
+const JOB_HISTORY_REQUEST_VERSION = new Map();
+const APPLICATION_HISTORY_EXPANDED = new Set();
+const APPLICATION_HISTORY_LOADING = new Set();
+const APPLICATION_HISTORY_ERRORS = new Map();
+let APPLICATION_HISTORY_FOCUS_HANDLED = '';
+let APPLICATION_HISTORY_INITIAL_LOADING = false;
+let APPLICATION_HISTORY_LOAD_ERROR = '';
 let CLERK_JS_URL = '';
 
 // ------------------------------------------------------------------
@@ -1913,7 +1923,7 @@ function routeFromPath(path) {
 }
 
 function isProtectedRoute() {
-  return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding' || CURRENT_ROUTE === '/pipeline' || CURRENT_ROUTE === '/insights';
+  return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding' || CURRENT_ROUTE === '/pipeline' || CURRENT_ROUTE === '/history' || CURRENT_ROUTE === '/insights';
 }
 
 function safeNextRoute(value) {
@@ -2042,7 +2052,7 @@ function dashboardShareableSearch() {
 function navigateTo(path, replace = false) {
   const route = safeRoute(path);
   const nextUrl = isDashboardRoute(route) ? `${route}${dashboardShareableSearch()}` : route;
-  if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
     window.history[replace ? 'replaceState' : 'pushState']({}, '', nextUrl);
   }
   CURRENT_ROUTE = route;
@@ -2347,7 +2357,7 @@ async function persistUserJob(id, patch) {
     });
     if (data?.job) {
       USER_JOBS.set(String(id), data.job);
-      JOB_HISTORY_CACHE.delete(String(id));
+      invalidateJobHistory(id);
       render();
       if (!document.getElementById('profile-panel')?.hidden) syncProfilePanel();
     }
@@ -2359,7 +2369,17 @@ async function persistUserJob(id, patch) {
   }
 }
 
-function saveStatus(id, v) { persistUserJob(id, { status: v }); }
+function invalidateJobHistory(id) {
+  const key = String(id);
+  JOB_HISTORY_CACHE.delete(key);
+  APPLICATION_HISTORY_ERRORS.delete(key);
+  JOB_HISTORY_REQUEST_VERSION.set(key, (JOB_HISTORY_REQUEST_VERSION.get(key) || 0) + 1);
+}
+
+function saveStatus(id, v) {
+  invalidateJobHistory(id);
+  persistUserJob(id, { status: v });
+}
 function saveStar(id, v) { persistUserJob(id, { starred: v }); }
 function recordViewed(id) { persistUserJob(id, { viewed: true }); }
 
@@ -2614,6 +2634,7 @@ function tabBucket(j) {
 }
 
 function jobAppearsInTab(j, tab = state.tab) {
+  if (tab === 'history') return Boolean(loadUserJob(j.id)?.applied_at);
   if (tab === 'active' && loadStatus(j.id) === 'Applied' && !j.is_static && !j.is_filled) return true;
   return tabBucket(j) === tab;
 }
@@ -3087,6 +3108,12 @@ function applyButtonHTML(j) {
   return `<a class="apply-btn${applied ? ' is-applied' : ''}" href="${escapeHTML(safeExternalURL(j.apply))}" target="_blank" rel="noopener noreferrer" data-id="${escapeHTML(j.id)}">${escapeHTML(label)}</a>`;
 }
 
+function trackerButtonHTML(j) {
+  const userJob = loadUserJob(j.id);
+  if (!ME?.user || (!userJob?.applied_at && userJob?.status !== 'Applied')) return '';
+  return `<button class="secondary-btn view-tracker-btn" type="button" data-tracker-id="${escapeHTML(j.id)}">View tracker</button>`;
+}
+
 function starHTML(id) {
   const on = loadStar(id);
   return `<button class="star-btn ${on ? 'active' : ''}" data-id="${escapeHTML(id)}" title="${on ? 'Unstar' : 'Pin to top'}" aria-label="Star">${on ? '★' : '☆'}</button>`;
@@ -3098,12 +3125,15 @@ function compactNote(note) {
 }
 
 function renderTabs() {
-  const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0 };
+  const buckets = { active: 0, targets: 0, pipeline: 0, archive: 0, history: 0 };
   const industryJobs = JOBS.filter(j => j.industry === state.industry);
   industryJobs.forEach(j => buckets[tabBucket(j)]++);
+  const trackedJobs = JOBS.filter(j => loadUserJob(j.id)?.applied_at);
+  buckets.history = trackedJobs.length;
   document.getElementById('count-active').textContent = Math.max(buckets.active, HEADER_ACTIVE_TOTAL);
   document.getElementById('count-targets').textContent = buckets.targets;
   document.getElementById('count-pipeline').textContent = buckets.pipeline;
+  document.getElementById('count-history').textContent = buckets.history;
   document.getElementById('count-archive').textContent = buckets.archive;
   document.querySelectorAll('.tab').forEach(t => {
     const route = t.dataset.route;
@@ -3111,10 +3141,13 @@ function renderTabs() {
     const bucketActive = !route && t.dataset.tab === state.tab && CURRENT_ROUTE !== '/visa-roles' && CURRENT_ROUTE !== '/insights';
     t.classList.toggle('active', routeActive || bucketActive);
     if (t.dataset.tab === 'targets') t.style.display = ME?.user ? '' : 'none';
+    if (t.dataset.route === '/history') t.style.display = ME?.user ? '' : 'none';
   });
 
   const page = CURRENT_ROUTE === '/visa-roles'
     ? { eyebrow: 'Relocation', title: 'Visa-friendly roles', copy: 'Prioritize employers with stronger sponsorship history and international hiring signals.' }
+    : CURRENT_ROUTE === '/history'
+      ? { eyebrow: 'Organize', title: 'Application history', copy: 'Review every application, update its stage, and follow your progress over time.' }
     : CURRENT_ROUTE === '/insights'
       ? { eyebrow: 'Research', title: 'Market insights', copy: 'See where hiring demand and relocation-friendly opportunities are concentrated.' }
       : state.tab === 'pipeline'
@@ -3127,16 +3160,30 @@ function renderTabs() {
   document.getElementById('dashboard-eyebrow').textContent = page.eyebrow;
   document.getElementById('dashboard-title').textContent = page.title;
   document.getElementById('dashboard-copy').textContent = page.copy;
-  document.getElementById('metric-live').textContent = Math.max(buckets.active, HEADER_ACTIVE_TOTAL).toLocaleString();
-  document.getElementById('metric-new').textContent = industryJobs.filter(j => !j.is_static && j.is_new && !j.is_filled).length.toLocaleString();
-  document.getElementById('metric-visa').textContent = industryJobs.filter(j => !j.is_filled && j.visa === 'Strong').length.toLocaleString();
+  if (CURRENT_ROUTE === '/history') {
+    document.getElementById('metric-live').textContent = trackedJobs.length.toLocaleString();
+    document.getElementById('metric-new').textContent = trackedJobs.filter(j => ['Applied', 'Recruiter screen', 'Interview', 'Final round'].includes(loadStatus(j.id))).length.toLocaleString();
+    document.getElementById('metric-visa').textContent = trackedJobs.filter(j => loadStatus(j.id) === 'Offer').length.toLocaleString();
+    document.getElementById('metric-live-label').textContent = 'Total applied';
+    document.getElementById('metric-new-label').textContent = 'In progress';
+    document.getElementById('metric-visa-label').textContent = 'Offers';
+  } else {
+    document.getElementById('metric-live').textContent = Math.max(buckets.active, HEADER_ACTIVE_TOTAL).toLocaleString();
+    document.getElementById('metric-new').textContent = industryJobs.filter(j => !j.is_static && j.is_new && !j.is_filled).length.toLocaleString();
+    document.getElementById('metric-visa').textContent = industryJobs.filter(j => !j.is_filled && j.visa === 'Strong').length.toLocaleString();
+    document.getElementById('metric-live-label').textContent = 'Live roles';
+    document.getElementById('metric-new-label').textContent = 'Added this week';
+    document.getElementById('metric-visa-label').textContent = 'Strong visa';
+  }
 
   document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
     const active = (btn.dataset.mobileTab === 'active' && CURRENT_ROUTE === '/' && state.tab === 'active')
       || btn.dataset.mobileRoute === CURRENT_ROUTE;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-current', active ? 'page' : 'false');
+    if (btn.dataset.mobileRoute === '/history') btn.hidden = !ME?.user;
   });
+  document.getElementById('mobile-bottom-nav').style.gridTemplateColumns = `repeat(${ME?.user ? 5 : 4}, 1fr)`;
 }
 
 function rowHTML(j) {
@@ -3164,7 +3211,7 @@ function rowHTML(j) {
     <td>${companyTypeCellHTML(j)}</td>
     <td>${functionCellHTML(j)}</td>
     <td>${visaSignalCellHTML(j)}</td>
-    <td>${applyButtonHTML(j)}</td>
+    <td><span class="signal-cell">${applyButtonHTML(j)}${trackerButtonHTML(j)}</span></td>
     <td class="notes-cell" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</td>
     <td>${statusSelectHTML(j.id)}</td>
   </tr>`;
@@ -3219,7 +3266,7 @@ function cardHTML(j) {
       <div class="job-card-signals">${explicitSignalsHTML(j, 'card')}</div>
     </div>
     <div class="job-card-actions">
-      <div class="job-card-actions-top">${starHTML(j.id)}${applyButtonHTML(j)}</div>
+      <div class="job-card-actions-top">${starHTML(j.id)}${applyButtonHTML(j)}${trackerButtonHTML(j)}</div>
       ${statusSelectHTML(j.id)}
     </div>
   </article>`;
@@ -3247,7 +3294,7 @@ function renderJobDetail(j) {
     <div class="job-detail-badges">${explicitSignalsHTML(j, 'detail')}</div>
     <p class="job-detail-guidance">Visa sponsorship is company-level guidance, not a guarantee. Confirm eligibility in the job description.</p>
     ${listingInformation ? `<div class="job-detail-section"><h3>Listing status</h3><p>${escapeHTML(listingInformation)}</p></div>` : ''}
-    <div class="job-detail-actions">${applyButtonHTML(j)}${starHTML(j.id)}</div>`;
+    <div class="job-detail-actions">${applyButtonHTML(j)}${trackerButtonHTML(j)}${starHTML(j.id)}</div>`;
 }
 
 function pipelineItemHTML(j, history) {
@@ -3346,6 +3393,238 @@ function renderPipeline() {
 
   wireRowHandlers();
   renderPagination(rows.length, totalPages);
+}
+
+function formatHistoryDate(iso, withTime = false) {
+  if (!iso) return 'Unknown date';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Unknown date';
+  const options = { month: 'short', day: 'numeric', year: 'numeric' };
+  if (withTime) Object.assign(options, { hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleString('en-US', options);
+}
+
+function applicationHistoryJobs() {
+  return JOBS
+    .filter(j => loadUserJob(j.id)?.applied_at)
+    .sort((a, b) => {
+      const aState = loadUserJob(a.id);
+      const bState = loadUserJob(b.id);
+      const aTime = Date.parse(aState?.updated_at || aState?.applied_at || '') || 0;
+      const bTime = Date.parse(bState?.updated_at || bState?.applied_at || '') || 0;
+      if (aTime !== bTime) return bTime - aTime;
+      return String(a.company || '').localeCompare(String(b.company || ''));
+    });
+}
+
+function historyDeepLinkId() {
+  if (CURRENT_ROUTE !== '/history' || !window.location.hash) return '';
+  try { return decodeURIComponent(window.location.hash.slice(1)); } catch { return ''; }
+}
+
+function applicationStatusEvents(userJob, history) {
+  const statusEvents = (history || [])
+    .filter(event => event.event_type === 'status_changed')
+    .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  const appliedIndex = statusEvents.findIndex(event => event.to_status === 'Applied');
+  if (appliedIndex >= 0) return statusEvents.slice(appliedIndex);
+  if (!userJob?.applied_at) return [];
+  const laterEvents = statusEvents.filter(event => String(event.created_at || '') >= String(userJob.applied_at));
+  return [{
+    id: `synthetic-applied-${userJob.job_id}`,
+    event_type: 'status_changed',
+    from_status: null,
+    to_status: 'Applied',
+    created_at: userJob.applied_at,
+    synthetic: true
+  }, ...laterEvents];
+}
+
+function applicationTimelineHTML(j) {
+  const key = String(j.id);
+  const error = APPLICATION_HISTORY_ERRORS.get(key);
+  if (error) {
+    return `<div class="history-timeline" data-history-timeline="${escapeHTML(key)}">
+      <div class="history-timeline-state error">Status history could not be loaded.</div>
+      <button class="secondary-btn retry-history" type="button" data-history-id="${escapeHTML(key)}">Try again</button>
+    </div>`;
+  }
+  const cached = JOB_HISTORY_CACHE.get(key);
+  if (!cached) {
+    return `<div class="history-timeline" data-history-timeline="${escapeHTML(key)}"><div class="history-timeline-state">Loading status history…</div></div>`;
+  }
+  const events = applicationStatusEvents(loadUserJob(j.id), cached);
+  const items = events.map(event => {
+    const label = event.to_status === 'Applied' && !event.from_status
+      ? 'Application marked Applied'
+      : `${event.from_status || 'Not started'} → ${event.to_status || 'Updated'}`;
+    return `<div class="history-timeline-item">
+      <span class="history-timeline-dot" aria-hidden="true"></span>
+      <div><span class="history-timeline-label">${escapeHTML(label)}</span><span class="history-timeline-time">${escapeHTML(formatHistoryDate(event.created_at, true))}</span></div>
+    </div>`;
+  }).join('');
+  return `<div class="history-timeline" data-history-timeline="${escapeHTML(key)}">
+    ${items ? `<div class="history-timeline-list">${items}</div>` : '<div class="history-timeline-state">No application status changes recorded yet.</div>'}
+  </div>`;
+}
+
+function applicationHistoryCardHTML(j, focusedId = '') {
+  const userJob = loadUserJob(j.id);
+  const key = String(j.id);
+  const status = loadStatus(j.id);
+  const statusCls = classToken(STATUS_CLASS[status] || '');
+  const expanded = APPLICATION_HISTORY_EXPANDED.has(key);
+  const postingUrl = safeExternalURL(j.apply);
+  const openLink = postingUrl === '#'
+    ? ''
+    : `<a class="secondary-btn history-open-link" href="${escapeHTML(postingUrl)}" target="_blank" rel="noopener noreferrer">${j.is_static ? 'Open careers page' : 'Open posting'}</a>`;
+  return `<article class="history-card ${key === focusedId ? 'is-focused' : ''}" data-history-job-id="${escapeHTML(key)}" tabindex="-1">
+    <div class="history-card-head">
+      <div class="history-card-job">
+        ${companyLogoHTML(j)}
+        <div><div class="history-card-company">${escapeHTML(j.company)}</div><div class="history-card-role">${escapeHTML(j.role)}</div></div>
+      </div>
+      <span class="pipeline-status ${statusCls}">${escapeHTML(status)}</span>
+    </div>
+    <div class="history-card-meta">
+      <span>${escapeHTML(j.location)}</span>
+      <span>Applied ${escapeHTML(formatHistoryDate(userJob?.applied_at))}</span>
+      <span>Updated ${escapeHTML(formatTimeAgo(userJob?.updated_at || userJob?.applied_at))}</span>
+      ${j.is_filled ? '<span>No longer listed</span>' : ''}
+    </div>
+    <div class="history-card-actions">
+      ${statusSelectHTML(j.id)}
+      ${openLink}
+      <button class="secondary-btn toggle-application-history" type="button" data-history-id="${escapeHTML(key)}" aria-expanded="${expanded ? 'true' : 'false'}">${expanded ? 'Hide timeline' : 'Status timeline'}</button>
+    </div>
+    ${expanded ? applicationTimelineHTML(j) : ''}
+  </article>`;
+}
+
+async function ensureApplicationHistoryLoaded(id) {
+  const key = String(id);
+  if (JOB_HISTORY_CACHE.has(key) || APPLICATION_HISTORY_LOADING.has(key)) return;
+  const requestVersion = JOB_HISTORY_REQUEST_VERSION.get(key) || 0;
+  APPLICATION_HISTORY_LOADING.add(key);
+  APPLICATION_HISTORY_ERRORS.delete(key);
+  try {
+    const data = await api('/api/user-jobs/' + encodeURIComponent(key) + '/history');
+    if ((JOB_HISTORY_REQUEST_VERSION.get(key) || 0) === requestVersion) {
+      JOB_HISTORY_CACHE.set(key, data.history || []);
+    }
+  } catch (error) {
+    if ((JOB_HISTORY_REQUEST_VERSION.get(key) || 0) === requestVersion) {
+      APPLICATION_HISTORY_ERRORS.set(key, error?.message || 'history_unavailable');
+    }
+  } finally {
+    APPLICATION_HISTORY_LOADING.delete(key);
+    if (CURRENT_ROUTE === '/history') render();
+  }
+}
+
+async function refreshApplicationHistory() {
+  APPLICATION_HISTORY_INITIAL_LOADING = true;
+  APPLICATION_HISTORY_LOAD_ERROR = '';
+  if (CURRENT_ROUTE === '/history') render();
+  try {
+    await loadUserJobs();
+  } catch (error) {
+    APPLICATION_HISTORY_LOAD_ERROR = error?.message || 'Applications could not be loaded.';
+  } finally {
+    APPLICATION_HISTORY_INITIAL_LOADING = false;
+    if (CURRENT_ROUTE === '/history') render();
+  }
+}
+
+function renderApplicationHistory() {
+  const container = document.getElementById('history-view');
+  const rows = applicationHistoryJobs();
+  if (APPLICATION_HISTORY_INITIAL_LOADING) {
+    container.innerHTML = '<div class="history-card"><div class="history-timeline-state">Loading application history…</div></div>';
+    renderPagination(0, 1);
+    return;
+  }
+  const loadError = APPLICATION_HISTORY_LOAD_ERROR
+    ? `<div class="history-load-notice" role="alert"><span>Application history could not be refreshed.</span><button class="secondary-btn retry-history-page" type="button">Try again</button></div>`
+    : '';
+  const focusedId = historyDeepLinkId();
+  if (focusedId && focusedId !== APPLICATION_HISTORY_FOCUS_HANDLED) {
+    const focusedIndex = rows.findIndex(j => String(j.id) === focusedId);
+    if (focusedIndex >= 0) {
+      state.page = Math.floor(focusedIndex / PAGE_SIZE) + 1;
+      APPLICATION_HISTORY_EXPANDED.add(focusedId);
+    }
+  }
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  if (state.page > totalPages) state.page = totalPages;
+  const start = (state.page - 1) * PAGE_SIZE;
+  const pageRows = rows.slice(start, start + PAGE_SIZE);
+
+  if (!rows.length) {
+    container.innerHTML = loadError || `<div class="empty-card history-empty">
+      <h3>No applications yet</h3>
+      <p>Jobs appear here as soon as you mark them Applied. You can then update each stage and review its status timeline.</p>
+      <button class="primary-btn history-browse-jobs" type="button">Browse live jobs</button>
+    </div>`;
+    container.querySelector('.history-browse-jobs')?.addEventListener('click', () => navigateTo('/'));
+    container.querySelector('.retry-history-page')?.addEventListener('click', refreshApplicationHistory);
+    renderPagination(0, 1);
+    return;
+  }
+
+  container.innerHTML = `${loadError}<div class="application-history-summary"><span>Showing ${start + 1}-${Math.min(rows.length, start + pageRows.length)} of ${rows.length} applications</span><span>Newest updates first</span></div>
+    <div class="application-history-list">${pageRows.map(j => applicationHistoryCardHTML(j, focusedId)).join('')}</div>`;
+
+  container.querySelector('.retry-history-page')?.addEventListener('click', refreshApplicationHistory);
+
+  container.querySelectorAll('.status-select').forEach(select => {
+    select.onchange = event => saveStatus(event.target.dataset.id, event.target.value);
+  });
+  container.querySelectorAll('.toggle-application-history').forEach(button => {
+    button.onclick = () => {
+      const key = String(button.dataset.historyId);
+      if (APPLICATION_HISTORY_EXPANDED.has(key)) APPLICATION_HISTORY_EXPANDED.delete(key);
+      else APPLICATION_HISTORY_EXPANDED.add(key);
+      render();
+    };
+  });
+  container.querySelectorAll('.retry-history').forEach(button => {
+    button.onclick = () => {
+      const key = String(button.dataset.historyId);
+      APPLICATION_HISTORY_ERRORS.delete(key);
+      render();
+    };
+  });
+
+  pageRows.forEach(j => {
+    const key = String(j.id);
+    if (APPLICATION_HISTORY_EXPANDED.has(key) && !JOB_HISTORY_CACHE.has(key) && !APPLICATION_HISTORY_ERRORS.has(key)) {
+      queueMicrotask(() => ensureApplicationHistoryLoaded(key));
+    }
+  });
+
+  if (focusedId && focusedId !== APPLICATION_HISTORY_FOCUS_HANDLED) {
+    APPLICATION_HISTORY_FOCUS_HANDLED = focusedId;
+    requestAnimationFrame(() => {
+      const card = [...container.querySelectorAll('[data-history-job-id]')].find(item => item.dataset.historyJobId === focusedId);
+      card?.focus({ preventScroll: true });
+      card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+  renderPagination(rows.length, totalPages);
+}
+
+function openApplicationTracker(id) {
+  const key = String(id);
+  const nextUrl = `/history#${encodeURIComponent(key)}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+    window.history.pushState({}, '', nextUrl);
+  }
+  CURRENT_ROUTE = '/history';
+  APPLICATION_HISTORY_FOCUS_HANDLED = '';
+  trackPageView('/history');
+  return applyRoute();
 }
 
 function clearProfileRelaxationNotice() {
@@ -3455,7 +3734,24 @@ function render() {
   const wrap = document.getElementById('table-wrap');
   const workspace = document.getElementById('jobs-workspace');
   const pipelineView = document.getElementById('pipeline-view');
+  const historyView = document.getElementById('history-view');
   const empty = document.getElementById('empty-state');
+  const historyMode = CURRENT_ROUTE === '/history' || state.tab === 'history';
+  document.getElementById('utility-bar').hidden = historyMode;
+  document.getElementById('filter-actions-row').hidden = historyMode;
+  if (historyMode) document.getElementById('profile-filter-notice').hidden = true;
+  if (historyMode) {
+    empty.style.display = 'none';
+    workspace.style.display = 'none';
+    pipelineView.hidden = true;
+    historyView.hidden = false;
+    tbody.innerHTML = '';
+    cards.innerHTML = '';
+    renderJobDetail(null);
+    renderApplicationHistory();
+    return;
+  }
+  historyView.hidden = true;
   const loadedTabTotal = JOBS.filter(j => jobAppearsInTab(j)).length;
   const total = state.tab === 'active' ? Math.max(loadedTabTotal, HEADER_ACTIVE_TOTAL) : loadedTabTotal;
   const serverBackedActive = activeServerPageReady();
@@ -3583,6 +3879,13 @@ function wireRowHandlers() {
       } else {
         recordViewed(id);
       }
+    };
+  });
+  document.querySelectorAll('.view-tracker-btn').forEach(button => {
+    button.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openApplicationTracker(button.dataset.trackerId);
     };
   });
   document.querySelectorAll('.visa-signal-control').forEach(btn => {
@@ -4210,6 +4513,18 @@ async function applyRoute() {
 
   if (!ME?.user) {
     startClerkAuth('login', CURRENT_ROUTE);
+    return;
+  }
+
+  if (CURRENT_ROUTE === '/history') {
+    if (!ME.user?.onboarding_completed) {
+      navigateTo('/onboarding', true);
+      return;
+    }
+    state.tab = 'history';
+    resetPage();
+    showDashboard(CURRENT_ROUTE);
+    await refreshApplicationHistory();
     return;
   }
 

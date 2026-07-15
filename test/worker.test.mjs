@@ -161,7 +161,7 @@ function createAssets() {
       if (url.pathname === "/") {
         return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
       }
-      if (url.pathname === "/profile" || url.pathname === "/onboarding" || url.pathname === "/auth/callback") {
+      if (url.pathname === "/profile" || url.pathname === "/onboarding" || url.pathname === "/history" || url.pathname === "/auth/callback") {
         return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
       }
       return new Response("missing", { status: 404 });
@@ -213,11 +213,12 @@ test("crawler files are served as static files without SPA fallback", async () =
   assert.deepEqual(ASSETS.requests, ["/robots.txt", "/sitemap.xml", "/llms.txt"]);
 });
 
-test("profile and onboarding routes resolve through static asset fallback with trust headers", async () => {
+test("protected SPA routes resolve through static asset fallback with trust headers", async () => {
   const ASSETS = createAssets();
 
   const profileResponse = await worker.fetch(new Request("https://livejobindex.com/profile"), { ASSETS });
   const onboardingResponse = await worker.fetch(new Request("https://livejobindex.com/onboarding"), { ASSETS });
+  const historyResponse = await worker.fetch(new Request("https://livejobindex.com/history"), { ASSETS });
 
   assert.equal(profileResponse.status, 200);
   assert.match(await profileResponse.text(), /Live Job Index/);
@@ -225,7 +226,10 @@ test("profile and onboarding routes resolve through static asset fallback with t
   assert.equal(onboardingResponse.status, 200);
   assert.match(await onboardingResponse.text(), /Live Job Index/);
   assert.equal(onboardingResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
-  assert.deepEqual(ASSETS.requests, ["/profile", "/onboarding"]);
+  assert.equal(historyResponse.status, 200);
+  assert.match(await historyResponse.text(), /Live Job Index/);
+  assert.equal(historyResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.deepEqual(ASSETS.requests, ["/profile", "/onboarding", "/history"]);
 });
 
 test("public SEO pillar routes render crawlable metadata from Worker", async () => {
@@ -268,6 +272,7 @@ test("homepage source exposes legal discovery links and structured data", () => 
   assert.doesNotMatch(html, /<a href="\/jobs">Live Jobs<\/a>/);
   assert.match(html, /data-route="\/visa-roles"/);
   assert.match(html, /data-tab="pipeline"/);
+  assert.match(html, /data-route="\/history"/);
   assert.match(html, /data-route="\/insights"/);
   assert.match(html, /Business inquiries: <a href="mailto:business@livejobindex\.com">business@livejobindex\.com<\/a>/);
   assert.match(html, /General inquiries: <a href="mailto:hello@livejobindex\.com">hello@livejobindex\.com<\/a>/);
@@ -303,7 +308,7 @@ test("sitemap source includes public SEO pillar routes", () => {
 test("homepage source includes routed profile and onboarding handling", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/visa-roles', '\/profile', '\/onboarding', '\/pipeline', '\/insights'\]\)/);
+  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/visa-roles', '\/profile', '\/onboarding', '\/pipeline', '\/history', '\/insights'\]\)/);
   assert.match(html, /function applyRoute\(\)/);
   assert.match(html, /navigateTo\('\/profile'\)/);
   assert.doesNotMatch(html, /account-pill'\)\.onclick = showProfilePanel/);
@@ -2203,6 +2208,35 @@ test("user job upsert stores status, star, and derived timestamps", async () => 
   assert.equal(payload.job.archived_at, null);
 });
 
+test("authenticated job history returns persisted application status transitions", async () => {
+  const user = { id: "00000000-0000-4000-8000-000000000014", email: "history@example.com" };
+  const fake = createD1Fake({ user });
+  const env = { DB: fake.DB, CLERK_USER: fake.user };
+  let firstAppliedAt = null;
+
+  for (const status of ["Applied", "Interview", "Not started"]) {
+    const response = await worker.fetch(new Request("https://example.com/api/user-jobs/greenhouse-history-1", {
+      method: "PUT",
+      headers: { Cookie: "session=1" },
+      body: JSON.stringify({ status })
+    }), env);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    if (status === "Applied") firstAppliedAt = payload.job.applied_at;
+    if (status === "Not started") assert.equal(payload.job.applied_at, firstAppliedAt);
+  }
+
+  const response = await worker.fetch(new Request("https://example.com/api/user-jobs/greenhouse-history-1/history", {
+    headers: { Cookie: "session=1" }
+  }), env);
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.history.length, 3);
+  assert.ok(payload.history.every(event => event.event_type === "status_changed"));
+  assert.deepEqual(payload.history.map(event => event.to_status).sort(), ["Applied", "Interview", "Not started"]);
+});
+
 test("user jobs hydrate historical posting details for pipeline rendering", async () => {
   const user = { id: "00000000-0000-4000-8000-000000000013", email: "king@example.com" };
   const fake = createD1Fake({
@@ -2720,6 +2754,32 @@ test("applied jobs remain visible in live jobs with an updated visual state", ()
   assert.match(html, /persistUserJob\(id, \{ viewed: true, status: 'Applied' \}\)/);
 });
 
+test("logged-in application history tracks every applied job and status transition", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const historySource = html.slice(
+    html.indexOf("function formatHistoryDate"),
+    html.indexOf("function clearProfileRelaxationNotice")
+  );
+
+  assert.match(html, /data-route="\/history">Application history/);
+  assert.match(html, /data-mobile-route="\/history">History/);
+  assert.match(html, /CURRENT_ROUTE === '\/history'/);
+  assert.match(html, /if \(CURRENT_ROUTE === '\/history'\)[\s\S]*state\.tab = 'history';[\s\S]*await refreshApplicationHistory\(\);/);
+  assert.match(historySource, /filter\(j => loadUserJob\(j\.id\)\?\.applied_at\)/);
+  assert.match(historySource, /updated_at \|\| aState\?\.applied_at/);
+  assert.match(historySource, /event\.event_type === 'status_changed'/);
+  assert.match(historySource, /findIndex\(event => event\.to_status === 'Applied'\)/);
+  assert.match(historySource, /synthetic-applied-/);
+  assert.match(historySource, /APPLICATION_HISTORY_ERRORS/);
+  assert.match(historySource, /APPLICATION_HISTORY_INITIAL_LOADING/);
+  assert.match(historySource, /retry-history-page/);
+  assert.match(historySource, /renderPagination\(rows\.length, totalPages\)/);
+  assert.match(html, /class="secondary-btn view-tracker-btn"/);
+  assert.match(html, /openApplicationTracker\(button\.dataset\.trackerId\)/);
+  assert.match(html, /invalidateJobHistory\(id\);\s*persistUserJob\(id, \{ status: v \}\);/);
+  assert.doesNotMatch(readFileSync(new URL("../public/sitemap.xml", import.meta.url), "utf8"), /\/history/);
+});
+
 test("job cards and details use self-explanatory signals", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const cardRenderer = html.slice(html.indexOf("function cardHTML"), html.indexOf("function renderJobDetail"));
@@ -2739,7 +2799,7 @@ test("job cards and details use self-explanatory signals", () => {
   assert.match(html, /some company-level sponsorship history or international hiring signals\. Sponsorship is not guaranteed\./);
   assert.match(html, /No reliable company-level sponsorship signal is currently known\./);
   assert.match(html, /<summary><span class="legend-help-icon"[^>]*>\?<\/span> What these labels mean<\/summary>/);
-  assert.match(html, /<span>Added this week<\/span>/);
+  assert.match(html, /<span id="metric-new-label">Added this week<\/span>/);
   assert.match(html, /className = 'active-filter-overflow'/);
   assert.match(html, /job-detail-guidance/);
   assert.doesNotMatch(html.slice(html.indexOf('function renderJobDetail'), html.indexOf('function pipelineItemHTML')), /Before you apply/);
