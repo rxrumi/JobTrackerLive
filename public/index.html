@@ -1243,12 +1243,13 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 <nav class="pagination-bar" id="pagination-bottom" aria-label="Jobs pages" hidden></nav>
 
 <details class="legend-details">
-  <summary>Score &amp; badges</summary>
+  <summary>What these labels mean</summary>
   <div class="legend">
-    <strong>Score:</strong> visa likelihood 50%, seniority 30%, freshness 20%.
-    <strong>LIVE</strong> = confirmed ATS posting. <strong>TARGET</strong> = curated careers search.
-    <strong>NEW</strong> = first seen within 7 days. <strong>FILLED</strong> = disappeared from the source feed and prunes after 7 days.
-    Status, stars, and brand theme save to your account.
+    <strong>Company</strong> describes the employer category, such as Big Tech, Scale-up, or Growth SaaS.
+    <strong>Function</strong> describes the job's main area of work.
+    <strong>Visa sponsorship</strong> is a company-level likelihood based on sponsorship history or international hiring signals, and is never a guarantee.
+    <strong>Curated target</strong> means a company career page worth monitoring, not a confirmed vacancy.
+    <strong>Added</strong> shows when a live posting was first seen. <strong>No longer listed</strong> means the source no longer shows the posting.
   </div>
 </details>
 
@@ -1728,7 +1729,7 @@ function formatTimeAgo(iso) {
 function formatNoteAge(iso) {
   if (!iso) return '';
   const days = daysSince(iso);
-  if (days <= 0) return 'New today';
+  if (days <= 0) return 'Added today';
   if (days === 1) return 'Added yesterday';
   if (days < 7) return `Added ${days} days ago`;
   const d = new Date(iso);
@@ -3006,14 +3007,50 @@ function visaSignalLabel(visa) {
 }
 
 function visaSignalTitle(visa) {
-  if (visa === 'Strong') return 'Company has stronger sponsorship history or hiring signal. This is not a guarantee.';
-  if (visa === 'Likely') return 'Company has some sponsorship history or hiring signal. This is not a guarantee.';
-  return 'No useful company-level sponsorship signal is currently known.';
+  if (visa === 'Strong') return 'This company has stronger company-level sponsorship history or international hiring signals. Sponsorship is not guaranteed.';
+  if (visa === 'Likely') return 'This company has some company-level sponsorship history or international hiring signals. Sponsorship is not guaranteed.';
+  return 'No reliable company-level sponsorship signal is currently known.';
 }
 
 function visaSignalCellHTML(j) {
   const visa = classToken(j.visa);
   return `<span class="signal-cell"><span class="visa-badge visa-${visa}" title="${escapeHTML(visaSignalTitle(j.visa))}">${escapeHTML(visaSignalLabel(j.visa))}</span></span>`;
+}
+
+function signalDomId(prefix, j) {
+  return `${prefix}-${String(j.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
+function companySignalHTML(j) {
+  const tier = classToken(j.tier);
+  return `<span class="explicit-signal tier-${tier}"><span class="signal-prefix">Company:</span> ${escapeHTML(j.tierLabel)}</span>`;
+}
+
+function functionSignalHTML(j) {
+  const familyTitle = j.is_static ? (j.role_families || []).join(', ') : j.familyLabel;
+  return `<span class="explicit-signal family-signal" title="${escapeHTML(familyTitle)}"><span class="signal-prefix">Function:</span> ${escapeHTML(j.familyLabel)}</span>`;
+}
+
+function visaSignalHTML(j, context = 'card') {
+  const visa = classToken(j.visa);
+  const explanationId = signalDomId(`visa-explanation-${context}`, j);
+  const explanation = visaSignalTitle(j.visa);
+  return `<span class="signal-explainer">
+    <button type="button" class="explicit-signal visa-signal-control visa-${visa}" aria-expanded="false" aria-describedby="${escapeHTML(explanationId)}" aria-label="Visa sponsorship: ${escapeHTML(visaSignalLabel(j.visa))}. ${escapeHTML(explanation)}">
+      <span class="signal-prefix">Visa sponsorship:</span> ${escapeHTML(visaSignalLabel(j.visa))}<span class="signal-help-mark" aria-hidden="true">?</span>
+    </button>
+    <span class="signal-tooltip" id="${escapeHTML(explanationId)}" role="tooltip">${escapeHTML(explanation)}</span>
+  </span>`;
+}
+
+function explicitSignalsHTML(j, context = 'card') {
+  return `${companySignalHTML(j)}${functionSignalHTML(j)}${visaSignalHTML(j, context)}`;
+}
+
+function listingStateLabel(j) {
+  if (j.is_static) return 'Curated target';
+  if (j.is_filled) return 'No longer listed';
+  return j.notes || 'Active listing';
 }
 
 function mobileSignalHTML(label, valueHTML) {
@@ -3143,13 +3180,11 @@ function groupCardRows(rows) {
 }
 
 function cardHTML(j) {
-  const newBadge = j.is_new ? `<span class="new-badge">NEW</span>` : '';
-  const filledBadge = j.is_filled ? `<span class="filled-badge">FILLED</span>` : '';
-  const sourceBadge = `<span class="source-badge ${j.is_static ? 'source-target' : 'source-live'}">${j.is_static ? 'TARGET' : 'LIVE'}</span>`;
   const isViewed = !!loadViewedAt(j.id);
   const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
-  const note = compactNote(j.notes || '');
   const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
+  const listingState = listingStateLabel(j);
+  const listingStateClass = j.is_static ? 'is-target' : j.is_filled ? 'is-filled' : 'is-freshness';
   const locations = j.groupedLocations?.length ? j.groupedLocations : [j.location];
   const locationHTML = locations.length > 1
     ? `<span class="job-location-list" aria-label="${locations.length} locations">${locations.map(location => `<span class="job-location-chip">${escapeHTML(location)}</span>`).join('')}</span>`
@@ -3165,11 +3200,10 @@ function cardHTML(j) {
       </div>
       <div class="job-card-meta">
         ${locationHTML}
-        <span>${escapeHTML(j.is_static ? 'Curated target' : (j.is_new ? 'New this week' : 'Active listing'))}</span>
+        <span class="job-card-state ${listingStateClass}">${escapeHTML(listingState)}</span>
         ${viewedTime ? `<span>${viewedTime}</span>` : ''}
       </div>
-      <div class="job-card-signals">${sourceBadge}${newBadge}${filledBadge}${companyTypeCellHTML(j)}${functionCellHTML(j)}${visaSignalCellHTML(j)}</div>
-      ${note ? `<div class="notes-mobile" title="${escapeHTML(j.notes || '')}">${escapeHTML(note)}</div>` : ''}
+      <div class="job-card-signals">${explicitSignalsHTML(j, 'card')}</div>
     </div>
     <div class="job-card-actions">
       <div class="job-card-actions-top">${starHTML(j.id)}${applyButtonHTML(j)}</div>
@@ -3187,19 +3221,21 @@ function renderJobDetail(j) {
   }
   const logo = companyLogoURL(j);
   const locations = j.groupedLocations?.length ? j.groupedLocations : [j.location];
-  const source = j.is_static ? 'Curated company target' : 'Confirmed live posting';
-  const freshness = j.is_filled ? 'This posting is no longer listed.' : j.is_new ? 'First seen within the last seven days.' : 'Currently active in the source feed.';
+  const listingInformation = j.is_static
+    ? 'This is a curated company career-page target, not a confirmed live vacancy.'
+    : j.is_filled
+      ? 'This posting is no longer listed by the source.'
+      : 'This is a confirmed live posting from a public company career feed.';
   panel.innerHTML = `
     ${logo ? `<img class="job-detail-logo" src="${escapeHTML(logo)}" alt="" loading="lazy">` : `<div class="job-detail-logo company-logo-placeholder" aria-hidden="true">${escapeHTML(companyInitials(j.company))}</div>`}
     <div class="job-detail-company">${escapeHTML(j.company)}</div>
     <h3 class="job-detail-title">${escapeHTML(j.role)}</h3>
-    <div class="job-detail-location">${escapeHTML(locations.join(' · '))}</div>
-    <div class="job-detail-badges">${companyTypeCellHTML(j)}${functionCellHTML(j)}${visaSignalCellHTML(j)}</div>
+    <div class="job-detail-location">${escapeHTML(locations.join(' · '))} <span aria-hidden="true">·</span> ${escapeHTML(listingStateLabel(j))}</div>
+    <div class="job-detail-badges">${explicitSignalsHTML(j, 'detail')}</div>
     <div class="job-detail-section">
-      <h3>${escapeHTML(source)}</h3>
-      <p>${escapeHTML(freshness)} ${j.visa === 'Strong' ? 'The employer has a strong company-level sponsorship signal.' : j.visa === 'Likely' ? 'The employer may sponsor some international hires.' : 'Sponsorship availability is not confirmed.'}</p>
+      <h3>Listing information</h3>
+      <p>${escapeHTML(listingInformation)}</p>
     </div>
-    ${j.notes ? `<div class="job-detail-section"><h3>Your notes</h3><p>${escapeHTML(j.notes)}</p></div>` : ''}
     <div class="job-detail-section">
       <h3>Before you apply</h3>
       <p>Confirm sponsorship and location eligibility in the job description. Visa signals are prioritization guidance, not a guarantee.</p>
@@ -3524,6 +3560,28 @@ function wireRowHandlers() {
       }
     };
   });
+  document.querySelectorAll('.visa-signal-control').forEach(btn => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const explainer = btn.closest('.signal-explainer');
+      const shouldOpen = !explainer?.classList.contains('open');
+      document.querySelectorAll('.signal-explainer.open').forEach(item => {
+        item.classList.remove('open');
+        item.querySelector('.visa-signal-control')?.setAttribute('aria-expanded', 'false');
+      });
+      if (explainer && shouldOpen) {
+        explainer.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    };
+    btn.onkeydown = (e) => {
+      if (e.key !== 'Escape') return;
+      btn.closest('.signal-explainer')?.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.focus();
+    };
+  });
 }
 
 function resetAll() {
@@ -3697,9 +3755,20 @@ function wireStaticHandlers() {
     if (profileMenu && !profileMenu.hidden && !profileMenu.contains(e.target)) {
       closeProfileDropdown();
     }
+    document.querySelectorAll('.signal-explainer.open').forEach(item => {
+      if (item.contains(e.target)) return;
+      item.classList.remove('open');
+      item.querySelector('.visa-signal-control')?.setAttribute('aria-expanded', 'false');
+    });
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeProfileDropdown();
+    if (e.key === 'Escape') {
+      closeProfileDropdown();
+      document.querySelectorAll('.signal-explainer.open').forEach(item => {
+        item.classList.remove('open');
+        item.querySelector('.visa-signal-control')?.setAttribute('aria-expanded', 'false');
+      });
+    }
   });
 }
 

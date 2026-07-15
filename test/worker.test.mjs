@@ -2696,3 +2696,24 @@ test("homepage render helpers escape dynamic job HTML and constrain apply URLs",
   assert.match(html, /title="\$\{escapeHTML\(j\.notes \|\| ''\)\}"/);
   assert.doesNotMatch(html, /jobs_page_access/);
 });
+
+test("job cards and details use self-explanatory signals", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const cardRenderer = html.slice(html.indexOf("function cardHTML"), html.indexOf("function renderJobDetail"));
+
+  assert.match(cardRenderer, /explicitSignalsHTML\(j, 'card'\)/);
+  assert.doesNotMatch(cardRenderer, />LIVE</);
+  assert.doesNotMatch(cardRenderer, />NEW</);
+  assert.match(html, /Company:<\/span>/);
+  assert.match(html, /Function:<\/span>/);
+  assert.match(html, /Visa sponsorship:<\/span>/);
+  assert.match(html, /return 'Added today'/);
+  assert.doesNotMatch(cardRenderer, /New this week/);
+  assert.match(html, /if \(j\.is_static\) return 'Curated target'/);
+  assert.match(html, /if \(j\.is_filled\) return 'No longer listed'/);
+  assert.match(html, /job-detail-location[\s\S]*listingStateLabel\(j\)/);
+  assert.match(html, /stronger company-level sponsorship history or international hiring signals\. Sponsorship is not guaranteed\./);
+  assert.match(html, /some company-level sponsorship history or international hiring signals\. Sponsorship is not guaranteed\./);
+  assert.match(html, /No reliable company-level sponsorship signal is currently known\./);
+  assert.match(html, /<summary>What these labels mean<\/summary>/);
+});
