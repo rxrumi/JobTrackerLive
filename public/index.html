@@ -2070,19 +2070,7 @@ function updateHeaderStatus(message) {
     el.textContent = '🟢 Active jobs updating today';
     return;
   }
-  if (SCAN_CYCLE && !SCAN_CYCLE.complete) {
-    const completed = Array.isArray(SCAN_CYCLE.completed_shards) ? SCAN_CYCLE.completed_shards.length : 0;
-    el.textContent = `🟡 Job refresh in progress (${completed}/${SCAN_CYCLE.total_shards || 5})`;
-    return;
-  }
-  const scanDate = String(LAST_SCAN || '').slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
-  if (scanDate && scanDate !== today) {
-    const readable = new Date(`${scanDate}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    el.textContent = `🟡 ${activeJobCount().toLocaleString()} jobs · last complete refresh ${readable}`;
-    return;
-  }
-  el.textContent = `🟢 ${activeJobCount().toLocaleString()} ${INDUSTRIES[state.industry].toLowerCase()} jobs updated today`;
+  el.textContent = `🟢 ${activeJobCount().toLocaleString()} ${INDUSTRIES[state.industry].toLowerCase()} jobs · refreshed daily`;
 }
 
 function serializedFilters(controls = state) {

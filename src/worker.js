@@ -61,7 +61,7 @@ const ACTIVE_SOURCES = new Set([
 const FAILURE_ABORT_RATIO = 0.5;
 const FETCH_TIMEOUT_MS = 12000;
 const STALE_SCAN_LOCK_KEY_PREFIX = "scan:stale-refresh-lock";
-const STALE_SCAN_LOCK_TTL_SECONDS = 20 * 60;
+const STALE_SCAN_LOCK_TTL_SECONDS = 2 * 60;
 const PARTIAL_SOURCE_STALE_DAYS = 30;
 const CUSTOM_SOURCE_LIMIT = 120;
 const SCAN_CRONS = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *"];
@@ -1754,8 +1754,12 @@ export async function runScan(env, options = {}) {
     };
   }
 
+  // Re-read state after network work so overlapping shards merge the newest
+  // completion markers and postings instead of overwriting each other.
+  const latest = (await env.KV.get("state", "json")) || prev;
+  latest.postings ||= {};
   const merged = {};
-  for (const [id, p] of Object.entries(prev.postings)) {
+  for (const [id, p] of Object.entries(latest.postings)) {
     if (found[id]) continue;
     if (!ACTIVE_SOURCES.has(p.source)) continue;
     const sid = postingSourceId(p);
@@ -1774,13 +1778,13 @@ export async function runScan(env, options = {}) {
   }
   Object.assign(merged, found);
 
-  const previousCycleIsCurrent = prev.scan_cycle?.date === today;
-  const completedShards = new Set(previousCycleIsCurrent ? prev.scan_cycle.completed_shards || [] : []);
+  const previousCycleIsCurrent = latest.scan_cycle?.date === today;
+  const completedShards = new Set(previousCycleIsCurrent ? latest.scan_cycle.completed_shards || [] : []);
   if (sharded) completedShards.add(shardIndex);
   else shards.forEach((_, index) => completedShards.add(index));
   const cycleComplete = completedShards.size === shards.length;
 
-  const previousMeta = previousCycleIsCurrent ? prev.scan_meta || {} : {};
+  const previousMeta = previousCycleIsCurrent ? latest.scan_meta || {} : {};
   const aggregateOkSources = new Set(previousMeta.okSources || []);
   const aggregateFailedSources = new Set(previousMeta.failedSources || []);
   const aggregatePartialSources = new Set(previousMeta.partialSources || []);
@@ -1794,8 +1798,8 @@ export async function runScan(env, options = {}) {
   partialSources.forEach(sid => aggregatePartialSources.add(sid));
 
   const next = {
-    last_scan: cycleComplete ? today : prev.last_scan || null,
-    last_scan_at: cycleComplete ? now : prev.last_scan_at || null,
+    last_scan: cycleComplete ? today : latest.last_scan || null,
+    last_scan_at: cycleComplete ? now : latest.last_scan_at || null,
     last_partial_scan_at: now,
     scan_cycle: {
       date: today,
@@ -2841,12 +2845,13 @@ async function maybeRefreshStaleJobs(env, ctx, data) {
 
   const shardIndex = nextIncompleteShard(data, todayUTC());
   const lockKey = `${STALE_SCAN_LOCK_KEY_PREFIX}:${todayUTC()}:${shardIndex}`;
+  const lockToken = crypto.randomUUID();
 
   try {
     const existingLock = await env.KV.get(lockKey);
     if (existingLock) return;
 
-    await env.KV.put(lockKey, new Date().toISOString(), {
+    await env.KV.put(lockKey, lockToken, {
       expirationTtl: STALE_SCAN_LOCK_TTL_SECONDS
     });
   } catch (error) {
@@ -2854,19 +2859,29 @@ async function maybeRefreshStaleJobs(env, ctx, data) {
     return;
   }
 
-  ctx.waitUntil(
-    runScan(env, { shardIndex })
-      .then(result => {
-        if (result.error) {
-          console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, ...result }));
-          return;
+  ctx.waitUntil((async () => {
+    let completed = false;
+    try {
+      const result = await runScan(env, { shardIndex });
+      if (result.error) {
+        console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, ...result }));
+        return;
+      }
+      await persistSuccessfulScan(env, result);
+      completed = true;
+    } catch (error) {
+      console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, message: error?.message || String(error) }));
+    } finally {
+      if (completed) {
+        try {
+          const currentLock = await env.KV.get(lockKey);
+          if (currentLock === lockToken) await env.KV.delete(lockKey);
+        } catch (error) {
+          console.error(JSON.stringify({ event: "stale_scan_unlock_failed", shardIndex, message: error?.message || String(error) }));
         }
-        return persistSuccessfulScan(env, result);
-      })
-      .catch(error => {
-        console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, message: error?.message || String(error) }));
-      })
-  );
+      }
+    }
+  })());
 }
 
 function countBy(postings, field) {

@@ -7,8 +7,10 @@ function createKV(initialState = { postings: {} }, initialJobs = null) {
   const store = new Map([["state", JSON.stringify(initialState)]]);
   if (initialJobs) store.set("jobs", JSON.stringify(initialJobs));
   const puts = [];
+  const deletes = [];
   return {
     puts,
+    deletes,
     async get(key, type) {
       const value = store.get(key) || null;
       if (type === "json") return value ? JSON.parse(value) : null;
@@ -17,6 +19,10 @@ function createKV(initialState = { postings: {} }, initialJobs = null) {
     async put(key, value) {
       puts.push({ key, value });
       store.set(key, value);
+    },
+    async delete(key) {
+      deletes.push(key);
+      store.delete(key);
     }
   };
 }
@@ -1626,6 +1632,48 @@ test("public jobs endpoint schedules stale payload refresh", async t => {
   assert.equal(payload.last_scan, null);
   assert.deepEqual(payload.scan_cycle.completed_shards, [0]);
   assert.ok(payload.postings.some(p => p.id === "greenhouse-hubspot-101"));
+  assert.ok(KV.deletes.some(key => key.startsWith("scan:stale-refresh-lock:")));
+});
+
+test("runScan merges shard completion recorded while another shard is running", async t => {
+  t.mock.method(globalThis, "fetch", mockFetch());
+  const today = new Date().toISOString().slice(0, 10);
+  const first = {
+    last_scan: null,
+    postings: {},
+    scan_cycle: { date: today, completed_shards: [1], total_shards: 5, complete: false }
+  };
+  const latest = {
+    ...first,
+    scan_cycle: { date: today, completed_shards: [1, 2], total_shards: 5, complete: false }
+  };
+  let stateReads = 0;
+  let savedState = null;
+  const KV = {
+    async get(key, type) {
+      if (key !== "state") return null;
+      const value = stateReads++ === 0 ? first : latest;
+      return type === "json" ? structuredClone(value) : JSON.stringify(value);
+    },
+    async put(key, value) {
+      if (key === "state") savedState = JSON.parse(value);
+    }
+  };
+
+  const result = await runScan({ KV }, { shardIndex: 0 });
+
+  assert.equal(result.error, undefined);
+  assert.deepEqual(savedState.scan_cycle.completed_shards, [0, 1, 2]);
+});
+
+test("homepage keeps scan failures and shard progress out of the public status", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const start = html.indexOf("function updateHeaderStatus");
+  const end = html.indexOf("function dynamicQueryKeyFromPayload", start);
+  const source = html.slice(start, end);
+
+  assert.match(source, /jobs · refreshed daily/);
+  assert.doesNotMatch(source, /refresh in progress|last complete refresh|completed_shards/);
 });
 
 test("json responses include production security headers", async () => {
