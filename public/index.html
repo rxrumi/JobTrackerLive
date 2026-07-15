@@ -1134,7 +1134,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   </div>
   <div class="dashboard-metrics" aria-label="Job search overview">
     <div class="metric-card"><strong id="metric-live">—</strong><span>Live roles</span></div>
-    <div class="metric-card"><strong id="metric-new">—</strong><span>New this week</span></div>
+    <div class="metric-card"><strong id="metric-new">—</strong><span>Added this week</span></div>
     <div class="metric-card"><strong id="metric-visa">—</strong><span>Strong visa</span></div>
   </div>
 </section>
@@ -1243,7 +1243,7 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
 <nav class="pagination-bar" id="pagination-bottom" aria-label="Jobs pages" hidden></nav>
 
 <details class="legend-details">
-  <summary>What these labels mean</summary>
+  <summary><span class="legend-help-icon" aria-hidden="true">?</span> What these labels mean</summary>
   <div class="legend">
     <strong>Company</strong> describes the employer category, such as Big Tech, Scale-up, or Growth SaaS.
     <strong>Function</strong> describes the job's main area of work.
@@ -1253,10 +1253,10 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
   </div>
 </details>
 
-<section class="methodology-note" aria-labelledby="methodology-title">
-  <h2 id="methodology-title">Tracking Methodology</h2>
+<details class="methodology-note">
+  <summary>Tracking Methodology</summary>
   <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the United States, UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, New Zealand, France, Italy, Poland, Belgium, Finland, Austria, Japan, South Korea, India, and Taiwan, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
-</section>
+</details>
 </main>
 
 <nav class="mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Mobile navigation">
@@ -1833,6 +1833,7 @@ let CLERK_SIGN_UP_URL = '';
 let CLERK_CLIENT = null;
 let CLERK_READY_PROMISE = null;
 let ACTIVE_REFRESH_TIMER = null;
+let ACTIVE_FILTERS_EXPANDED = false;
 let PROFILE_FILTERS_APPLIED = false;
 let PROFILE_FILTERS_RELAXED = false;
 let PROFILE_FILTERS_RELAXED_FIELDS = [];
@@ -2758,7 +2759,7 @@ function renderFilterOptions(countryCounts = countryCountsForFilters()) {
     filterOption('tier', 'GrowthSaaS', 'Growth SaaS')
   ]));
   quickEl.appendChild(filterSection('Tags', [
-    presetOption('new', 'New'),
+    presetOption('new', 'Added recently'),
     presetOption('starred', 'Starred')
   ]));
   updateFilterBadges();
@@ -3225,21 +3226,15 @@ function renderJobDetail(j) {
     ? 'This is a curated company career-page target, not a confirmed live vacancy.'
     : j.is_filled
       ? 'This posting is no longer listed by the source.'
-      : 'This is a confirmed live posting from a public company career feed.';
+      : '';
   panel.innerHTML = `
     ${logo ? `<img class="job-detail-logo" src="${escapeHTML(logo)}" alt="" loading="lazy">` : `<div class="job-detail-logo company-logo-placeholder" aria-hidden="true">${escapeHTML(companyInitials(j.company))}</div>`}
     <div class="job-detail-company">${escapeHTML(j.company)}</div>
     <h3 class="job-detail-title">${escapeHTML(j.role)}</h3>
     <div class="job-detail-location">${escapeHTML(locations.join(' · '))} <span aria-hidden="true">·</span> ${escapeHTML(listingStateLabel(j))}</div>
     <div class="job-detail-badges">${explicitSignalsHTML(j, 'detail')}</div>
-    <div class="job-detail-section">
-      <h3>Listing information</h3>
-      <p>${escapeHTML(listingInformation)}</p>
-    </div>
-    <div class="job-detail-section">
-      <h3>Before you apply</h3>
-      <p>Confirm sponsorship and location eligibility in the job description. Visa signals are prioritization guidance, not a guarantee.</p>
-    </div>
+    <p class="job-detail-guidance">Visa sponsorship is company-level guidance, not a guarantee. Confirm eligibility in the job description.</p>
+    ${listingInformation ? `<div class="job-detail-section"><h3>Listing status</h3><p>${escapeHTML(listingInformation)}</p></div>` : ''}
     <div class="job-detail-actions">${applyButtonHTML(j)}${starHTML(j.id)}</div>`;
 }
 
@@ -3353,7 +3348,7 @@ function activeFilterSummary() {
   labels.push(...state.family);
   labels.push(...state.seniority);
   labels.push(...state.visa);
-  labels.push(...[...state.presets].map(value => ({ senior: 'Senior+', 'strong-visa': 'Strong visa', new: 'New', starred: 'Starred' }[value] || value)));
+  labels.push(...[...state.presets].map(value => ({ senior: 'Senior+', 'strong-visa': 'Strong visa', new: 'Added recently', starred: 'Starred' }[value] || value)));
   return labels;
 }
 
@@ -3369,7 +3364,7 @@ function renderActiveFilters() {
   const labels = {
     country: value => COUNTRY_NAMES[value] || value,
     tier: value => TIER_LABELS[value] || value,
-    presets: value => ({ senior: 'Senior+ only', 'strong-visa': 'Strong visa', new: 'New this week', starred: 'Starred' }[value] || value)
+    presets: value => ({ senior: 'Senior+ only', 'strong-visa': 'Strong visa', new: 'Added this week', starred: 'Starred' }[value] || value)
   };
   ['niche', 'country', 'tier', 'family', 'seniority', 'visa', 'presets'].forEach(group => {
     state[group].forEach(value => items.push({ group, value, label: labels[group] ? labels[group](value) : value }));
@@ -3378,7 +3373,9 @@ function renderActiveFilters() {
   if (!items.length) {
     container.innerHTML = '<span class="active-filter-empty">All opportunities are visible. Add filters to focus your search.</span>';
   } else {
-    items.forEach(item => {
+    const visibleLimit = 5;
+    const visibleItems = ACTIVE_FILTERS_EXPANDED ? items : items.slice(0, visibleLimit);
+    visibleItems.forEach(item => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'active-filter-chip';
@@ -3395,6 +3392,18 @@ function renderActiveFilters() {
       };
       container.appendChild(button);
     });
+    if (items.length > visibleLimit) {
+      const overflowButton = document.createElement('button');
+      overflowButton.type = 'button';
+      overflowButton.className = 'active-filter-overflow';
+      overflowButton.textContent = ACTIVE_FILTERS_EXPANDED ? 'Show fewer' : `+${items.length - visibleLimit} more`;
+      overflowButton.setAttribute('aria-expanded', String(ACTIVE_FILTERS_EXPANDED));
+      overflowButton.onclick = () => {
+        ACTIVE_FILTERS_EXPANDED = !ACTIVE_FILTERS_EXPANDED;
+        renderActiveFilters();
+      };
+      container.appendChild(overflowButton);
+    }
   }
 
   const saveButton = document.getElementById('save-search-btn');

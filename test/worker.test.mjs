@@ -2715,5 +2715,9 @@ test("job cards and details use self-explanatory signals", () => {
   assert.match(html, /stronger company-level sponsorship history or international hiring signals\. Sponsorship is not guaranteed\./);
   assert.match(html, /some company-level sponsorship history or international hiring signals\. Sponsorship is not guaranteed\./);
   assert.match(html, /No reliable company-level sponsorship signal is currently known\./);
-  assert.match(html, /<summary>What these labels mean<\/summary>/);
+  assert.match(html, /<summary><span class="legend-help-icon"[^>]*>\?<\/span> What these labels mean<\/summary>/);
+  assert.match(html, /<span>Added this week<\/span>/);
+  assert.match(html, /className = 'active-filter-overflow'/);
+  assert.match(html, /job-detail-guidance/);
+  assert.doesNotMatch(html.slice(html.indexOf('function renderJobDetail'), html.indexOf('function pipelineItemHTML')), /Before you apply/);
 });
