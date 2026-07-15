@@ -1635,6 +1635,7 @@ const VIEW_MODE_KEY = 'livejobindex_view_mode';
 const SAVED_SEARCH_KEY = 'livejobindex_saved_search';
 let SELECTED_JOB_ID = null;
 let INITIAL_FEED_LOADING = true;
+let DISPLAY_CARD_ROWS = [];
 
 function normalizeTier(tier) {
   return tier === 'Ecosystem' ? 'GrowthSaaS' : (tier || 'BigTech');
@@ -1764,9 +1765,15 @@ function companyLogoURL(j) {
   return domain ? `https://www.google.com/s2/favicons?sz=96&domain_url=${encodeURIComponent(domain)}` : '';
 }
 
+function companyInitials(name) {
+  const words = String(name || '').replace(/[^a-z0-9 ]/gi, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 'CO';
+  return `${words[0][0] || ''}${words.length > 1 ? words[words.length - 1][0] || '' : words[0][1] || ''}`.toUpperCase();
+}
+
 function companyLogoHTML(j) {
   const src = companyLogoURL(j);
-  if (!src) return '<span class="company-logo-placeholder" aria-hidden="true"></span>';
+  if (!src) return `<span class="company-logo-placeholder" aria-hidden="true">${escapeHTML(companyInitials(j.company))}</span>`;
   return `<img class="company-logo" src="${escapeHTML(src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true" onerror="this.style.visibility='hidden'">`;
 }
 
@@ -3126,6 +3133,27 @@ function rowHTML(j) {
   </tr>`;
 }
 
+function groupCardRows(rows) {
+  const groups = new Map();
+  rows.forEach(j => {
+    const key = [
+      String(j.company || '').toLowerCase(),
+      String(j.role || '').toLowerCase(),
+      safeExternalURL(j.apply),
+      loadStatus(j.id),
+      loadStar(j.id) ? 'starred' : 'unstarred',
+      j.is_static ? 'target' : 'live'
+    ].join('\u0001');
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { ...j, groupedLocations: [j.location] });
+      return;
+    }
+    if (!existing.groupedLocations.includes(j.location)) existing.groupedLocations.push(j.location);
+  });
+  return [...groups.values()];
+}
+
 function cardHTML(j) {
   const newBadge = j.is_new ? `<span class="new-badge">NEW</span>` : '';
   const filledBadge = j.is_filled ? `<span class="filled-badge">FILLED</span>` : '';
@@ -3134,6 +3162,10 @@ function cardHTML(j) {
   const cardCls = (j.is_new ? 'is-new ' : '') + (j.is_filled ? 'is-filled ' : '') + (isViewed ? 'is-viewed' : '');
   const note = compactNote(j.notes || '');
   const viewedTime = isViewed ? `<span class="meta-text" title="Opened ${escapeHTML(loadViewedAt(j.id))}">Opened ${escapeHTML(formatTimeAgo(loadViewedAt(j.id)))}</span>` : '';
+  const locations = j.groupedLocations?.length ? j.groupedLocations : [j.location];
+  const locationHTML = locations.length > 1
+    ? `<span class="job-location-list" aria-label="${locations.length} locations">${locations.map(location => `<span class="job-location-chip">${escapeHTML(location)}</span>`).join('')}</span>`
+    : `<span>${escapeHTML(locations[0])}</span>`;
   return `<article class="job-card ${cardCls.trim()} ${String(SELECTED_JOB_ID) === String(j.id) ? 'selected' : ''}" data-job-id="${escapeHTML(j.id)}" tabindex="0">
     <div class="job-card-main">
       <div class="job-card-company">
@@ -3144,7 +3176,7 @@ function cardHTML(j) {
         </div>
       </div>
       <div class="job-card-meta">
-        <span>${escapeHTML(j.location)}</span>
+        ${locationHTML}
         <span>${escapeHTML(j.is_static ? 'Curated target' : (j.is_new ? 'New this week' : 'Active listing'))}</span>
         ${viewedTime ? `<span>${viewedTime}</span>` : ''}
       </div>
@@ -3166,13 +3198,14 @@ function renderJobDetail(j) {
     return;
   }
   const logo = companyLogoURL(j);
+  const locations = j.groupedLocations?.length ? j.groupedLocations : [j.location];
   const source = j.is_static ? 'Curated company target' : 'Confirmed live posting';
   const freshness = j.is_filled ? 'This posting is no longer listed.' : j.is_new ? 'First seen within the last seven days.' : 'Currently active in the source feed.';
   panel.innerHTML = `
-    ${logo ? `<img class="job-detail-logo" src="${escapeHTML(logo)}" alt="" loading="lazy">` : '<div class="job-detail-logo"></div>'}
+    ${logo ? `<img class="job-detail-logo" src="${escapeHTML(logo)}" alt="" loading="lazy">` : `<div class="job-detail-logo company-logo-placeholder" aria-hidden="true">${escapeHTML(companyInitials(j.company))}</div>`}
     <div class="job-detail-company">${escapeHTML(j.company)}</div>
     <h3 class="job-detail-title">${escapeHTML(j.role)}</h3>
-    <div class="job-detail-location">${escapeHTML(j.location)}</div>
+    <div class="job-detail-location">${escapeHTML(locations.join(' · '))}</div>
     <div class="job-detail-badges">${companyTypeCellHTML(j)}${functionCellHTML(j)}${visaSignalCellHTML(j)}</div>
     <div class="job-detail-section">
       <h3>${escapeHTML(source)}</h3>
@@ -3433,10 +3466,11 @@ function render() {
   wrap.style.display = '';
   cards.style.display = '';
   pipelineView.hidden = true;
-  if (!pageRows.some(j => String(j.id) === String(SELECTED_JOB_ID))) SELECTED_JOB_ID = pageRows[0]?.id || null;
+  DISPLAY_CARD_ROWS = groupCardRows(pageRows);
+  if (!DISPLAY_CARD_ROWS.some(j => String(j.id) === String(SELECTED_JOB_ID))) SELECTED_JOB_ID = DISPLAY_CARD_ROWS[0]?.id || null;
   tbody.innerHTML = pageRows.map(rowHTML).join('');
-  cards.innerHTML = pageRows.map(cardHTML).join('');
-  renderJobDetail(pageRows.find(j => String(j.id) === String(SELECTED_JOB_ID)) || pageRows[0] || null);
+  cards.innerHTML = DISPLAY_CARD_ROWS.map(cardHTML).join('');
+  renderJobDetail(DISPLAY_CARD_ROWS.find(j => String(j.id) === String(SELECTED_JOB_ID)) || DISPLAY_CARD_ROWS[0] || null);
   renderPagination(paginationTotal, totalPages);
   wireRowHandlers();
 
@@ -3452,7 +3486,7 @@ function wireRowHandlers() {
       SELECTED_JOB_ID = card.dataset.jobId;
       document.querySelectorAll('.job-card.selected').forEach(item => item.classList.remove('selected'));
       card.classList.add('selected');
-      renderJobDetail(JOBS.find(j => String(j.id) === String(SELECTED_JOB_ID)) || null);
+      renderJobDetail(DISPLAY_CARD_ROWS.find(j => String(j.id) === String(SELECTED_JOB_ID)) || JOBS.find(j => String(j.id) === String(SELECTED_JOB_ID)) || null);
       wireRowHandlers();
     };
     card.onclick = (e) => {
