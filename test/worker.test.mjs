@@ -325,6 +325,19 @@ test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk J
   assert.match(source, /showAuth\(err\.message \|\| 'Sign-in could not be started\. Try again\.', isProtectedRoute\(\)\);/);
 });
 
+test("homepage keeps signed-out controls hidden until the Clerk session resolves", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const initStart = html.indexOf("async function init()");
+  const initSource = html.slice(initStart);
+
+  assert.match(html, /id="header-login-btn" type="button" hidden>Login<\/button>/);
+  assert.match(html, /id="header-signup-btn" type="button" hidden>Sign up<\/button>/);
+  assert.match(html, /let AUTH_RESOLVED = false;/);
+  assert.match(html, /finally \{\s*AUTH_RESOLVED = true;\s*syncResolvedAuthHeader\(\);\s*\}/);
+  assert.ok(initSource.indexOf("const mePromise = ME ? Promise.resolve(ME) : loadMe();") < initSource.indexOf("fetch(`/api/jobs?industry="));
+  assert.match(initSource, /const me = await mePromise;/);
+});
+
 test("homepage defaults signed-out theme to the light cobalt system and exposes a clear mode toggle", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 

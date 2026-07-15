@@ -657,8 +657,8 @@ tbody tr.is-viewed:hover { opacity: 0.85; }
     <button class="industry-btn" type="button" data-industry="engineering">Engineering</button>
   </div>
   <div class="header-actions">
-    <button class="secondary-btn" id="header-login-btn" type="button">Login</button>
-    <button class="primary-btn" id="header-signup-btn" type="button">Sign up</button>
+    <button class="secondary-btn" id="header-login-btn" type="button" hidden>Login</button>
+    <button class="primary-btn" id="header-signup-btn" type="button" hidden>Sign up</button>
     <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch theme">Dark mode</button>
     <div class="profile-menu" id="profile-menu" hidden>
       <button class="account-pill" id="account-pill" type="button" aria-expanded="false" aria-controls="profile-dropdown"></button>
@@ -1840,6 +1840,7 @@ let PROFILE_FILTERS_RELAXED_FIELDS = [];
 let PROFILE_FILTERS_FORCE_NEXT = false;
 let JOB_QUERY_SEQUENCE = 0;
 let AUTH_LOAD_ERROR = '';
+let AUTH_RESOLVED = false;
 let ACCOUNT_TYPE_SAVE_PROMISE = null;
 let ACCOUNT_TYPE_SAVE_ERROR = '';
 const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/insights']);
@@ -3868,6 +3869,19 @@ function hideAuth() {
   updateAuthTabs();
 }
 
+function syncResolvedAuthHeader() {
+  if (!AUTH_RESOLVED) return;
+  if (ME?.user) {
+    syncAccountHeader();
+    return;
+  }
+  document.getElementById('account-pill').hidden = true;
+  document.getElementById('profile-menu').hidden = true;
+  document.getElementById('logout-btn').hidden = true;
+  document.getElementById('header-login-btn').hidden = isProtectedRoute();
+  document.getElementById('header-signup-btn').hidden = isProtectedRoute();
+}
+
 function showPublicDashboard(route = '/') {
   hideAuth();
   CURRENT_ROUTE = route;
@@ -3879,8 +3893,9 @@ function showPublicDashboard(route = '/') {
   document.getElementById('account-pill').hidden = true;
   document.getElementById('profile-menu').hidden = true;
   document.getElementById('logout-btn').hidden = true;
-  document.getElementById('header-login-btn').hidden = false;
-  document.getElementById('header-signup-btn').hidden = false;
+  document.getElementById('header-login-btn').hidden = true;
+  document.getElementById('header-signup-btn').hidden = true;
+  syncResolvedAuthHeader();
   document.querySelector('.subtitle').textContent = 'Explore active, real-time career opportunities at the world’s leading tech enterprises.';
   closeProfileDropdown();
   updateAuthTabs();
@@ -4587,6 +4602,9 @@ async function loadMe() {
       ? 'Your account could not be loaded. Please retry; your saved setup has not been removed.'
       : '';
     return null;
+  } finally {
+    AUTH_RESOLVED = true;
+    syncResolvedAuthHeader();
   }
 }
 
@@ -4867,6 +4885,7 @@ async function init() {
 
   await loadPublicConfig();
   const oauthError = await handleOAuthCallbackFromUrl();
+  const mePromise = ME ? Promise.resolve(ME) : loadMe();
   const needsFilteredStartupPage = hasActiveControls();
 
   try {
@@ -4907,7 +4926,7 @@ async function init() {
     }
   }
 
-  const me = ME || await loadMe();
+  const me = await mePromise;
   if (!me) {
     const visibleAuthError = oauthError || authError || AUTH_LOAD_ERROR;
     if (visibleAuthError) showAuth(visibleAuthError, isProtectedRoute());
