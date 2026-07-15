@@ -283,6 +283,9 @@ table { border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--
 .job-card:hover { transform: translateY(-1px); background: var(--card); border-color: #bdcbdf; box-shadow: 0 12px 28px rgba(28, 43, 69, .09); }
 .job-card.selected { border-color: color-mix(in srgb, var(--accent) 62%, var(--border)); box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-card); }
 .job-card.is-new { border-left: 1px solid var(--border-soft); }
+.job-card.is-new:hover { border-left-color: #bdcbdf; }
+.job-card.is-new.selected,
+.job-card.is-new.selected:hover { border-left-color: color-mix(in srgb, var(--accent) 62%, var(--border)); }
 .job-card.is-filled, .job-card.is-viewed { opacity: .76; }
 .job-card-main { min-width: 0; }
 .job-card-company { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 11px; align-items: center; }
