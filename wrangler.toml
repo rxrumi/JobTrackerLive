@@ -56,7 +56,7 @@ REQUIRE_AI_GATEWAY = "true"
 RESUME_EMAIL_FROM = "updates@livejobindex.com"
 
 [triggers]
-crons = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *", "7 * * * *"]
+crons = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *"]
 
 [assets]
 directory = "./public"
