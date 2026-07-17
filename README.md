@@ -1,6 +1,6 @@
-# Live Job Index
+# Live Jobs Index
 
-Live Job Index is a cloud-hosted job-search tracker for finding visa-aware technology and engineering roles abroad. It combines curated company targets with a daily automated scan of public ATS job boards, diffs against KV state, persists app data and scan analytics to Cloudflare D1, and serves a static HTML UI that merges curated entries with the dynamic feed.
+Live Jobs Index is a cloud-hosted job-search tracker for finding visa-aware technology and engineering roles abroad. It combines curated company targets with a daily automated scan of public ATS job boards, diffs against KV state, persists app data and scan analytics to Cloudflare D1, and serves a static HTML UI that merges curated entries with the dynamic feed.
 
 Built for **Sohaib "King" Kazmi** — Dubai-based BizOps Manager / RevOps consultant looking to relocate into international RevOps, BizOps, Sales Ops, Marketing Ops, GTM Ops, strategy, operations, and broader technology-company roles.
 
@@ -19,6 +19,7 @@ Instead of repeatedly checking dozens of careers pages, the tracker:
 - Scores roles using visa likelihood, seniority, and freshness.
 - Persists account data, saved jobs, tracking events, and scan analytics to Cloudflare D1.
 - Gives one place to search, filter, save, star, and track application status.
+- Provides an individual-account Resume Studio for verified career evidence, multiple master résumés, job-specific résumé/email packs, ATS diagnostics, private PDF/DOCX exports, daily match notifications, and future-ready credit accounting.
 - Focuses on relocation-friendly countries and technology or engineering companies with a realistic sponsorship or international-hiring profile.
 - Lets the user switch between `Tech` and `Engineering` feeds, with engineering sub-niches for infrastructure, construction, aerospace, semiconductors, hardware, robotics, automotive, and industrial technology.
 
@@ -50,6 +51,7 @@ Cloudflare Worker: job-tracker
 │   ├── POST /api/auth/session -> legacy route, returns 410 Clerk migration message
 │   ├── POST /api/logout       -> returns ok; frontend signs out through Clerk
 │   ├── GET /api/me            -> authenticated user + profile + access
+│   ├── DELETE /api/me         -> confirmed account, Workflow, private R2, Clerk, and D1 cleanup
 │   ├── PATCH /api/onboarding/account-type     -> set individual or agency
 │   ├── PATCH /api/onboarding/individual-profile -> save individual profile
 │   ├── PATCH /api/onboarding/agency-profile   -> save agency profile
@@ -119,6 +121,10 @@ Configured Cloudflare resources live in `wrangler.toml`:
 ├── package.json           # npm scripts, Wrangler, Clerk dependency
 ├── wrangler.toml          # Cloudflare Worker, assets, KV, D1, cron, routes
 ├── migrations/            # D1 migrations
+├── docs/
+│   └── resume-studio-runbook.md # Resume Studio provisioning, rollout, and release checks
+├── renderer/              # Private Cloudflare Container service (DOCX, LibreOffice PDF, Poppler/PDF QA)
+├── workflow/              # Durable Resume Studio build Workflow
 ├── public/
 │   ├── index.html         # Self-contained HTML, CSS, and browser JS (SPA)
 │   ├── privacy.html       # Privacy policy page
@@ -130,9 +136,12 @@ Configured Cloudflare resources live in `wrangler.toml`:
 │   ├── favicon.ico        # Favicon
 │   └── assets/            # Logo, OG image, favicons
 ├── src/
-│   └── worker.js          # Worker routes, cron handler, scanner, scoring, auth, analytics
+│   ├── worker.js          # Worker routes, cron handler, scanner, auth, analytics
+│   ├── resume-core.js     # Deterministic scoring, file validation, claim and ATS checks
+│   └── resume-studio.js   # Tenant APIs, credits, notifications, AI orchestration, artifact access
 └── test/
-    └── worker.test.mjs    # Node test suite
+    ├── worker.test.mjs    # Existing Worker and scanner suite
+    └── resume-studio.test.mjs # Resume Studio formulas, validation, claims, schema/cascade tests
 ```
 
 ## Runtime Stack
@@ -146,6 +155,7 @@ Configured Cloudflare resources live in `wrangler.toml`:
 - Plain HTML, CSS, and JavaScript for the frontend SPA.
 - Node's built-in `node:test` runner for tests.
 - `@clerk/backend` for Worker-side Clerk session verification.
+- Cloudflare R2, Queues, Workflows, a private Container renderer, AI Gateway, and Email Sending for the feature-flagged Resume Studio.
 
 There is no separate backend server, frontend build step, or local scanner.
 
@@ -153,7 +163,15 @@ There is no separate backend server, frontend build step, or local scanner.
 
 ### `GET /`
 
-Serves `public/index.html` through the Worker's assets binding. All paths not matching a known API route, SEO page, legal page, or crawler file fall through to this SPA entry point. The SPA handles client-side routing for `/`, `/visa-roles`, `/profile`, `/onboarding`, `/pipeline`, `/history`, `/insights`.
+Serves `public/index.html` through the Worker's assets binding. All paths not matching a known API route, SEO page, legal page, or crawler file fall through to this SPA entry point. The SPA handles client-side routing for `/`, `/visa-roles`, `/profile`, `/onboarding`, `/pipeline`, `/history`, `/insights`, and the protected individual-account `/resumes` Studio.
+
+## Resume Studio v1
+
+Resume Studio imports private PDF/DOCX sources into an unverified career-evidence bank, supports multiple ATS-safe master profiles, hydrates confirmed job descriptions only when needed, generates evidence-cited canonical résumé/email JSON, runs a separate claim audit, and renders selectable-text PDF plus editable DOCX files in a private Container. Downloads are available only after claim and artifact QA pass.
+
+Application packs follow the durable state sequence from `QUEUED` through `READY`, with terminal `NEEDS_EVIDENCE`, `NEEDS_REVIEW`, `JOB_CLOSED`, and `FAILED` outcomes. One `application_pack` credit covers a résumé, three email variants, diagnostics, exports, and up to three reserved AI revision requests. Grants and usage are append-only so later subscriptions or top-ups can create entitlements without replacing the ledger.
+
+All feature flags default off. See [docs/resume-studio-runbook.md](docs/resume-studio-runbook.md) for resources, deployment order, AI Gateway privacy configuration, email-domain prerequisites, rollout, credit reconciliation, and release checks.
 
 ### SEO Pillar Pages: `GET /jobs`, `/visa-roles`, `/pipeline`, `/insights`
 
@@ -495,6 +513,10 @@ npx wrangler secret put CLERK_JWT_KEY
 npx wrangler secret put CLERK_SIGN_IN_URL
 npx wrangler secret put CLERK_SIGN_UP_URL
 npx wrangler secret put ANALYTICS_ALLOWED_EMAILS
+npx wrangler secret put RESUME_STUDIO_ALLOWED_USERS
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put AI_GATEWAY_URL
+npx wrangler secret put AI_GATEWAY_TOKEN
 ```
 
 3. Trigger the five shards for the first complete scan:
@@ -529,7 +551,7 @@ curl "https://boards-api.greenhouse.io/v1/boards/<token>/jobs?content=false" | j
 
 ## Tests
 
-The test suite (83 tests) covers:
+The test suite (100+ tests) covers:
 
 - Location matching (lowercase, country-hint, multi-city)
 - Visa classification and company aliases
@@ -624,10 +646,11 @@ For engineering companies, add the entry to `ENGINEERING_STATIC_COMPANIES` and i
 - Proprietary, JavaScript-rendered, login-gated, and bot-protected careers sites are not scanned.
 - Static target entries are not live postings.
 - Visa classification is heuristic and company-level, not posting-level.
-- Role matching is title-based; job descriptions are not fetched.
+- The normal scan remains title-based. Resume Studio hydrates supported live job descriptions lazily for matching and builds; unsupported pages require pasted text.
 - Page 2+ of job results requires Clerk sign-in.
 - KV is eventually consistent, so very recent writes may take a short time to propagate.
-- Cloudflare Email Service is configured as a binding but no email digest is implemented yet.
+- Daily digest code and binding are implemented but disabled until `livejobindex.com` Email Sending onboarding, sender authentication, DMARC review, and manual delivery verification are complete.
+- Resume Studio and all daily/automatic behaviors are feature-flagged off by default; the private renderer also requires a Docker-built Cloudflare Container deployment.
 - The app is optimized for low personal usage, not high-volume public traffic.
 
 ## Future Improvements

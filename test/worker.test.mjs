@@ -161,7 +161,7 @@ function createAssets() {
       if (url.pathname === "/") {
         return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
       }
-      if (url.pathname === "/profile" || url.pathname === "/onboarding" || url.pathname === "/history" || url.pathname === "/auth/callback") {
+      if (url.pathname === "/profile" || url.pathname === "/onboarding" || url.pathname === "/history" || url.pathname === "/resumes" || url.pathname === "/auth/callback") {
         return new Response("<!DOCTYPE html><title>Live Job Index</title>", { headers: { "content-type": "text/html" } });
       }
       return new Response("missing", { status: 404 });
@@ -218,18 +218,21 @@ test("protected SPA routes resolve through static asset fallback with trust head
 
   const profileResponse = await worker.fetch(new Request("https://livejobindex.com/profile"), { ASSETS });
   const onboardingResponse = await worker.fetch(new Request("https://livejobindex.com/onboarding"), { ASSETS });
+  const resumesResponse = await worker.fetch(new Request("https://livejobindex.com/resumes"), { ASSETS });
   const historyResponse = await worker.fetch(new Request("https://livejobindex.com/history"), { ASSETS });
 
   assert.equal(profileResponse.status, 200);
   assert.match(await profileResponse.text(), /Live Job Index/);
   assert.equal(profileResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
   assert.equal(onboardingResponse.status, 200);
+  assert.equal(resumesResponse.status, 200);
+  assert.match(await resumesResponse.text(), /Live Job Index/);
   assert.match(await onboardingResponse.text(), /Live Job Index/);
   assert.equal(onboardingResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
   assert.equal(historyResponse.status, 200);
   assert.match(await historyResponse.text(), /Live Job Index/);
   assert.equal(historyResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
-  assert.deepEqual(ASSETS.requests, ["/profile", "/onboarding", "/history"]);
+  assert.deepEqual(ASSETS.requests, ["/profile", "/onboarding", "/resumes", "/history"]);
 });
 
 test("public SEO pillar routes render crawlable metadata from Worker", async () => {
@@ -265,7 +268,7 @@ test("public SEO pillar routes render crawlable metadata from Worker", async () 
 test("homepage source exposes legal discovery links and structured data", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-  assert.match(html, /Live Job Index: Find Active Openings at Top Global Tech Companies/);
+  assert.match(html, /Live Jobs Index: Find Active Openings at Top Global Tech Companies/);
   assert.match(html, /Find real-time openings at the world's leading tech companies/);
   assert.doesNotMatch(html, /<nav class="public-nav" aria-label="Product pages">/);
   assert.match(html, /<nav class="tabs" id="tabs">/);
@@ -308,7 +311,7 @@ test("sitemap source includes public SEO pillar routes", () => {
 test("homepage source includes routed profile and onboarding handling", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/visa-roles', '\/profile', '\/onboarding', '\/pipeline', '\/history', '\/insights'\]\)/);
+  assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/visa-roles', '\/profile', '\/onboarding', '\/pipeline', '\/history', '\/insights', '\/resumes'\]\)/);
   assert.match(html, /function applyRoute\(\)/);
   assert.match(html, /navigateTo\('\/profile'\)/);
   assert.doesNotMatch(html, /account-pill'\)\.onclick = showProfilePanel/);
@@ -349,8 +352,8 @@ test("homepage defaults signed-out theme to the light cobalt system and exposes 
   assert.match(html, /<html lang="en" data-theme="light" data-brand-theme="cobalt">/);
   assert.match(html, /var brandTheme = 'cobalt'/);
   assert.match(html, /const DEFAULT_BRAND_THEME = 'cobalt'/);
-  assert.match(html, /<button class="theme-toggle" id="theme-toggle"[^>]*>Dark mode<\/button>/);
-  assert.match(html, /btn\.textContent = next === 'graphite' \? 'Dark mode' : 'Light mode'/);
+  assert.match(html, /<button class="theme-toggle" id="theme-toggle"[^>]*>☾<\/button>/);
+  assert.match(html, /btn\.textContent = next === 'graphite' \? '☾' : '☀'/);
   assert.match(html, /const BRAND_THEME_SEQUENCE = \['cobalt', 'graphite'\]/);
   assert.doesNotMatch(html, /<button class="brand-theme-btn"[^>]*data-brand-theme="aurora"/);
 });

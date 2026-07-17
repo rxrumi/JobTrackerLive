@@ -61,13 +61,17 @@ footer { margin-top: 18px; color: var(--muted); font-size: 13px; display: grid; 
   </a>
   <main>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: June 3, 2026</p>
+    <p class="updated">Last updated: July 17, 2026</p>
 
     <p>Live Job Index is operated by Sohaib Kazmi. This policy explains what information the service collects, how it is used, and the choices available to users.</p>
 
     <h2>Information We Collect</h2>
     <p>When you create an account or sign in, we collect your email address, name if provided by you or your Google account, authentication identifiers, and session information needed to keep you signed in. If you complete onboarding, we store the profile details you submit, such as target roles, countries, seniority, visa needs, work preferences, and optional links.</p>
     <p>When you use the tracker, we store job statuses, starred jobs, notes, timestamps, and basic activity events needed to operate your personal pipeline.</p>
+
+    <h2>Résumé Studio and AI Processing</h2>
+    <p>If you use Résumé Studio, we collect the PDF or DOCX files you upload, career evidence you add or verify, master résumé settings, pasted job descriptions and URLs, generated résumé and email drafts, claim-audit results, versions, exported files, notification preferences, and usage records. Files and generated artifacts are stored in private Cloudflare storage and are delivered only through authenticated account endpoints.</p>
+    <p>Résumé and job content may be sent to OpenAI through Cloudflare AI Gateway to extract structured evidence, analyze job requirements, draft content, and audit claims. Requests are configured not to be stored by the model provider. Source files uploaded temporarily to the provider are deleted after extraction, including after failed extraction attempts. Live Job Index does not intentionally include résumé text, evidence, job-description text, or generated email bodies in application logs.</p>
 
     <h2>Google Sign-In</h2>
     <p>If you sign in with Google, Google shares basic profile information such as your name and email address with Clerk so Live Job Index can create or access your account. The app does not request access to your Gmail, Drive, Calendar, contacts, or other Google account data.</p>
@@ -80,14 +84,20 @@ footer { margin-top: 18px; color: var(--muted); font-size: 13px; display: grid; 
       <li>To authenticate users and maintain account sessions.</li>
       <li>To save onboarding, profile, job status, notes, and pipeline state.</li>
       <li>To operate and improve the job tracker and its public job feed.</li>
+      <li>To create user-requested résumé and email drafts, validate evidence citations, render files, and perform quality checks.</li>
+      <li>To recommend new job matches and, only when you opt in, prepare a limited number of automatic application packs.</li>
+      <li>To send opted-in transactional daily digests and build-status notifications. Résumé Studio never sends job outreach emails.</li>
       <li>To protect the service from misuse and debug reliability issues.</li>
     </ul>
 
     <h2>Service Providers</h2>
-    <p>The service uses Clerk for authentication, Cloudflare for hosting, KV storage, and D1 account data, and Google Analytics for usage measurement. These providers process data according to their own terms and privacy policies.</p>
+    <p>The service uses Clerk for authentication; Cloudflare for hosting, D1, KV, private R2 storage, queues, workflows, document-rendering containers, AI Gateway, and transactional email; OpenAI for configured AI processing; and Google Analytics for usage measurement. These providers process data according to their own terms and privacy policies.</p>
 
     <h2>Data Retention</h2>
-    <p>Account and pipeline data is kept while your account remains active or while it is needed to provide the service. You may request deletion of your account data by contacting the operator.</p>
+    <p>Account, pipeline, résumé, evidence, build, artifact, and usage data is kept while your account remains active or while it is needed to provide the service. Deleting a résumé source removes its stored file; verified facts retained independently remain until you delete them. You may delete supported Résumé Studio records in the product or request deletion of your account data and private stored files by contacting the operator.</p>
+
+    <h2>Notifications and Choices</h2>
+    <p>In-app recommendations are created only for enabled build rules. Daily email digests are optional and can be disabled in Résumé Studio notification settings. Digest messages link back to the service and include account-level notification controls.</p>
 
     <h2>Contact</h2>
     <p>For privacy questions or data requests, contact Sohaib Kazmi through the contact channel used to provide access to Live Job Index.</p>

@@ -1,0 +1,42 @@
+name = "job-tracker-resume-workflow"
+main = "src/index.js"
+compatibility_date = "2026-07-14"
+workers_dev = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "job-tracker-app-db"
+database_id = "d0b81077-9b5d-425a-a821-979375f63e89"
+
+[[r2_buckets]]
+binding = "RESUME_FILES"
+bucket_name = "job-tracker-resume-files"
+
+[[queues.producers]]
+binding = "RESUME_DLQ"
+queue = "job-tracker-resume-jobs-dlq"
+
+[[services]]
+binding = "RESUME_RENDERER"
+service = "job-tracker-resume-renderer"
+
+[[workflows]]
+binding = "RESUME_BUILD_WORKFLOW"
+name = "job-tracker-resume-build"
+class_name = "ResumeBuildWorkflow"
+
+[vars]
+RESUME_MODEL = "gpt-5.6-sol"
+RESUME_AI_MODE = "live"
+REQUIRE_AI_GATEWAY = "true"
+
+[observability]
+enabled = true
+
+# Required secrets mirror the main Worker:
+# - OPENAI_API_KEY
+# - AI_GATEWAY_URL
+# - AI_GATEWAY_TOKEN (when the gateway is authenticated)
+# Optional cost configuration:
+# - RESUME_INPUT_COST_PER_MILLION
+# - RESUME_OUTPUT_COST_PER_MILLION

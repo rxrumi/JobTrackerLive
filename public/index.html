@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live Job Index: Find Active Openings at Top Global Tech Companies</title>
+<title>Live Jobs Index: Find Active Openings at Top Global Tech Companies</title>
 <meta name="description" content="Find real-time openings at the world's leading tech companies. Filter instantly by location, seniority, and visa-aware hiring signals. Updated daily.">
 <meta name="robots" content="index,follow">
 <meta name="theme-color" content="#0d4dff">
@@ -18,13 +18,13 @@
 <link rel="manifest" href="/site.webmanifest">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://livejobindex.com/">
-<meta property="og:title" content="Live Job Index: Find Active Openings at Top Global Tech Companies">
+<meta property="og:title" content="Live Jobs Index: Find Active Openings at Top Global Tech Companies">
 <meta property="og:description" content="Find real-time openings at the world's leading tech companies. Filter instantly by location, seniority, and visa-aware hiring signals. Updated daily.">
 <meta property="og:image" content="https://livejobindex.com/assets/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="1200">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Live Job Index: Find Active Openings at Top Global Tech Companies">
+<meta name="twitter:title" content="Live Jobs Index: Find Active Openings at Top Global Tech Companies">
 <meta name="twitter:description" content="Find real-time openings at the world's leading tech companies. Filter instantly by location, seniority, and visa-aware hiring signals. Updated daily.">
 <meta name="twitter:image" content="https://livejobindex.com/assets/og-image.png">
 <!-- Search Console verification: add the google-site-verification meta tag here when the token is available. -->
@@ -36,13 +36,13 @@
       "@type": "WebSite",
       "@id": "https://livejobindex.com/#website",
       "url": "https://livejobindex.com/",
-      "name": "Live Job Index",
+      "name": "Live Jobs Index",
       "description": "Find real-time openings at the world's leading tech companies. Filter instantly by location, seniority, and visa-aware hiring signals. Updated daily."
     },
     {
       "@type": "Organization",
       "@id": "https://livejobindex.com/#organization",
-      "name": "Live Job Index",
+      "name": "Live Jobs Index",
       "url": "https://livejobindex.com/",
       "founder": {
         "@type": "Person",
@@ -52,7 +52,7 @@
     {
       "@type": "WebApplication",
       "@id": "https://livejobindex.com/#app",
-      "name": "Live Job Index",
+      "name": "Live Jobs Index",
       "url": "https://livejobindex.com/",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web",
@@ -444,8 +444,6 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
 .account-pill { border: 0.5px solid var(--border); border-radius: 999px; padding: 4px 9px 4px 4px; color: var(--text-secondary); font-size: 12px; background: var(--panel); cursor: pointer; font-family: inherit; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; overflow: hidden; white-space: nowrap; }
 .account-pill:hover { background: var(--card-hover); color: var(--text); border-color: var(--accent); }
 .account-avatar { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
-.account-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.account-chevron { color: var(--text-muted); font-size: 10px; }
 .profile-dropdown { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; width: 240px; padding: 8px; border: 0.5px solid var(--border); border-radius: 10px; background: var(--card); box-shadow: var(--shadow-soft); }
 .profile-dropdown-head { padding: 8px 9px 10px; border-bottom: 0.5px solid var(--border-soft); margin-bottom: 6px; }
 .profile-dropdown-name { color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
@@ -647,11 +645,11 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
 <div class="header-row">
   <div class="brand-block">
     <a href="/">
-      <img class="brand-logo" src="/assets/logo.svg" alt="Live Job Index logo" width="42" height="42">
+      <img class="brand-logo" src="/assets/logo.svg" alt="Live Jobs Index logo" width="42" height="42">
       <div class="brand-copy">
-        <h1>Live Job Index</h1>
+        <h1>Live Jobs Index</h1>
         <p class="subtitle" id="industry-subtitle">Explore active, real-time career opportunities at the world's leading tech enterprises.</p>
-        <p class="last-scan" id="last-scan">🟢 Active jobs updating today</p>
+        <p class="last-scan" id="last-scan"><span class="live-status-dot" aria-hidden="true"></span><span class="last-scan-text">Active jobs updating today</span></p>
       </div>
     </a>
   </div>
@@ -662,7 +660,14 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
   <div class="header-actions">
     <button class="secondary-btn" id="header-login-btn" type="button" hidden>Login</button>
     <button class="primary-btn" id="header-signup-btn" type="button" hidden>Sign up</button>
-    <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch theme">Dark mode</button>
+    <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch theme">☾</button>
+    <div class="notification-menu" id="notification-menu" hidden>
+      <button class="notification-bell" id="notification-bell" type="button" aria-label="Notifications" aria-expanded="false">♢<span class="notification-count" id="notification-count" hidden>0</span></button>
+      <div class="notification-popover" id="notification-popover" hidden>
+        <div class="notification-popover-head"><strong>Notifications</strong><button class="text-btn" id="notifications-view-all" type="button">View all</button></div>
+        <div id="notification-popover-list" class="notification-popover-list"></div>
+      </div>
+    </div>
     <div class="profile-menu" id="profile-menu" hidden>
       <button class="account-pill" id="account-pill" type="button" aria-expanded="false" aria-controls="profile-dropdown"></button>
       <div class="profile-dropdown" id="profile-dropdown" role="menu" hidden>
@@ -670,6 +675,7 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
           <div class="profile-dropdown-name" id="profile-dropdown-name">Account</div>
           <div class="profile-dropdown-meta" id="profile-dropdown-meta">Account plan</div>
         </div>
+        <button class="profile-dropdown-action" id="resume-studio-link-btn" type="button" role="menuitem">Resume Studio</button>
         <button class="profile-dropdown-action" id="profile-link-btn" type="button" role="menuitem">Profile & settings</button>
         <button class="profile-dropdown-action danger" id="logout-btn" type="button" role="menuitem">Log out</button>
       </div>
@@ -720,7 +726,7 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
     <div class="onboarding-title-row">
       <div>
         <h2 class="auth-title">Build your job-search workspace</h2>
-        <p class="auth-copy">Answer a few focused questions so Live Job Index can prioritize relevant roles, markets, and visa-aware hiring signals.</p>
+        <p class="auth-copy">Answer a few focused questions so Live Jobs Index can prioritize relevant roles, markets, and visa-aware hiring signals.</p>
       </div>
       <div class="onboarding-progress" id="onboarding-progress" aria-label="Onboarding progress"></div>
     </div>
@@ -745,7 +751,7 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
     <div class="onboarding-content">
       <section class="onboarding-step" id="onboarding-use-case" data-onboarding-step="0">
         <div class="onboarding-step-head">
-          <h3>How will you use Live Job Index?</h3>
+          <h3>How will you use Live Jobs Index?</h3>
           <p>Choose the setup path. Most users should start with the personal job-search profile.</p>
         </div>
         <div class="choice-row onboarding-choice-row">
@@ -983,6 +989,10 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
           </div>
         </div>
         <div class="settings-message" id="settings-message"></div>
+        <div class="setting-row account-danger-row">
+          <div><div class="setting-title">Delete account</div><div class="setting-copy">Permanently removes account data, résumé files, generated artifacts, and active résumé workflows.</div></div>
+          <button class="secondary-btn danger" id="delete-account-btn" type="button">Delete account</button>
+        </div>
       </section>
 
       <section class="profile-card" id="profile-individual-card" hidden>
@@ -1115,11 +1125,118 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
   </div>
 </section>
 
+<section class="resume-studio" id="resume-studio-panel" hidden>
+  <div class="resume-studio-head">
+    <div>
+      <p class="dashboard-eyebrow">Prepare</p>
+      <h2 class="auth-title">Resume Studio</h2>
+      <p class="auth-copy">Build truthful, ATS-ready application packs from evidence you have verified.</p>
+    </div>
+    <div class="resume-studio-head-actions">
+      <span class="credit-pill" id="resume-credit-pill">— credits</span>
+      <button class="secondary-btn" id="resume-back-btn" type="button">Back to jobs</button>
+    </div>
+  </div>
+  <div class="studio-notice" id="studio-notice">Scores are guidance, not an ATS, interview, or hiring guarantee. Review and approve every final claim.</div>
+  <div class="studio-tabs" role="tablist" aria-label="Resume Studio sections">
+    <button class="studio-tab active" type="button" data-studio-tab="evidence">Career evidence</button>
+    <button class="studio-tab" type="button" data-studio-tab="masters">Master résumés</button>
+    <button class="studio-tab" type="button" data-studio-tab="opportunities">Daily opportunities</button>
+    <button class="studio-tab" type="button" data-studio-tab="packs">Application packs</button>
+  </div>
+  <div class="studio-message" id="studio-message"></div>
+
+  <section class="studio-view" data-studio-view="evidence">
+    <div class="studio-grid two-column">
+      <article class="studio-card">
+        <h3>Import a résumé</h3>
+        <p>PDF or DOCX, up to 8 MiB. Imported facts remain unverified until you confirm them.</p>
+        <form id="resume-upload-form" class="studio-form">
+          <input id="resume-file-input" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+          <button class="primary-btn" type="submit">Import résumé</button>
+        </form>
+        <div class="studio-list" id="resume-source-list"></div>
+      </article>
+      <article class="studio-card">
+        <div class="studio-card-head"><div><h3>Evidence bank</h3><p>Only verified items can support generated claims.</p></div><button class="secondary-btn" id="add-evidence-btn" type="button">Add evidence</button></div>
+        <form id="evidence-form" class="studio-form evidence-form" hidden>
+          <select id="evidence-type"><option value="employment">Employment</option><option value="achievement">Achievement</option><option value="skill">Skill</option><option value="tool">Tool</option><option value="education">Education</option><option value="certification">Certification</option><option value="contact">Contact</option><option value="project">Project</option></select>
+          <input id="evidence-title" type="text" placeholder="Title, skill, credential, or label" required>
+          <input id="evidence-employer" type="text" placeholder="Employer or institution (optional)">
+          <textarea id="evidence-description" placeholder="Exact supported fact, achievement, or responsibility" required></textarea>
+          <input id="evidence-skills" type="text" placeholder="Skills/tools, comma separated">
+          <div class="form-actions"><button class="primary-btn" type="submit">Add unverified evidence</button><button class="secondary-btn" id="cancel-evidence-btn" type="button">Cancel</button></div>
+        </form>
+        <div class="studio-list evidence-list" id="evidence-list"></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="studio-view" data-studio-view="masters" hidden>
+    <div class="studio-grid two-column">
+      <article class="studio-card">
+        <h3>Create a master résumé</h3>
+        <form id="resume-profile-form" class="studio-form">
+          <input id="resume-profile-name" type="text" placeholder="e.g. RevOps" required>
+          <select id="resume-profile-family" required><option value="">Target role family</option></select>
+          <select id="resume-profile-seniority"><option value="">Any seniority</option><option>Associate/Analyst</option><option>Manager</option><option>Senior/Lead</option><option>Director/Head</option><option>Executive</option></select>
+          <div class="studio-inline-fields"><select id="resume-profile-template"><option value="classic">Classic</option><option value="compact">Compact</option><option value="modern">Modern</option></select><select id="resume-profile-pages"><option value="1">One page</option><option value="2">Two pages</option></select></div>
+          <input id="resume-profile-headline" type="text" placeholder="Optional target headline">
+          <textarea id="resume-profile-guidance" placeholder="Optional summary guidance"></textarea>
+          <label class="check-label"><input id="resume-profile-default" type="checkbox"> Make this the default master</label>
+          <button class="primary-btn" type="submit">Create master</button>
+        </form>
+      </article>
+      <article class="studio-card"><h3>Your masters</h3><div class="studio-list" id="resume-profile-list"></div></article>
+    </div>
+  </section>
+
+  <section class="studio-view" data-studio-view="opportunities" hidden>
+    <div class="studio-grid two-column">
+      <article class="studio-card">
+        <h3>Prepare a pasted job</h3>
+        <p>Use pasted text when the job page cannot be safely extracted. Static company targets are not eligible.</p>
+        <form id="custom-job-form" class="studio-form">
+          <input id="custom-job-title" type="text" placeholder="Job title" required>
+          <input id="custom-job-company" type="text" placeholder="Company">
+          <input id="custom-job-url" type="url" placeholder="Job URL (optional)">
+          <textarea id="custom-job-description" placeholder="Paste the full job description" required></textarea>
+          <select id="custom-job-profile" required><option value="">Select master résumé</option></select>
+          <button class="primary-btn" type="submit">Create application pack</button>
+        </form>
+      </article>
+      <article class="studio-card">
+        <h3>Daily build rule</h3>
+        <form id="build-rule-form" class="studio-form">
+          <input id="rule-name" type="text" placeholder="e.g. RevOps in UK & Ireland" required>
+          <select id="rule-profile" required><option value="">Select master résumé</option></select>
+          <input id="rule-countries" type="text" placeholder="Country codes, e.g. GB, IE">
+          <select id="rule-visa"><option value="any">Any visa signal</option><option value="likely">Likely or strong visa signal</option><option value="strong">Strong visa signal only</option></select>
+          <select id="rule-action"><option value="notify_only">Notify, then generate</option><option value="auto_build">Auto-build Tier A matches</option></select>
+          <div class="studio-inline-fields"><input id="rule-fit" type="number" min="70" max="100" value="70" aria-label="Minimum fit score"><select id="rule-cap"><option value="1">1 auto-build/day</option><option value="2">2 auto-builds/day</option><option value="3">3 auto-builds/day</option></select></div>
+          <input id="rule-timezone" type="text" value="UTC" placeholder="Timezone, e.g. Asia/Karachi">
+          <label class="check-label"><input id="rule-email" type="checkbox"> Include in optional daily email digest</label>
+          <button class="primary-btn" type="submit">Save rule</button>
+        </form>
+        <div class="studio-list" id="build-rule-list"></div>
+      </article>
+    </div>
+    <article class="studio-card studio-wide-card"><div class="studio-card-head"><div><h3>Notification center</h3><p>New matches, ready packs, review requests, failures, closed jobs, evidence requests, and credit alerts.</p></div><button class="secondary-btn" id="unsubscribe-digests-btn" type="button">Stop email digests</button></div><div class="studio-list" id="opportunity-list"></div></article>
+  </section>
+
+  <section class="studio-view" data-studio-view="packs" hidden>
+    <div class="studio-grid packs-grid">
+      <article class="studio-card"><div class="studio-card-head"><div><h3>Application packs</h3><p>Exports unlock only after claim and rendering QA pass.</p></div><button class="secondary-btn" id="refresh-builds-btn" type="button">Refresh</button></div><div class="studio-list" id="resume-build-list"></div></article>
+      <article class="studio-card build-editor" id="build-editor"><div class="studio-empty">Select an application pack to inspect scores, citations, versions, emails, and exports.</div></article>
+    </div>
+  </section>
+</section>
+
 <main id="dashboard" hidden>
 <section class="agency-banner" id="agency-banner" hidden>
   <div>
     <h2 class="agency-banner-title">Agency tools are coming soon</h2>
-    <p class="agency-banner-copy">API access, integrations, lead-generation workflows, data exports, and research/scraping support for Live Job Index data are planned. Some options may use API keys or connected tools.</p>
+    <p class="agency-banner-copy">API access, integrations, lead-generation workflows, data exports, and research/scraping support for Live Jobs Index data are planned. Some options may use API keys or connected tools.</p>
   </div>
   <form class="agency-feedback-form" id="agency-feedback-form">
     <textarea id="agency-feedback-message" name="message" maxlength="2000" placeholder="Share a feature request, integration need, or workflow idea..." required></textarea>
@@ -1260,7 +1377,7 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
 
 <details class="methodology-note">
   <summary>Tracking Methodology</summary>
-  <p>Live Job Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the United States, UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, New Zealand, France, Italy, Poland, Belgium, Finland, Austria, Japan, South Korea, India, and Taiwan, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
+  <p>Live Jobs Index tracks active roles from top company careers pages and leading public job boards for people already in major hiring markets and international candidates looking for visa-sponsored paths into those countries. It organizes opportunities across the United States, UK, Ireland, Canada, Australia, Singapore, Germany, the Netherlands, Switzerland, the Nordics, Spain, Portugal, Estonia, New Zealand, France, Italy, Poland, Belgium, Finland, Austria, Japan, South Korea, India, and Taiwan, covering departments from engineering and product to sales, marketing, finance, operations, customer success, people, legal, and strategy. Visa likelihood reflects company-level sponsorship history and hiring signals, but it remains a prioritization heuristic and does not guarantee sponsorship or immigration eligibility.</p>
 </details>
 </main>
 
@@ -1269,13 +1386,14 @@ tbody tr.is-applied:hover, .job-card.is-applied:hover { opacity: 0.9; }
   <button class="mobile-nav-btn" type="button" data-mobile-route="/visa-roles">Visa roles</button>
   <button class="mobile-nav-btn" type="button" data-mobile-route="/pipeline">Pipeline</button>
   <button class="mobile-nav-btn" type="button" data-mobile-route="/history">History</button>
+  <button class="mobile-nav-btn" type="button" data-mobile-route="/resumes">Resumes</button>
   <button class="mobile-nav-btn" type="button" data-mobile-route="/profile">Profile</button>
 </nav>
 
 <footer class="site-footer">
   <div class="footer-brand">
     <div class="footer-brand-row">
-      <span>Live Job Index operated by Sohaib Kazmi.</span>
+      <span>Live Jobs Index operated by Sohaib Kazmi.</span>
       <nav class="social-links" aria-label="Sohaib Kazmi social links">
         <a class="social-link" href="https://www.linkedin.com/in/sohaibkazmi/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.58c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.95v5.67H9.34V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.61 0 4.27 2.37 4.27 5.46v6.28ZM5.32 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12Zm1.78 13.02H3.54V9H7.1v11.45ZM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0Z"/></svg>
@@ -1849,8 +1967,23 @@ let AUTH_LOAD_ERROR = '';
 let AUTH_RESOLVED = false;
 let ACCOUNT_TYPE_SAVE_PROMISE = null;
 let ACCOUNT_TYPE_SAVE_ERROR = '';
-const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/history', '/insights']);
+const APP_ROUTES = new Set(['/', '/visa-roles', '/profile', '/onboarding', '/pipeline', '/history', '/insights', '/resumes']);
 let CURRENT_ROUTE = routeFromPath(window.location.pathname);
+const RESUME_STUDIO = {
+  loaded: false,
+  loading: false,
+  activeTab: 'evidence',
+  sources: [],
+  evidence: [],
+  profiles: [],
+  builds: [],
+  rules: [],
+  notifications: [],
+  usage: null,
+  selectedBuildId: null,
+  config: null
+};
+let NOTIFICATIONS_LOADING = false;
 const JOB_HISTORY_CACHE = new Map();
 const JOB_HISTORY_REQUEST_VERSION = new Map();
 const APPLICATION_HISTORY_EXPANDED = new Set();
@@ -1923,7 +2056,7 @@ function routeFromPath(path) {
 }
 
 function isProtectedRoute() {
-  return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding' || CURRENT_ROUTE === '/pipeline' || CURRENT_ROUTE === '/history' || CURRENT_ROUTE === '/insights';
+  return CURRENT_ROUTE === '/profile' || CURRENT_ROUTE === '/onboarding' || CURRENT_ROUTE === '/pipeline' || CURRENT_ROUTE === '/history' || CURRENT_ROUTE === '/insights' || CURRENT_ROUTE === '/resumes';
 }
 
 function safeNextRoute(value) {
@@ -2078,15 +2211,18 @@ function activeJobCount() {
 function updateHeaderStatus(message) {
   const el = document.getElementById('last-scan');
   if (!el) return;
+  const setStatus = (text) => {
+    el.innerHTML = `<span class="live-status-dot" aria-hidden="true"></span><span class="last-scan-text">${escapeHTML(text)}</span>`;
+  };
   if (message) {
-    el.textContent = message;
+    setStatus(String(message).replace(/^🟢\s*/, ''));
     return;
   }
   if (!PUBLIC_FEED_LOADED) {
-    el.textContent = '🟢 Active jobs updating today';
+    setStatus('Active jobs updating today');
     return;
   }
-  el.textContent = `🟢 ${activeJobCount().toLocaleString()} ${INDUSTRIES[state.industry].toLowerCase()} jobs · refreshed daily`;
+  setStatus(`${activeJobCount().toLocaleString()} ${INDUSTRIES[state.industry].toLowerCase()} jobs · refreshed daily`);
 }
 
 function serializedFilters(controls = state) {
@@ -3114,6 +3250,11 @@ function trackerButtonHTML(j) {
   return `<button class="secondary-btn view-tracker-btn" type="button" data-tracker-id="${escapeHTML(j.id)}">View tracker</button>`;
 }
 
+function resumePrepareButtonHTML(j) {
+  if (!ME?.user || ME.user.account_type !== 'individual' || j.is_static || j.is_filled) return '';
+  return `<button class="secondary-btn prepare-resume-btn" type="button" data-prepare-job="${escapeHTML(j.id)}">Prepare résumé</button>`;
+}
+
 function starHTML(id) {
   const on = loadStar(id);
   return `<button class="star-btn ${on ? 'active' : ''}" data-id="${escapeHTML(id)}" title="${on ? 'Unstar' : 'Pin to top'}" aria-label="Star">${on ? '★' : '☆'}</button>`;
@@ -3181,9 +3322,9 @@ function renderTabs() {
       || btn.dataset.mobileRoute === CURRENT_ROUTE;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-current', active ? 'page' : 'false');
-    if (btn.dataset.mobileRoute === '/history') btn.hidden = !ME?.user;
+    if (btn.dataset.mobileRoute === '/history' || btn.dataset.mobileRoute === '/resumes') btn.hidden = !ME?.user;
   });
-  document.getElementById('mobile-bottom-nav').style.gridTemplateColumns = `repeat(${ME?.user ? 5 : 4}, 1fr)`;
+  document.getElementById('mobile-bottom-nav').style.gridTemplateColumns = `repeat(${ME?.user ? 6 : 4}, 1fr)`;
 }
 
 function rowHTML(j) {
@@ -3266,7 +3407,7 @@ function cardHTML(j) {
       <div class="job-card-signals">${explicitSignalsHTML(j, 'card')}</div>
     </div>
     <div class="job-card-actions">
-      <div class="job-card-actions-top">${starHTML(j.id)}${applyButtonHTML(j)}${trackerButtonHTML(j)}</div>
+      <div class="job-card-actions-top">${starHTML(j.id)}${applyButtonHTML(j)}${resumePrepareButtonHTML(j)}${trackerButtonHTML(j)}</div>
       ${statusSelectHTML(j.id)}
     </div>
   </article>`;
@@ -3294,7 +3435,7 @@ function renderJobDetail(j) {
     <div class="job-detail-badges">${explicitSignalsHTML(j, 'detail')}</div>
     <p class="job-detail-guidance">Visa sponsorship is company-level guidance, not a guarantee. Confirm eligibility in the job description.</p>
     ${listingInformation ? `<div class="job-detail-section"><h3>Listing status</h3><p>${escapeHTML(listingInformation)}</p></div>` : ''}
-    <div class="job-detail-actions">${applyButtonHTML(j)}${trackerButtonHTML(j)}${starHTML(j.id)}</div>`;
+    <div class="job-detail-actions">${applyButtonHTML(j)}${resumePrepareButtonHTML(j)}${trackerButtonHTML(j)}${starHTML(j.id)}</div>`;
 }
 
 function pipelineItemHTML(j, history) {
@@ -3888,6 +4029,13 @@ function wireRowHandlers() {
       openApplicationTracker(button.dataset.trackerId);
     };
   });
+  document.querySelectorAll('.prepare-resume-btn').forEach(button => {
+    button.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      prepareResumeForJob(button.dataset.prepareJob);
+    };
+  });
   document.querySelectorAll('.visa-signal-control').forEach(btn => {
     btn.onclick = (e) => {
       e.preventDefault();
@@ -4074,6 +4222,11 @@ function wireStaticHandlers() {
   const themeBtn = document.getElementById('theme-toggle');
   themeBtn.onclick = () => cycleBrandTheme();
 
+  const header = document.querySelector('.header-row');
+  const syncHeaderElevation = () => header?.classList.toggle('is-scrolled', window.scrollY > 4);
+  syncHeaderElevation();
+  window.addEventListener('scroll', syncHeaderElevation, { passive: true });
+
   // Close filter dropdowns when clicking outside
   document.addEventListener('click', (e) => {
     document.querySelectorAll('details.filter-dropdown[open]').forEach(d => {
@@ -4155,7 +4308,7 @@ function updateThemeToggle(theme = document.documentElement.dataset.brandTheme |
   const active = VALID_BRAND_THEMES.has(theme) ? theme : DEFAULT_BRAND_THEME;
   const next = nextBrandTheme(active);
   document.documentElement.setAttribute('data-theme', active === 'graphite' ? 'dark' : 'light');
-  btn.textContent = next === 'graphite' ? 'Dark mode' : 'Light mode';
+  btn.textContent = next === 'graphite' ? '☾' : '☀';
   btn.title = `Switch to ${BRAND_THEME_LABELS[next]} theme`;
   btn.setAttribute('aria-label', `Current theme ${BRAND_THEME_LABELS[active]}. Switch to ${BRAND_THEME_LABELS[next]}.`);
 }
@@ -4205,6 +4358,7 @@ function showPublicDashboard(route = '/') {
   CURRENT_ROUTE = route;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
+  document.getElementById('resume-studio-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
   document.getElementById('mobile-bottom-nav').hidden = false;
   syncAgencyBanner();
@@ -4225,6 +4379,7 @@ function showAuth(message = '', asPage = false) {
   document.getElementById('auth-panel').hidden = false;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
+  document.getElementById('resume-studio-panel').hidden = true;
   document.getElementById('dashboard').hidden = asPage;
   document.getElementById('mobile-bottom-nav').hidden = asPage;
   document.getElementById('account-pill').hidden = true;
@@ -4249,6 +4404,7 @@ function showOnboarding() {
   CURRENT_ROUTE = '/onboarding';
   document.getElementById('onboarding-panel').hidden = false;
   document.getElementById('profile-panel').hidden = true;
+  document.getElementById('resume-studio-panel').hidden = true;
   document.getElementById('dashboard').hidden = true;
   document.getElementById('mobile-bottom-nav').hidden = true;
   document.getElementById('logout-btn').hidden = false;
@@ -4265,6 +4421,7 @@ function showDashboard(route = '/') {
   CURRENT_ROUTE = route;
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('profile-panel').hidden = true;
+  document.getElementById('resume-studio-panel').hidden = true;
   document.getElementById('dashboard').hidden = false;
   document.getElementById('mobile-bottom-nav').hidden = false;
   syncAgencyBanner();
@@ -4281,7 +4438,7 @@ function syncAccountHeader() {
   const plan = ME?.account_access?.plan || 'free';
   const displayName = profileDisplayName();
   const initials = profileInitials(displayName);
-  pill.innerHTML = `<span class="account-avatar" aria-hidden="true">${escapeHTML(initials)}</span><span class="account-name">${escapeHTML(displayName)}</span><span class="account-chevron" aria-hidden="true">▾</span>`;
+  pill.innerHTML = `<span class="account-avatar" aria-hidden="true">${escapeHTML(initials)}</span>`;
   pill.title = `Open ${displayName}'s profile`;
   pill.setAttribute('aria-label', `Open ${displayName}'s profile`);
   pill.hidden = false;
@@ -4291,7 +4448,9 @@ function syncAccountHeader() {
   document.getElementById('header-signup-btn').hidden = true;
   document.getElementById('profile-dropdown-name').textContent = displayName;
   document.getElementById('profile-dropdown-meta').textContent = `${type === 'agency' ? 'Agency' : 'Individual'} · ${plan}`;
+  document.getElementById('resume-studio-link-btn').hidden = type !== 'individual';
   document.querySelector('.subtitle').textContent = 'Explore active, real-time career opportunities at the world’s leading tech enterprises.';
+  loadNotifications();
 }
 
 function syncAccountSettings() {
@@ -4332,6 +4491,342 @@ function escapeHTML(value) {
     "'": '&#39;'
   }[ch]));
 }
+
+function studioMessage(message = '', isError = false) {
+  const element = document.getElementById('studio-message');
+  if (!element) return;
+  element.textContent = message;
+  element.classList.toggle('error', Boolean(isError));
+}
+
+function studioBadge(value) {
+  const label = String(value || 'unknown').replaceAll('_', ' ');
+  return `<span class="studio-badge ${classToken(value)}">${escapeHTML(label)}</span>`;
+}
+
+function studioDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function setStudioTab(tab) {
+  RESUME_STUDIO.activeTab = tab;
+  document.querySelectorAll('.studio-tab').forEach(button => button.classList.toggle('active', button.dataset.studioTab === tab));
+  document.querySelectorAll('.studio-view').forEach(view => { view.hidden = view.dataset.studioView !== tab; });
+}
+
+function populateStudioProfileSelectors() {
+  const options = RESUME_STUDIO.profiles.map(profile => `<option value="${escapeHTML(profile.id)}">${escapeHTML(profile.name)} · ${escapeHTML(profile.target_role_family)}</option>`).join('');
+  ['custom-job-profile', 'rule-profile'].forEach(id => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const value = select.value;
+    select.innerHTML = `<option value="">Select master résumé</option>${options}`;
+    if (RESUME_STUDIO.profiles.some(profile => profile.id === value)) select.value = value;
+  });
+}
+
+function renderResumeSources() {
+  const element = document.getElementById('resume-source-list');
+  if (!RESUME_STUDIO.sources.length) {
+    element.innerHTML = '<div class="studio-empty">No résumé sources imported yet.</div>';
+    return;
+  }
+  element.innerHTML = RESUME_STUDIO.sources.map(source => `<div class="studio-list-item">
+    <div class="studio-list-item-head"><div><strong>${escapeHTML(source.original_filename)}</strong><p>${Math.max(1, Math.round(Number(source.byte_size || 0) / 1024))} KiB · ${escapeHTML(studioDate(source.created_at))}</p></div>${studioBadge(source.extraction_state)}</div>
+    ${source.extraction_error ? `<p>Extraction needs attention. The source file remains private.</p>` : ''}
+    <div class="studio-item-actions"><button class="studio-mini-btn danger" type="button" data-delete-source="${escapeHTML(source.id)}">Delete source</button></div>
+  </div>`).join('');
+}
+
+function evidencePrimaryText(item) {
+  return item.description || item.title || item.employer || item.evidence_type;
+}
+
+function renderEvidence() {
+  const element = document.getElementById('evidence-list');
+  if (!RESUME_STUDIO.evidence.length) {
+    element.innerHTML = '<div class="studio-empty">Import a résumé or add evidence manually. Verify only facts you can stand behind.</div>';
+    return;
+  }
+  element.innerHTML = RESUME_STUDIO.evidence.map(item => `<div class="studio-list-item">
+    <div class="studio-list-item-head"><div><strong>${escapeHTML(evidencePrimaryText(item))}</strong><p>${escapeHTML([item.evidence_type, item.title, item.employer].filter(Boolean).join(' · '))}</p></div>${studioBadge(item.verification_state)}</div>
+    ${(item.skills || []).length ? `<p>Skills/tools: ${escapeHTML(item.skills.join(', '))}</p>` : ''}
+    <div class="studio-item-actions">
+      ${item.verification_state !== 'verified' ? `<button class="studio-mini-btn primary" type="button" data-verify-evidence="${escapeHTML(item.id)}">Verify</button>` : ''}
+      <button class="studio-mini-btn danger" type="button" data-delete-evidence="${escapeHTML(item.id)}">Delete</button>
+    </div>
+  </div>`).join('');
+}
+
+function renderResumeProfiles() {
+  const element = document.getElementById('resume-profile-list');
+  if (!RESUME_STUDIO.profiles.length) {
+    element.innerHTML = '<div class="studio-empty">Create a role-specific master after verifying your evidence.</div>';
+    populateStudioProfileSelectors();
+    return;
+  }
+  element.innerHTML = RESUME_STUDIO.profiles.map(profile => `<div class="studio-list-item">
+    <div class="studio-list-item-head"><div><strong>${escapeHTML(profile.name)}</strong><p>${escapeHTML(profile.target_role_family)}${profile.target_seniority ? ` · ${escapeHTML(profile.target_seniority)}` : ''}</p></div>${profile.is_default ? studioBadge('default') : ''}</div>
+    <p>${escapeHTML(profile.template)} template · ${profile.page_target} page${profile.page_target === 1 ? '' : 's'} · ${(profile.evidence_ids || []).length || RESUME_STUDIO.evidence.filter(item => item.verification_state === 'verified').length} evidence items</p>
+    <div class="studio-item-actions"><button class="studio-mini-btn" type="button" data-duplicate-profile="${escapeHTML(profile.id)}">Duplicate</button><button class="studio-mini-btn danger" type="button" data-delete-profile="${escapeHTML(profile.id)}">Delete</button></div>
+  </div>`).join('');
+  populateStudioProfileSelectors();
+}
+
+function renderBuildRules() {
+  const element = document.getElementById('build-rule-list');
+  if (!RESUME_STUDIO.rules.length) {
+    element.innerHTML = '<div class="studio-empty">No daily rules yet. Notifications are always the safer default.</div>';
+    return;
+  }
+  element.innerHTML = RESUME_STUDIO.rules.map(rule => `<div class="studio-list-item">
+    <div class="studio-list-item-head"><div><strong>${escapeHTML(rule.name)}</strong><p>${rule.action === 'auto_build' ? `Auto-build up to ${rule.daily_auto_build_cap}/day` : 'Notify only'} · fit ≥ ${rule.minimum_fit_score}</p></div>${studioBadge(rule.enabled ? 'active' : 'paused')}</div>
+    <p>${escapeHTML((rule.countries || []).join(', ') || 'Any target country')} · ${escapeHTML(rule.timezone)}</p>
+    <div class="studio-item-actions"><button class="studio-mini-btn danger" type="button" data-delete-rule="${escapeHTML(rule.id)}">Delete</button></div>
+  </div>`).join('');
+}
+
+function renderOpportunities() {
+  const items = RESUME_STUDIO.notifications;
+  const element = document.getElementById('opportunity-list');
+  element.innerHTML = items.length ? items.map(item => `<div class="studio-list-item">
+    <div class="studio-list-item-head"><div><strong>${escapeHTML(item.title)}</strong><p>${escapeHTML(item.body)}</p></div>${studioBadge(item.status)}</div>
+    <div class="studio-item-actions">${item.action_url ? `<button class="studio-mini-btn primary" type="button" data-notification-action="${escapeHTML(item.id)}" data-action-url="${escapeHTML(item.action_url)}">Open</button>` : ''}${item.status === 'unread' ? `<button class="studio-mini-btn" type="button" data-notification-status="read" data-notification-id="${escapeHTML(item.id)}">Mark read</button>` : ''}<button class="studio-mini-btn" type="button" data-notification-status="dismissed" data-notification-id="${escapeHTML(item.id)}">Dismiss</button></div>
+  </div>`).join('') : '<div class="studio-empty">Notifications will appear here when jobs match, builds finish, or an action is needed.</div>';
+}
+
+function buildStatusCopy(build) {
+  if (build.status === 'READY') return 'Ready to review and export';
+  if (build.status === 'NEEDS_EVIDENCE') return 'Verify more evidence to continue';
+  if (build.status === 'NEEDS_REVIEW') return 'A blocker or ambiguous claim needs review';
+  if (build.status === 'FAILED') return 'The build stopped and its credit was released';
+  return 'Preparation is running';
+}
+
+function renderBuilds() {
+  const element = document.getElementById('resume-build-list');
+  if (!RESUME_STUDIO.builds.length) {
+    element.innerHTML = '<div class="studio-empty">No application packs yet. Start with a live posting or paste a job description.</div>';
+    return;
+  }
+  element.innerHTML = RESUME_STUDIO.builds.map(build => `<div class="studio-list-item build-list-button" data-open-build="${escapeHTML(build.id)}" role="button" tabindex="0">
+    <div class="studio-list-item-head"><div><strong>${escapeHTML(build.title || 'Application pack')}</strong><p>${escapeHTML(build.company || 'Target company')} · ${escapeHTML(build.profile_name || '')}</p></div>${studioBadge(build.status)}</div>
+    <p>${escapeHTML(buildStatusCopy(build))}${build.fit_score != null ? ` · fit ${build.fit_score}` : ''}</p>
+    <div class="studio-item-actions"><button class="studio-mini-btn danger" type="button" data-delete-build="${escapeHTML(build.id)}">Delete pack</button></div>
+  </div>`).join('');
+}
+
+function renderBuildEditor(build) {
+  const element = document.getElementById('build-editor');
+  if (!build) {
+    element.innerHTML = '<div class="studio-empty">Select an application pack to inspect scores, citations, versions, emails, and exports.</div>';
+    return;
+  }
+  const draft = build.draft || {};
+  const canonical = draft.canonical_resume_json || null;
+  const emails = draft.email_json?.options || [];
+  const checks = build.ats_readiness?.checks || [];
+  element.innerHTML = `<div class="studio-card-head"><div><h3>${escapeHTML(build.title || 'Application pack')}</h3><p>${escapeHTML(build.company || '')} · ${escapeHTML(build.status)}</p></div>${studioBadge(build.status)}</div>
+    <div class="build-score-grid">
+      <div class="build-score"><strong>${build.fit_score ?? '—'}</strong><span>Candidate fit</span></div>
+      <div class="build-score"><strong>${build.coverage_score ?? '—'}</strong><span>Résumé coverage</span></div>
+      <div class="build-score"><strong>${build.versions?.length || 0}</strong><span>Immutable versions</span></div>
+    </div>
+    ${(build.hard_blockers || []).length ? `<h4>Hard blockers</h4><div class="ats-checklist">${build.hard_blockers.map(item => `<div class="ats-check">⚠ ${escapeHTML(item.detail || item.code)}</div>`).join('')}</div>` : ''}
+    ${checks.length ? `<h4>ATS readiness</h4><div class="ats-checklist">${checks.map(check => `<div class="ats-check">${check.status === 'pass' ? '✓' : '⚠'} ${escapeHTML(check.key.replaceAll('_', ' '))}${check.remediation ? ` — ${escapeHTML(check.remediation)}` : ''}</div>`).join('')}</div>` : ''}
+    <h4>Keyword analysis</h4>
+    <p class="auth-copy">Supported: ${escapeHTML((build.keyword_analysis?.supported_not_used || []).join(', ') || '—')}<br>Confirm first: ${escapeHTML((build.keyword_analysis?.potentially_supported_unverified || []).join(', ') || '—')}<br>Unsupported gaps: ${escapeHTML((build.keyword_analysis?.unsupported || []).join(', ') || '—')}</p>
+    ${canonical ? `<h4>Résumé draft and evidence citations</h4><textarea class="build-json-editor" id="build-json-editor" spellcheck="false">${escapeHTML(JSON.stringify(canonical, null, 2))}</textarea><div class="studio-item-actions"><button class="studio-mini-btn" id="save-build-draft" type="button">Save draft</button><button class="studio-mini-btn primary" id="finalize-build-draft" type="button">Audit, render, and finalize</button></div>` : '<div class="studio-empty">The canonical résumé will appear after generation and claim audit.</div>'}
+    ${emails.length ? `<h4>Email choices</h4>${emails.map(option => `<div class="build-email-option"><strong>${escapeHTML(option.type.replaceAll('_', ' '))}</strong><p>${escapeHTML((option.subjects || []).join(' · '))}</p><pre>${escapeHTML(option.body)}</pre><button class="studio-mini-btn" type="button" data-copy-email="${escapeHTML(option.type)}">Copy email</button></div>`).join('')}` : ''}
+    ${canonical && Number(draft.ai_revision_count || 0) < 3 ? `<h4>AI revision</h4><p class="auth-copy">${3 - Number(draft.ai_revision_count || 0)} included revision request${3 - Number(draft.ai_revision_count || 0) === 1 ? '' : 's'} remain within the pack's 24-hour window.</p><textarea class="build-json-editor revision-instruction" id="revision-instruction" placeholder="Describe one precise, evidence-preserving revision."></textarea><div class="studio-item-actions"><button class="studio-mini-btn" id="request-ai-revision" type="button">Request revision</button></div>` : ''}
+    ${build.status === 'READY' ? `<div class="studio-item-actions"><a class="studio-mini-btn primary" href="/api/resume-builds/${encodeURIComponent(build.id)}/artifacts/pdf">Download PDF</a><a class="studio-mini-btn" href="/api/resume-builds/${encodeURIComponent(build.id)}/artifacts/docx">Download DOCX</a></div>` : ''}
+    <h4>Version history</h4><div class="studio-list">${(build.versions || []).map(version => `<div class="studio-list-item"><strong>Version ${version.version_number}</strong><p>${escapeHTML(version.version_kind)} · ${escapeHTML(studioDate(version.created_at))}${version.model ? ` · ${escapeHTML(version.model)}` : ''}</p><div class="studio-item-actions"><button class="studio-mini-btn" type="button" data-restore-version="${escapeHTML(version.id)}">Restore as new version</button></div></div>`).join('') || '<div class="studio-empty">No finalized versions yet.</div>'}</div>`;
+  document.getElementById('save-build-draft')?.addEventListener('click', () => saveBuildDraft(build.id));
+  document.getElementById('finalize-build-draft')?.addEventListener('click', () => finalizeBuildDraft(build.id));
+  document.getElementById('request-ai-revision')?.addEventListener('click', () => requestAIRevision(build.id));
+  element.querySelectorAll('[data-copy-email]').forEach(button => button.onclick = async () => {
+    const option = emails.find(item => item.type === button.dataset.copyEmail);
+    if (!option) return;
+    await navigator.clipboard.writeText(`${option.subjects?.[0] || ''}\n\n${option.body}`);
+    studioMessage('Email copied.');
+  });
+  element.querySelectorAll('[data-restore-version]').forEach(button => button.onclick = () => restoreBuildVersion(build.id, button.dataset.restoreVersion));
+}
+
+function renderStudio() {
+  const usage = RESUME_STUDIO.usage;
+  document.getElementById('resume-credit-pill').textContent = usage ? `${usage.available} credit${usage.available === 1 ? '' : 's'} available` : '— credits';
+  renderResumeSources();
+  renderEvidence();
+  renderResumeProfiles();
+  renderBuildRules();
+  renderOpportunities();
+  renderBuilds();
+  setStudioTab(RESUME_STUDIO.activeTab);
+}
+
+async function loadNotifications() {
+  if (!ME?.user || NOTIFICATIONS_LOADING) return;
+  NOTIFICATIONS_LOADING = true;
+  try {
+    const data = await api('/api/notifications?limit=50');
+    RESUME_STUDIO.notifications = data.notifications || [];
+    const count = Number(data.unread_count || 0);
+    const badge = document.getElementById('notification-count');
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.hidden = count === 0;
+    document.getElementById('notification-menu').hidden = false;
+    const popover = document.getElementById('notification-popover-list');
+    popover.innerHTML = RESUME_STUDIO.notifications.slice(0, 8).map(item => `<div class="notification-item" data-notification-id="${escapeHTML(item.id)}" data-action-url="${escapeHTML(item.action_url || '')}"><strong>${escapeHTML(item.title)}</strong><p>${escapeHTML(item.body)}</p><time>${escapeHTML(studioDate(item.created_at))}</time></div>`).join('') || '<div class="studio-empty">No notifications yet.</div>';
+    if (!document.getElementById('resume-studio-panel').hidden) renderOpportunities();
+  } catch {
+    document.getElementById('notification-menu').hidden = true;
+  } finally {
+    NOTIFICATIONS_LOADING = false;
+  }
+}
+
+async function loadResumeStudio(force = false) {
+  if (RESUME_STUDIO.loading || (RESUME_STUDIO.loaded && !force)) return;
+  RESUME_STUDIO.loading = true;
+  studioMessage('Loading Resume Studio…');
+  try {
+    const [config, sources, evidence, profiles, builds, rules, notifications, usage] = await Promise.all([
+      api('/api/resume-studio/config'), api('/api/resume-sources'), api('/api/evidence'), api('/api/resume-profiles'),
+      api('/api/resume-builds'), api('/api/build-rules'), api('/api/notifications?limit=100'), api('/api/usage')
+    ]);
+    RESUME_STUDIO.config = config;
+    RESUME_STUDIO.sources = sources.sources || [];
+    RESUME_STUDIO.evidence = evidence.evidence || [];
+    RESUME_STUDIO.profiles = profiles.profiles || [];
+    RESUME_STUDIO.builds = builds.builds || [];
+    RESUME_STUDIO.rules = rules.rules || [];
+    RESUME_STUDIO.notifications = notifications.notifications || [];
+    RESUME_STUDIO.usage = usage.usage || null;
+    RESUME_STUDIO.loaded = true;
+    studioMessage('');
+    renderStudio();
+    const selected = new URLSearchParams(location.search).get('build');
+    if (selected) await openResumeBuild(selected);
+  } catch (failure) {
+    studioMessage(failure.message === 'resume_studio_disabled' ? 'Resume Studio is not enabled for this account yet.' : failure.message, true);
+  } finally {
+    RESUME_STUDIO.loading = false;
+  }
+}
+
+async function openResumeBuild(buildId) {
+  RESUME_STUDIO.selectedBuildId = buildId;
+  setStudioTab('packs');
+  studioMessage('Loading application pack…');
+  try {
+    const data = await api(`/api/resume-builds/${encodeURIComponent(buildId)}`);
+    const summary = RESUME_STUDIO.builds.find(item => item.id === buildId) || {};
+    renderBuildEditor({ ...summary, ...data.build });
+    studioMessage('');
+  } catch (failure) {
+    studioMessage(failure.message, true);
+  }
+}
+
+async function saveBuildDraft(buildId) {
+  try {
+    const canonical = JSON.parse(document.getElementById('build-json-editor').value);
+    await api(`/api/resume-builds/${encodeURIComponent(buildId)}/draft`, { method: 'PATCH', body: JSON.stringify({ canonical_resume_json: canonical }) });
+    studioMessage('Draft autosave snapshot stored. Existing immutable versions are unchanged.');
+    return true;
+  } catch (failure) {
+    studioMessage(failure instanceof SyntaxError ? 'The draft JSON is not valid.' : failure.message, true);
+    return false;
+  }
+}
+
+async function finalizeBuildDraft(buildId) {
+  if (!await saveBuildDraft(buildId)) return;
+  studioMessage('Auditing claims and rendering the new immutable version…');
+  try {
+    await api(`/api/resume-builds/${encodeURIComponent(buildId)}/finalize`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ approved: true }) });
+    await loadResumeStudio(true);
+    await openResumeBuild(buildId);
+    studioMessage('Final version passed claim and artifact QA.');
+  } catch (failure) {
+    studioMessage(failure.message === 'claim_audit_failed' ? 'A manual claim is unsupported or ambiguous. Export remains blocked.' : failure.message, true);
+  }
+}
+
+async function requestAIRevision(buildId) {
+  const instruction = document.getElementById('revision-instruction')?.value.trim();
+  if (!instruction) { studioMessage('Add a precise revision instruction first.', true); return; }
+  studioMessage('Queueing the evidence-preserving revision…');
+  try {
+    await api(`/api/resume-builds/${encodeURIComponent(buildId)}/revisions`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ instruction }) });
+    await loadResumeStudio(true);
+    await openResumeBuild(buildId);
+    studioMessage('Revision queued. Refresh the pack to see its durable workflow status.');
+  } catch (failure) { studioMessage(failure.message, true); }
+}
+
+async function restoreBuildVersion(buildId, versionId) {
+  studioMessage('Re-auditing and restoring this version…');
+  try {
+    await api(`/api/resume-builds/${encodeURIComponent(buildId)}/versions/${encodeURIComponent(versionId)}/restore`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({}) });
+    await loadResumeStudio(true);
+    await openResumeBuild(buildId);
+    studioMessage('Version restored as a new immutable version and passed export QA.');
+  } catch (failure) { studioMessage(failure.message, true); }
+}
+
+async function prepareResumeForJob(jobId) {
+  try {
+    const profilesData = await api('/api/resume-profiles');
+    RESUME_STUDIO.profiles = profilesData.profiles || [];
+    const profile = RESUME_STUDIO.profiles.find(item => item.is_default) || RESUME_STUDIO.profiles[0];
+    if (!profile) {
+      RESUME_STUDIO.activeTab = 'masters';
+      await navigateTo('/resumes');
+      studioMessage('Create a master résumé before preparing this job.', true);
+      return;
+    }
+    const build = await api(`/api/jobs/${encodeURIComponent(jobId)}/application-pack`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ profile_id: profile.id })
+    });
+    RESUME_STUDIO.activeTab = 'packs';
+    RESUME_STUDIO.loaded = false;
+    history.pushState({}, '', `/resumes?build=${encodeURIComponent(build.build_id)}`);
+    CURRENT_ROUTE = '/resumes';
+    await applyRoute();
+  } catch (failure) {
+    await navigateTo('/resumes');
+    const message = failure.message === 'resume_studio_disabled'
+      ? 'Resume Studio is not enabled for this account yet.'
+      : failure.message === 'application_pack_credit_required'
+        ? 'No application-pack credit is available. The match was kept without generating.'
+        : failure.message;
+    studioMessage(message, true);
+  }
+}
+
+function showResumeStudio() {
+  if (!ME?.user) { startClerkAuth('login', '/resumes'); return; }
+  hideAuth();
+  CURRENT_ROUTE = '/resumes';
+  document.getElementById('onboarding-panel').hidden = true;
+  document.getElementById('profile-panel').hidden = true;
+  document.getElementById('dashboard').hidden = true;
+  document.getElementById('resume-studio-panel').hidden = false;
+  document.getElementById('mobile-bottom-nav').hidden = false;
+  document.getElementById('logout-btn').hidden = false;
+  document.getElementById('header-login-btn').hidden = true;
+  document.getElementById('header-signup-btn').hidden = true;
+  document.querySelectorAll('.mobile-nav-btn').forEach(button => button.classList.toggle('active', button.dataset.mobileRoute === '/resumes'));
+  syncAccountHeader();
+  loadResumeStudio();
+}
+
 
 function classToken(value) {
   return String(value ?? '').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'unknown';
@@ -4467,6 +4962,7 @@ function showProfilePanel() {
   CURRENT_ROUTE = '/profile';
   document.getElementById('onboarding-panel').hidden = true;
   document.getElementById('dashboard').hidden = true;
+  document.getElementById('resume-studio-panel').hidden = true;
   document.getElementById('mobile-bottom-nav').hidden = false;
   document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
     const active = btn.dataset.mobileRoute === '/profile';
@@ -4557,6 +5053,19 @@ async function applyRoute() {
     }
     await loadUserJobs().catch(() => {});
     showProfilePanel();
+    return;
+  }
+
+  if (CURRENT_ROUTE === '/resumes') {
+    if (!ME.user?.onboarding_completed) {
+      navigateTo('/onboarding', true);
+      return;
+    }
+    if (ME.user?.account_type !== 'individual') {
+      navigateTo('/profile', true);
+      return;
+    }
+    showResumeStudio();
   }
 }
 
@@ -4928,6 +5437,8 @@ async function loadMe() {
     return ME;
   } catch (error) {
     ME = null;
+    document.getElementById('notification-menu').hidden = true;
+    RESUME_STUDIO.loaded = false;
     AUTH_LOAD_ERROR = error?.status && error.status !== 401
       ? 'Your account could not be loaded. Please retry; your saved setup has not been removed.'
       : '';
@@ -5024,7 +5535,23 @@ function wireAuthHandlers() {
     closeProfileDropdown();
     navigateTo('/profile');
   };
+  document.getElementById('resume-studio-link-btn').onclick = () => {
+    closeProfileDropdown();
+    navigateTo('/resumes');
+  };
   document.getElementById('close-profile-btn').onclick = hideProfilePanel;
+  document.getElementById('delete-account-btn').onclick = async () => {
+    const confirmation = window.prompt('Type DELETE MY ACCOUNT to permanently delete your account and private files.');
+    if (confirmation !== 'DELETE MY ACCOUNT') return;
+    try {
+      await api('/api/me', { method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ confirmation }) });
+      await signOutClerk().catch(() => {});
+      ME = null;
+      RESUME_STUDIO.loaded = false;
+      USER_JOBS = new Map();
+      await navigateTo('/', true);
+    } catch (failure) { setMessage('profile-message', failure.message, true); }
+  };
   document.getElementById('show-login').onclick = () => {
     AUTH_MODE = 'login';
     updateAuthTabs();
@@ -5200,6 +5727,184 @@ function wireAuthHandlers() {
   });
 }
 
+function wireResumeStudioHandlers() {
+  const familySelect = document.getElementById('resume-profile-family');
+  familySelect.innerHTML = '<option value="">Target role family</option>' + ROLE_FAMILIES.filter(family => family !== 'Other').map(family => `<option>${escapeHTML(family)}</option>`).join('');
+  document.querySelectorAll('.studio-tab').forEach(button => button.onclick = () => setStudioTab(button.dataset.studioTab));
+  document.getElementById('resume-back-btn').onclick = () => navigateTo('/');
+  document.getElementById('resume-studio-link-btn').hidden = ME?.user?.account_type === 'agency';
+  document.getElementById('add-evidence-btn').onclick = () => { document.getElementById('evidence-form').hidden = false; };
+  document.getElementById('cancel-evidence-btn').onclick = () => { document.getElementById('evidence-form').hidden = true; };
+  document.getElementById('refresh-builds-btn').onclick = async () => { await loadResumeStudio(true); if (RESUME_STUDIO.selectedBuildId) await openResumeBuild(RESUME_STUDIO.selectedBuildId); };
+  document.getElementById('unsubscribe-digests-btn').onclick = async () => {
+    try {
+      await api('/api/notifications/unsubscribe', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({}) });
+      await loadResumeStudio(true);
+      studioMessage('Daily email digests are off. In-app notifications remain available.');
+    } catch (failure) { studioMessage(failure.message, true); }
+  };
+
+  document.getElementById('notification-bell').onclick = event => {
+    event.stopPropagation();
+    const popover = document.getElementById('notification-popover');
+    popover.hidden = !popover.hidden;
+    document.getElementById('notification-bell').setAttribute('aria-expanded', popover.hidden ? 'false' : 'true');
+  };
+  document.getElementById('notifications-view-all').onclick = () => {
+    document.getElementById('notification-popover').hidden = true;
+    RESUME_STUDIO.activeTab = 'opportunities';
+    navigateTo('/resumes');
+  };
+  document.getElementById('notification-popover-list').onclick = async event => {
+    const item = event.target.closest('[data-notification-id]');
+    if (!item) return;
+    await api(`/api/notifications/${encodeURIComponent(item.dataset.notificationId)}`, { method: 'PATCH', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ status: 'actioned' }) }).catch(() => {});
+    if (item.dataset.actionUrl) {
+      const url = new URL(item.dataset.actionUrl, location.origin);
+      history.pushState({}, '', url.pathname + url.search);
+      await applyRoute();
+    }
+    await loadNotifications();
+  };
+  document.addEventListener('click', event => {
+    if (!event.target.closest('#notification-menu')) {
+      document.getElementById('notification-popover').hidden = true;
+      document.getElementById('notification-bell').setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  document.getElementById('resume-upload-form').onsubmit = async event => {
+    event.preventDefault();
+    const input = document.getElementById('resume-file-input');
+    const file = input.files?.[0];
+    if (!file) return;
+    const mime = file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    studioMessage('Uploading résumé securely…');
+    try {
+      await api('/api/resume-sources', { method: 'POST', headers: { 'Content-Type': mime, 'X-Filename': file.name, 'Idempotency-Key': crypto.randomUUID() }, body: file });
+      input.value = '';
+      RESUME_STUDIO.loaded = false;
+      await loadResumeStudio(true);
+      studioMessage('Résumé uploaded. Evidence extraction is queued; imported facts will require verification.');
+    } catch (failure) { studioMessage(failure.message, true); }
+  };
+
+  document.getElementById('evidence-form').onsubmit = async event => {
+    event.preventDefault();
+    try {
+      await api('/api/evidence', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({
+        evidence_type: document.getElementById('evidence-type').value,
+        title: document.getElementById('evidence-title').value,
+        employer: document.getElementById('evidence-employer').value,
+        description: document.getElementById('evidence-description').value,
+        skills: commaList(document.getElementById('evidence-skills').value)
+      }) });
+      event.currentTarget.reset();
+      event.currentTarget.hidden = true;
+      await loadResumeStudio(true);
+      studioMessage('Evidence added as unverified. Confirm it before using it in a build.');
+    } catch (failure) { studioMessage(failure.message, true); }
+  };
+
+  document.getElementById('resume-profile-form').onsubmit = async event => {
+    event.preventDefault();
+    const verifiedIds = RESUME_STUDIO.evidence.filter(item => item.verification_state === 'verified').map(item => item.id);
+    try {
+      await api('/api/resume-profiles', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({
+        name: document.getElementById('resume-profile-name').value,
+        target_role_family: document.getElementById('resume-profile-family').value,
+        target_seniority: document.getElementById('resume-profile-seniority').value,
+        template: document.getElementById('resume-profile-template').value,
+        page_target: Number(document.getElementById('resume-profile-pages').value),
+        target_headline: document.getElementById('resume-profile-headline').value,
+        summary_guidance: document.getElementById('resume-profile-guidance').value,
+        is_default: document.getElementById('resume-profile-default').checked,
+        evidence_ids: verifiedIds
+      }) });
+      event.currentTarget.reset();
+      await loadResumeStudio(true);
+      studioMessage('Master résumé created.');
+    } catch (failure) { studioMessage(failure.message, true); }
+  };
+
+  document.getElementById('custom-job-form').onsubmit = async event => {
+    event.preventDefault();
+    const profileId = document.getElementById('custom-job-profile').value;
+    try {
+      studioMessage('Saving job description…');
+      const custom = await api('/api/custom-jobs', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({
+        title: document.getElementById('custom-job-title').value,
+        company: document.getElementById('custom-job-company').value,
+        job_url: document.getElementById('custom-job-url').value,
+        description: document.getElementById('custom-job-description').value
+      }) });
+      const build = await api(`/api/custom-jobs/${encodeURIComponent(custom.custom_job.id)}/application-pack`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ profile_id: profileId }) });
+      RESUME_STUDIO.activeTab = 'packs';
+      await loadResumeStudio(true);
+      await openResumeBuild(build.build_id);
+      studioMessage('Application pack queued. This view updates when you refresh.');
+    } catch (failure) { studioMessage(failure.message, true); }
+  };
+
+  document.getElementById('build-rule-form').onsubmit = async event => {
+    event.preventDefault();
+    const profile = RESUME_STUDIO.profiles.find(item => item.id === document.getElementById('rule-profile').value);
+    try {
+      await api('/api/build-rules', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({
+        name: document.getElementById('rule-name').value,
+        profile_id: profile?.id,
+        role_families: profile ? [profile.target_role_family] : [],
+        countries: commaList(document.getElementById('rule-countries').value).map(code => code.toUpperCase()),
+        visa_requirement: document.getElementById('rule-visa').value,
+        action: document.getElementById('rule-action').value,
+        minimum_fit_score: Number(document.getElementById('rule-fit').value),
+        daily_auto_build_cap: Number(document.getElementById('rule-cap').value),
+        timezone: document.getElementById('rule-timezone').value,
+        notification_delivery: document.getElementById('rule-email').checked ? 'in_app_email' : 'in_app',
+        email_opt_in: document.getElementById('rule-email').checked
+      }) });
+      event.currentTarget.reset();
+      document.getElementById('rule-fit').value = 70;
+      document.getElementById('rule-timezone').value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      await loadResumeStudio(true);
+      studioMessage('Daily rule saved. Auto-build remains off unless enabled for your account and selected in the rule.');
+    } catch (failure) { studioMessage(failure.message, true); }
+  };
+
+  document.getElementById('resume-studio-panel').onclick = async event => {
+    const deleteSource = event.target.closest('[data-delete-source]');
+    const verifyEvidence = event.target.closest('[data-verify-evidence]');
+    const deleteEvidence = event.target.closest('[data-delete-evidence]');
+    const duplicateProfile = event.target.closest('[data-duplicate-profile]');
+    const deleteProfile = event.target.closest('[data-delete-profile]');
+    const deleteRule = event.target.closest('[data-delete-rule]');
+    const deleteBuild = event.target.closest('[data-delete-build]');
+    const openBuild = event.target.closest('[data-open-build]');
+    const notificationAction = event.target.closest('[data-notification-action]');
+    const notificationStatus = event.target.closest('[data-notification-status]');
+    try {
+      if (deleteSource) await api(`/api/resume-sources/${encodeURIComponent(deleteSource.dataset.deleteSource)}`, { method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() } });
+      else if (verifyEvidence) await api('/api/evidence/verify', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ evidence_ids: [verifyEvidence.dataset.verifyEvidence], verification_state: 'verified' }) });
+      else if (deleteEvidence) await api(`/api/evidence/${encodeURIComponent(deleteEvidence.dataset.deleteEvidence)}`, { method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() } });
+      else if (duplicateProfile) await api(`/api/resume-profiles/${encodeURIComponent(duplicateProfile.dataset.duplicateProfile)}/duplicate`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({}) });
+      else if (deleteProfile) await api(`/api/resume-profiles/${encodeURIComponent(deleteProfile.dataset.deleteProfile)}`, { method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() } });
+      else if (deleteRule) await api(`/api/build-rules/${encodeURIComponent(deleteRule.dataset.deleteRule)}`, { method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() } });
+      else if (deleteBuild) await api(`/api/resume-builds/${encodeURIComponent(deleteBuild.dataset.deleteBuild)}`, { method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() } });
+      else if (openBuild) { await openResumeBuild(openBuild.dataset.openBuild); return; }
+      else if (notificationAction) {
+        await api(`/api/notifications/${encodeURIComponent(notificationAction.dataset.notificationAction)}`, { method: 'PATCH', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ status: 'actioned' }) });
+        const url = new URL(notificationAction.dataset.actionUrl, location.origin);
+        history.replaceState({}, '', url.pathname + url.search);
+        await loadResumeStudio(true);
+        return;
+      } else if (notificationStatus) {
+        await api(`/api/notifications/${encodeURIComponent(notificationStatus.dataset.notificationId)}`, { method: 'PATCH', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ status: notificationStatus.dataset.notificationStatus }) });
+      } else return;
+      await loadResumeStudio(true);
+    } catch (failure) { studioMessage(failure.message, true); }
+  };
+}
+
 async function init() {
   const authError = readAuthError();
   applyUrlFiltersToState();
@@ -5208,6 +5913,7 @@ async function init() {
   buildOnboardingOptions();
   wireStaticHandlers();
   wireAuthHandlers();
+  wireResumeStudioHandlers();
   updateIndustryUI();
   syncSearchInput();
   showPublicDashboard();

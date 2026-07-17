@@ -12,8 +12,51 @@ binding = "DB"
 database_name = "job-tracker-app-db"
 database_id = "d0b81077-9b5d-425a-a821-979375f63e89"
 
+[[r2_buckets]]
+binding = "RESUME_FILES"
+bucket_name = "job-tracker-resume-files"
+
+[[queues.producers]]
+binding = "RESUME_QUEUE"
+queue = "job-tracker-resume-jobs"
+
+[[queues.producers]]
+binding = "RESUME_DLQ"
+queue = "job-tracker-resume-jobs-dlq"
+
+[[queues.consumers]]
+queue = "job-tracker-resume-jobs"
+dead_letter_queue = "job-tracker-resume-jobs-dlq"
+max_batch_size = 5
+max_batch_timeout = 10
+max_retries = 3
+
+[[workflows]]
+binding = "RESUME_WORKFLOW"
+name = "job-tracker-resume-build"
+class_name = "ResumeBuildWorkflow"
+script_name = "job-tracker-resume-workflow"
+
+[[services]]
+binding = "RESUME_RENDERER"
+service = "job-tracker-resume-renderer"
+
+[[send_email]]
+name = "EMAIL"
+
+[vars]
+RESUME_STUDIO_ENABLED = "false"
+RESUME_DAILY_MATCHING_ENABLED = "false"
+RESUME_AUTO_BUILD_ENABLED = "false"
+RESUME_EMAIL_DIGESTS_ENABLED = "false"
+CREDIT_ENFORCEMENT_ENABLED = "false"
+BETA_APPLICATION_PACK_CREDITS = "3"
+RESUME_MODEL = "gpt-5.6-sol"
+REQUIRE_AI_GATEWAY = "true"
+RESUME_EMAIL_FROM = "updates@livejobindex.com"
+
 [triggers]
-crons = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *"]
+crons = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *", "7 * * * *"]
 
 [assets]
 directory = "./public"
@@ -32,6 +75,10 @@ enabled = true
 # - CLERK_SIGN_UP_URL         (hosted Clerk sign-up URL)
 # - SCAN_KEY                  (secret for manual scan trigger via /api/scan-now)
 # - ANALYTICS_ALLOWED_EMAILS  (comma-separated owner emails allowed to read global analytics)
+# - RESUME_STUDIO_ALLOWED_USERS (comma-separated Clerk user IDs/emails for the owner/beta allowlist)
+# - OPENAI_API_KEY            (Responses and temporary Files API access)
+# - AI_GATEWAY_URL            (full Cloudflare AI Gateway OpenAI-compatible base URL)
+# - AI_GATEWAY_TOKEN          (optional authenticated AI Gateway token)
 
 [[routes]]
 pattern = "livejobindex.com"

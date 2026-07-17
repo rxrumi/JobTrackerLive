@@ -1,4 +1,12 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
+import {
+  dispatchDailyResumeMatching,
+  dispatchResumeDigests,
+  deleteUserResumeObjects,
+  handleResumeQueue,
+  handleResumeStudioRequest,
+  terminateUserResumeWorkflows,
+} from "./resume-studio.js";
 
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
@@ -739,6 +747,13 @@ async function dbBatch(env, statements) {
   }
   for (const statement of statements) await statement.run();
 }
+
+const RESUME_STUDIO_DEPS = {
+  run: dbRun,
+  first: dbFirst,
+  all: dbAll,
+  batch: dbBatch
+};
 
 async function persistScanToD1(env, scanResult, today) {
   const database = db(env);
@@ -1937,7 +1952,7 @@ const ANON_SESSION_COOKIE = "lji_session";
 const ANON_SESSION_TTL_DAYS = 365;
 const TRACKABLE_EVENTS = new Set(["job_view", "search", "page_view"]);
 const MAX_JSON_BODY_BYTES = 32 * 1024;
-const SAFE_SERVER_ERRORS = new Set(["account_setup_failed", "analytics unavailable"]);
+const SAFE_SERVER_ERRORS = new Set(["account_setup_failed", "analytics unavailable", "account_deletion_provider_failed"]);
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const CSP_DIRECTIVES = [
   "default-src 'self'",
@@ -2591,6 +2606,26 @@ async function handleMe(request, env) {
   await dbRun(env, "update users set last_login_at = ?, email = ?, updated_at = ? where id = ?",
     new Date().toISOString(), auth.user.email || "", new Date().toISOString(), auth.user.id);
   return jsonResponse(await fetchMe(env, auth.user));
+}
+
+async function handleDeleteMe(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+  const payload = await readJSON(request);
+  if (payload?.confirmation !== "DELETE MY ACCOUNT") return errorResponse(400, "account_deletion_confirmation_required");
+  if (!env.CLERK_USER && !env.CLERK_SECRET_KEY) return errorResponse(503, "account_deletion_provider_failed");
+  await terminateUserResumeWorkflows(env, auth.user.id, RESUME_STUDIO_DEPS);
+  if (!env.CLERK_USER && env.CLERK_SECRET_KEY) {
+    try {
+      const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+      await clerk.users.deleteUser(auth.user.id);
+    } catch {
+      return errorResponse(503, "account_deletion_provider_failed");
+    }
+  }
+  await deleteUserResumeObjects(env, auth.user.id);
+  await dbRun(env, "delete from users where id = ?", auth.user.id);
+  return jsonResponse({ ok: true, deleted: true });
 }
 
 async function handleAccountType(request, env) {
@@ -3359,6 +3394,27 @@ export default {
       return handleSeoPage(url.pathname, env);
     }
 
+    const resumeStudioPath = url.pathname.startsWith("/api/resume-")
+      || url.pathname.startsWith("/api/evidence")
+      || url.pathname.startsWith("/api/custom-jobs")
+      || url.pathname.startsWith("/api/build-rules")
+      || url.pathname.startsWith("/api/notifications")
+      || url.pathname === "/api/usage"
+      || /^\/api\/jobs\/.+\/(preparation-context|application-pack)$/.test(url.pathname);
+    if (resumeStudioPath) {
+      const auth = await requireUser(request, env);
+      if (auth.response) return auth.response;
+      await ensureAccountRows(env, auth.user);
+      const studioResponse = await handleResumeStudioRequest(
+        request,
+        env,
+        ctx,
+        auth.user,
+        RESUME_STUDIO_DEPS
+      );
+      if (studioResponse) return withTrustHeaders(studioResponse);
+    }
+
     if (url.pathname === "/api/jobs") {
       return handlePublicJobs(request, env, ctx);
     }
@@ -3397,6 +3453,10 @@ export default {
 
     if (url.pathname === "/api/me" && request.method === "GET") {
       return handleMe(request, env);
+    }
+
+    if (url.pathname === "/api/me" && request.method === "DELETE") {
+      return handleDeleteMe(request, env);
     }
 
     if (url.pathname === "/api/onboarding/account-type" && request.method === "PATCH") {
@@ -3500,20 +3560,37 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    if (event?.cron === "7 * * * *") {
+      const digestPromise = dispatchResumeDigests(env, RESUME_STUDIO_DEPS).catch(error => {
+        console.error(JSON.stringify({ event: "resume_digest_failed", message: error?.message || String(error) }));
+      });
+      if (ctx?.waitUntil) ctx.waitUntil(digestPromise);
+      else await digestPromise;
+      return;
+    }
     const today = todayUTC();
     const shardIndex = scanShardForCron(event?.cron);
-    const scanPromise = runScan(env, { shardIndex }).then(result => {
+    const scanPromise = runScan(env, { shardIndex }).then(async result => {
       if (result.error) {
         console.error(JSON.stringify({ event: "scheduled_scan_failed", shardIndex, ...result }));
         return;
       }
-      return persistSuccessfulScan(env, result, today);
+      await persistSuccessfulScan(env, result, today);
+      if (result.cycleComplete) {
+        await dispatchDailyResumeMatching(env, RESUME_STUDIO_DEPS, today, ctx).catch(error => {
+          console.error(JSON.stringify({ event: "resume_matching_failed", message: error?.message || String(error) }));
+        });
+      }
     });
     if (ctx?.waitUntil) {
       ctx.waitUntil(scanPromise);
     } else {
       await scanPromise;
     }
+  },
+
+  async queue(batch, env) {
+    await handleResumeQueue(batch, env, RESUME_STUDIO_DEPS);
   }
 };
 

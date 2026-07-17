@@ -1,0 +1,20 @@
+name = "job-tracker-resume-renderer"
+main = "src/index.js"
+compatibility_date = "2026-07-14"
+workers_dev = false
+
+[[containers]]
+class_name = "ResumeRenderer"
+image = "./Dockerfile"
+max_instances = 2
+
+[[durable_objects.bindings]]
+name = "RENDERER"
+class_name = "ResumeRenderer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ResumeRenderer"]
+
+[observability]
+enabled = true
