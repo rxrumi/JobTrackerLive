@@ -2416,10 +2416,12 @@ function safeRedirectPath(value) {
   return path.startsWith("/") && !path.startsWith("//") ? path : "/";
 }
 
-function assetRequest(request, pathname) {
+const APP_SHELL_ASSET_VERSION = "20260722-3";
+
+function assetRequest(request, pathname, search = "") {
   const url = new URL(request.url);
   url.pathname = pathname;
-  url.search = "";
+  url.search = search;
   return new Request(url.toString(), request);
 }
 
@@ -2445,10 +2447,16 @@ function withTrustHeaders(response, nonce = "") {
 }
 
 async function fetchAsset(request, env, pathname) {
-  const response = await env.ASSETS.fetch(pathname ? assetRequest(request, pathname) : request);
-  const headers = new Headers(response.headers);
   const assetPath = pathname || new URL(request.url).pathname;
-  if (/\.html?$/.test(assetPath) || !/\.[a-z0-9]+$/i.test(assetPath)) {
+  const isAppShell = /\.html?$/.test(assetPath) || !/\.[a-z0-9]+$/i.test(assetPath);
+  const assetFetchRequest = pathname
+    ? assetRequest(request, pathname, isAppShell ? `?v=${APP_SHELL_ASSET_VERSION}` : "")
+    : isAppShell
+      ? assetRequest(request, assetPath, `?v=${APP_SHELL_ASSET_VERSION}`)
+      : request;
+  const response = await env.ASSETS.fetch(assetFetchRequest);
+  const headers = new Headers(response.headers);
+  if (isAppShell) {
     headers.set("Cache-Control", "no-cache, must-revalidate");
   } else if (/\.(?:avif|webp|png|jpe?g|gif|svg|ico|woff2?)$/i.test(assetPath)) {
     headers.set("Cache-Control", "public, max-age=31536000, immutable");

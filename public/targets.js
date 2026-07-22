@@ -213,7 +213,7 @@ export const ENGINEERING_STATIC_COMPANIES = [
   { id: 1097, company: '3M', country: 'US', city: 'Minneapolis', tier: 'BigTech', visa: 'Likely', niche: 'Industrial Technology', apply: 'https://www.3m.com/3M/en_US/careers-us/' }
 ];
 
-const COMPANY_LOGO_DOMAINS = {
+export const COMPANY_LOGO_DOMAINS = {
   '3m': '3m.com',
   abb: 'abb.com',
   adobe: 'adobe.com',
@@ -295,7 +295,7 @@ const COMPANY_LOGO_DOMAINS = {
   xero: 'xero.com',
   zendesk: 'zendesk.com'
 };
-const ATS_LOGO_HOST_PATTERNS = [
+export const ATS_LOGO_HOST_PATTERNS = [
   /(^|\.)greenhouse\.io$/,
   /(^|\.)job-boards\.greenhouse\.io$/,
   /(^|\.)ashbyhq\.com$/,

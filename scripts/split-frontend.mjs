@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-const assetVersion = "20260722-2";
+const assetVersion = "20260722-3";
 const indexPath = new URL("../public/index.html", import.meta.url);
 const appPath = new URL("../public/app.js", import.meta.url);
 let html = await readFile(indexPath, "utf8");
@@ -35,9 +35,11 @@ if (app.startsWith("const STATIC_COMPANIES = [")) {
   const targets = app
     .slice(0, taxonomyStart)
     .replace(/^const STATIC_COMPANIES/, "export const STATIC_COMPANIES")
-    .replace(/\nconst ENGINEERING_STATIC_COMPANIES/, "\nexport const ENGINEERING_STATIC_COMPANIES");
+    .replace(/\nconst ENGINEERING_STATIC_COMPANIES/, "\nexport const ENGINEERING_STATIC_COMPANIES")
+    .replace(/\nconst COMPANY_LOGO_DOMAINS/, "\nexport const COMPANY_LOGO_DOMAINS")
+    .replace(/\nconst ATS_LOGO_HOST_PATTERNS/, "\nexport const ATS_LOGO_HOST_PATTERNS");
   await writeFile(new URL("../public/targets.js", import.meta.url), targets);
-  app = `import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES } from "./targets.js?v=${assetVersion}";\nimport { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js?v=${assetVersion}";\n${app.slice(taxonomyStart)}`;
+  app = `import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES, COMPANY_LOGO_DOMAINS, ATS_LOGO_HOST_PATTERNS } from "./targets.js?v=${assetVersion}";\nimport { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js?v=${assetVersion}";\n${app.slice(taxonomyStart)}`;
   app = app
     .replace(/^const COUNTRY_NAMES = .*;\n/m, "")
     .replace(/^const COUNTRY_FLAGS = .*;\n/m, "")
