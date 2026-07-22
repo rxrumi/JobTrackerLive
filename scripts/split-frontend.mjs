@@ -1,10 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 
+const assetVersion = "20260722-2";
 const indexPath = new URL("../public/index.html", import.meta.url);
 const appPath = new URL("../public/app.js", import.meta.url);
 let html = await readFile(indexPath, "utf8");
 
-const alreadySplit = html.includes('src="/app.js"');
+const alreadySplit = /src="\/app\.js(?:\?v=[^"]+)?"/.test(html);
 
 if (!alreadySplit) {
   const styleMatch = html.match(/<style>\n?([\s\S]*?)<\/style>/);
@@ -24,7 +25,7 @@ if (!alreadySplit) {
   if (appStart < 0 || appEnd <= appStart) throw new Error("app_script_not_found");
   const appCode = html.slice(appStart + "<script>\n".length, appEnd).trim();
   await writeFile(appPath, `${appCode}\n`);
-  html = `${html.slice(0, appStart)}<script type="module" src="/app.js"></script>${html.slice(appEnd + "</script>".length)}`;
+  html = `${html.slice(0, appStart)}<script type="module" src="/app.js?v=${assetVersion}"></script>${html.slice(appEnd + "</script>".length)}`;
 }
 
 let app = await readFile(appPath, "utf8");
@@ -36,7 +37,7 @@ if (app.startsWith("const STATIC_COMPANIES = [")) {
     .replace(/^const STATIC_COMPANIES/, "export const STATIC_COMPANIES")
     .replace(/\nconst ENGINEERING_STATIC_COMPANIES/, "\nexport const ENGINEERING_STATIC_COMPANIES");
   await writeFile(new URL("../public/targets.js", import.meta.url), targets);
-  app = `import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES } from "./targets.js";\nimport { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js";\n${app.slice(taxonomyStart)}`;
+  app = `import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES } from "./targets.js?v=${assetVersion}";\nimport { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js?v=${assetVersion}";\n${app.slice(taxonomyStart)}`;
   app = app
     .replace(/^const COUNTRY_NAMES = .*;\n/m, "")
     .replace(/^const COUNTRY_FLAGS = .*;\n/m, "")
@@ -45,7 +46,7 @@ if (app.startsWith("const STATIC_COMPANIES = [")) {
   await writeFile(appPath, app);
 }
 
-html = html.replace(/<script(?: type="module")? src="\/app\.js"(?: defer)?><\/script>/, '<script type="module" src="/app.js"></script>');
+html = html.replace(/<script(?: type="module")? src="\/app\.js(?:\?v=[^"]+)?"(?: defer)?><\/script>/, `<script type="module" src="/app.js?v=${assetVersion}"></script>`);
 
 html = html
   .replace(/<!--(?!\[if)[\s\S]*?-->/g, "")

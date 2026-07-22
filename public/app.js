@@ -1,5 +1,5 @@
-import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES } from "./targets.js";
-import { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js";
+import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES } from "./targets.js?v=20260722-2";
+import { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js?v=20260722-2";
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
 const INDUSTRIES = { tech: 'Tech', engineering: 'Engineering' };
 const INDUSTRY_KEY = 'livejobindex_industry';

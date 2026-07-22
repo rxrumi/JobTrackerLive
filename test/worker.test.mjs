@@ -19,7 +19,8 @@ test("frontend split modules expose engineering static targets", () => {
   const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   const targets = readFileSync(new URL("../public/targets.js", import.meta.url), "utf8");
 
-  assert.match(app, /import \{ STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES \} from "\.\/targets\.js";/);
+  assert.match(app, /import \{ STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES \} from "\.\/targets\.js\?v=\d{8}-\d";/);
+  assert.match(app, /from "\.\/taxonomy\.js\?v=\d{8}-\d";/);
   assert.match(targets, /export const ENGINEERING_STATIC_COMPANIES = \[/);
 });
 
