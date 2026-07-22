@@ -16,18 +16,18 @@ CREATE INDEX IF NOT EXISTS alert_preferences_delivery_idx
 CREATE TRIGGER IF NOT EXISTS provider_cost_events_tenant_insert
 BEFORE INSERT ON provider_cost_events
 BEGIN
-  SELECT CASE WHEN NEW.build_id IS NOT NULL AND NOT EXISTS
-    (SELECT 1 FROM resume_builds b WHERE b.id = NEW.build_id AND b.user_id = NEW.user_id)
-    THEN RAISE(ABORT, 'provider_cost_build_tenant_mismatch') END;
-  SELECT CASE WHEN NEW.version_id IS NOT NULL AND NOT EXISTS
-    (SELECT 1 FROM resume_build_versions v WHERE v.id = NEW.version_id AND v.user_id = NEW.user_id)
-    THEN RAISE(ABORT, 'provider_cost_version_tenant_mismatch') END;
+  SELECT RAISE(ABORT, 'provider_cost_build_tenant_mismatch')
+    WHERE NEW.build_id IS NOT NULL AND NOT EXISTS
+      (SELECT 1 FROM resume_builds b WHERE b.id = NEW.build_id AND b.user_id = NEW.user_id);
+  SELECT RAISE(ABORT, 'provider_cost_version_tenant_mismatch')
+    WHERE NEW.version_id IS NOT NULL AND NOT EXISTS
+      (SELECT 1 FROM resume_build_versions v WHERE v.id = NEW.version_id AND v.user_id = NEW.user_id);
 END;
 
 CREATE TRIGGER IF NOT EXISTS notification_deliveries_tenant_insert
 BEFORE INSERT ON notification_deliveries
 BEGIN
-  SELECT CASE WHEN NEW.notification_id IS NOT NULL AND NOT EXISTS
-    (SELECT 1 FROM notifications n WHERE n.id = NEW.notification_id AND n.user_id = NEW.user_id)
-    THEN RAISE(ABORT, 'notification_delivery_tenant_mismatch') END;
+  SELECT RAISE(ABORT, 'notification_delivery_tenant_mismatch')
+    WHERE NEW.notification_id IS NOT NULL AND NOT EXISTS
+      (SELECT 1 FROM notifications n WHERE n.id = NEW.notification_id AND n.user_id = NEW.user_id);
 END;
