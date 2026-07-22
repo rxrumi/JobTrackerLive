@@ -1,4 +1,4 @@
-import { STATIC_COMPANIES } from "./targets.js";
+import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES } from "./targets.js";
 import { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js";
 const TIER_LABELS = { BigTech: 'Big Tech', Scaleup: 'Scale-up', GrowthSaaS: 'Growth SaaS', Ecosystem: 'Growth SaaS' };
 const INDUSTRIES = { tech: 'Tech', engineering: 'Engineering' };

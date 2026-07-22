@@ -31,9 +31,12 @@ let app = await readFile(appPath, "utf8");
 if (app.startsWith("const STATIC_COMPANIES = [")) {
   const taxonomyStart = app.indexOf("const COUNTRY_NAMES =");
   if (taxonomyStart < 0) throw new Error("frontend_taxonomy_boundary_not_found");
-  const targets = app.slice(0, taxonomyStart).replace(/^const STATIC_COMPANIES/, "export const STATIC_COMPANIES");
+  const targets = app
+    .slice(0, taxonomyStart)
+    .replace(/^const STATIC_COMPANIES/, "export const STATIC_COMPANIES")
+    .replace(/\nconst ENGINEERING_STATIC_COMPANIES/, "\nexport const ENGINEERING_STATIC_COMPANIES");
   await writeFile(new URL("../public/targets.js", import.meta.url), targets);
-  app = `import { STATIC_COMPANIES } from "./targets.js";\nimport { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js";\n${app.slice(taxonomyStart)}`;
+  app = `import { STATIC_COMPANIES, ENGINEERING_STATIC_COMPANIES } from "./targets.js";\nimport { COUNTRY_NAMES, COUNTRY_FLAGS, ROLE_FAMILY_NAMES as ROLE_FAMILIES, SENIORITY_NAMES as SENIORITIES, scoreJob } from "./taxonomy.js";\n${app.slice(taxonomyStart)}`;
   app = app
     .replace(/^const COUNTRY_NAMES = .*;\n/m, "")
     .replace(/^const COUNTRY_FLAGS = .*;\n/m, "")

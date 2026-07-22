@@ -113,7 +113,7 @@ export const STATIC_COMPANIES = [
   { id: 112, company: 'Figma', country: 'US', city: 'San Francisco', tier: 'Scaleup', visa: 'Strong', apply: 'https://www.figma.com/careers/?location=san-francisco' }
 ];
 
-const ENGINEERING_STATIC_COMPANIES = [
+export const ENGINEERING_STATIC_COMPANIES = [
   { id: 1001, company: 'AECOM', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://aecom.jobs/' },
   { id: 1002, company: 'WSP', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://www.wsp.com/en-gl/careers/job-opportunities' },
   { id: 1003, company: 'Arup', country: 'GB', city: 'London', tier: 'BigTech', visa: 'Likely', niche: 'AEC / Infrastructure', apply: 'https://careers.arup.com/earlycareers/vacancy/find/results' },
