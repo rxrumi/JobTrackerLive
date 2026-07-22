@@ -11,6 +11,7 @@ import {
   sha256Hex,
   validateResumeUpload
 } from "./resume-core.js";
+import { renderResumeArtifacts } from "./resume-renderer.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 const SOURCE_MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -21,8 +22,8 @@ const EVIDENCE_TYPES = new Set([
 ]);
 const NOTIFICATION_STATES = new Set(["unread", "read", "dismissed", "actioned"]);
 const BUILD_RULE_ACTIONS = new Set(["notify_only", "auto_build"]);
-const MAX_STUDIO_JSON_BYTES = 1024 * 1024;
-const DEFAULT_BETA_CREDITS = 3;
+const MAX_STUDIO_JSON_BYTES = 100 * 1024;
+const DEFAULT_BETA_CREDITS = 1;
 const DEFAULT_RESERVATION_HOURS = 24;
 
 const objectSchema = properties => ({ type: "object", additionalProperties: false, required: Object.keys(properties), properties });
@@ -153,12 +154,39 @@ async function readStudioJSON(request) {
   } catch { return null; }
 }
 
+async function readBoundedBody(request, maxBytes) {
+  if (!request.body) return new ArrayBuffer(0);
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel("body_too_large").catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer;
+}
+
 function response(data, status = 200, headers = {}) {
-  return new Response(JSON.stringify(data), { status, headers: { ...JSON_HEADERS, ...headers } });
+  return new Response(JSON.stringify(data), { status, headers: { ...JSON_HEADERS, "cache-control": "no-store", ...headers } });
 }
 
 function error(status, code, detail = null) {
-  return response({ error: code, ...(detail ? { detail } : {}) }, status);
+  const requestId = crypto.randomUUID();
+  return response({ error: { code, message: code, request_id: requestId, ...(detail ? { details: detail } : {}) } }, status, {
+    "x-request-id": requestId
+  });
 }
 
 function boolEnv(value, fallback = false) {
@@ -167,9 +195,18 @@ function boolEnv(value, fallback = false) {
 }
 
 function enabledForUser(env, user) {
-  if (boolEnv(env.RESUME_STUDIO_ENABLED)) return true;
   const allowed = new Set(String(env.RESUME_STUDIO_ALLOWED_USERS || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean));
-  return allowed.has(String(user.id || "").toLowerCase()) || allowed.has(String(user.email || "").toLowerCase());
+  if (allowed.has(String(user.id || "").toLowerCase()) || allowed.has(String(user.email || "").toLowerCase())) return true;
+  if (!boolEnv(env.RESUME_STUDIO_ENABLED)) return false;
+  const percent = Math.max(0, Math.min(100, Number(env.RESUME_ROLLOUT_PERCENT || 0)));
+  if (percent >= 100) return true;
+  if (percent <= 0) return false;
+  let hash = 2166136261;
+  for (const character of String(user.id || user.email || "")) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 100 < percent;
 }
 
 async function requireIndividual(env, user, deps) {
@@ -242,6 +279,8 @@ async function ensureBetaEntitlement(env, userId, deps) {
 async function usageSummary(env, userId, deps) {
   await ensureBetaEntitlement(env, userId, deps);
   const now = nowISO();
+  await deps.run(env, `update usage_reservations set status = 'expired', release_reason = 'reservation_expired',
+    updated_at = ? where user_id = ? and status = 'reserved' and expires_at <= ?`, now, userId, now);
   const [grants, committed, reserved] = await Promise.all([
     deps.first(env, `select coalesce(sum(quantity), 0) as total from entitlement_grants
       where user_id = ? and feature_key = 'application_pack' and starts_at <= ? and (expires_at is null or expires_at > ?)`, userId, now, now),
@@ -315,6 +354,10 @@ async function recordProviderCost(env, deps, metadata, body) {
   crypto.randomUUID(), metadata.userId, metadata.buildId || null, metadata.versionId || null,
   metadata.step, metadata.model, RESUME_PROMPT_VERSION,
   body?._request_id || body?.request_id || null, body?.id || null, inputTokens, outputTokens, estimated, nowISO());
+  await deps.run(env, `insert into ai_daily_budgets (budget_date, accepted_builds, estimated_cost_usd, updated_at)
+    values (?, 0, ?, ?) on conflict(budget_date) do update set
+      estimated_cost_usd = estimated_cost_usd + excluded.estimated_cost_usd,
+      updated_at = excluded.updated_at`, nowISO().slice(0, 10), estimated, nowISO());
   return { inputTokens, outputTokens, estimated };
 }
 
@@ -331,6 +374,7 @@ async function structuredResponse(env, deps, { name, schema, instructions, input
   const apiResponse = await fetch(responsesURL(env), {
     method: "POST",
     headers: { ...headers, "x-client-request-id": requestId },
+    signal: AbortSignal.timeout(120000),
     body: JSON.stringify({
       model,
       store: false,
@@ -366,12 +410,27 @@ async function uploadProviderFile(env, source) {
   return body.id;
 }
 
-async function deleteProviderFile(env, providerFileId) {
-  if (!providerFileId || !env.OPENAI_API_KEY) return;
-  await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(providerFileId)}`, {
+async function deleteProviderFile(env, deps, userId, providerFileId) {
+  if (!providerFileId || !env.OPENAI_API_KEY) return true;
+  const result = await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(providerFileId)}`, {
     method: "DELETE",
-    headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` }
-  }).catch(() => null);
+    headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    signal: AbortSignal.timeout(30000)
+  }).catch(failure => ({ ok: false, status: 0, failure }));
+  if (result.ok || result.status === 404) {
+    await deps.run(env, `update provider_file_cleanup set status = 'complete', last_error = null, updated_at = ?
+      where provider = 'openai' and provider_file_id = ?`, nowISO(), providerFileId).catch(() => null);
+    return true;
+  }
+  const at = nowISO();
+  await deps.run(env, `insert into provider_file_cleanup
+    (id, user_id, provider, provider_file_id, status, attempt_count, next_attempt_at, last_error, created_at, updated_at)
+    values (?, ?, 'openai', ?, 'failed', 1, ?, ?, ?, ?)
+    on conflict(provider, provider_file_id) do update set status = 'failed', attempt_count = attempt_count + 1,
+      next_attempt_at = excluded.next_attempt_at, last_error = excluded.last_error, updated_at = excluded.updated_at`,
+  crypto.randomUUID(), userId, providerFileId, new Date(Date.now() + 3600000).toISOString(),
+  result.status ? `http_${result.status}` : "network_error", at, at);
+  return false;
 }
 
 function stubExtractedEvidence() {
@@ -439,8 +498,43 @@ export async function processResumeSource(env, sourceId, deps) {
       provider_file_id = null, updated_at = ? where id = ?`, clean(failure?.message || "extraction_failed", 200), nowISO(), sourceId);
     throw failure;
   } finally {
-    await deleteProviderFile(env, providerFileId);
+    await deleteProviderFile(env, deps, source.user_id, providerFileId);
   }
+}
+
+async function claimMaintenanceLease(env, deps, leaseKey, ttlSeconds) {
+  const token = crypto.randomUUID();
+  const now = nowISO();
+  const result = await deps.run(env, `insert into maintenance_leases (lease_key, lease_token, lease_expires_at, updated_at)
+    values (?, ?, ?, ?) on conflict(lease_key) do update set lease_token = excluded.lease_token,
+      lease_expires_at = excluded.lease_expires_at, updated_at = excluded.updated_at
+      where maintenance_leases.lease_expires_at <= ?`, leaseKey, token,
+  new Date(Date.now() + ttlSeconds * 1000).toISOString(), now, now);
+  if (result?.meta && Number(result.meta.changes || 0) === 0) return null;
+  return token;
+}
+
+async function releaseMaintenanceLease(env, deps, leaseKey, token) {
+  await deps.run(env, "delete from maintenance_leases where lease_key = ? and lease_token = ?", leaseKey, token).catch(() => null);
+}
+
+export async function runResumeMaintenance(env, deps) {
+  const now = nowISO();
+  await deps.run(env, `update usage_reservations set status = 'expired', release_reason = 'reservation_expired',
+    released_at = ?, updated_at = ? where status = 'reserved' and expires_at <= ?`, now, now, now);
+  const cleanup = await deps.all(env, `select * from provider_file_cleanup
+    where status != 'complete' and (next_attempt_at is null or next_attempt_at <= ?) and attempt_count < 10
+    order by created_at limit 25`, now);
+  for (const item of cleanup) await deleteProviderFile(env, deps, item.user_id, item.provider_file_id);
+  await deps.run(env, "delete from anonymous_sessions where expires_at is not null and expires_at <= ?", now);
+  await deps.run(env, "delete from job_views where user_id is null and viewed_at < datetime('now','-30 days')");
+  await deps.run(env, "delete from search_queries where user_id is null and created_at < datetime('now','-30 days')");
+  await deps.run(env, "delete from page_views where user_id is null and created_at < datetime('now','-30 days')");
+  await deps.run(env, "delete from job_views where user_id is not null and viewed_at < datetime('now','-90 days')");
+  await deps.run(env, "delete from search_queries where user_id is not null and created_at < datetime('now','-90 days')");
+  await deps.run(env, "delete from page_views where user_id is not null and created_at < datetime('now','-90 days')");
+  await deps.run(env, "delete from daily_scan_stats where scan_date < date('now','-13 months')");
+  return { provider_files_checked: cleanup.length };
 }
 
 async function createNotification(env, deps, { userId, type, eventKey, title, body, actionUrl = null, jobId = null, buildId = null, metadata = {} }) {
@@ -491,11 +585,51 @@ function greenhouseDetailURL(posting) {
   return /^\d+$/.test(id) ? `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(posting.source_token)}/jobs/${id}` : null;
 }
 
+const APPROVED_JOB_HOSTS = new Set([
+  "boards-api.greenhouse.io", "job-boards.greenhouse.io", "api.ashbyhq.com", "jobs.ashbyhq.com",
+  "api.lever.co", "jobs.lever.co", "api.smartrecruiters.com", "jobs.smartrecruiters.com",
+  "www.amazon.jobs", "amazon.jobs", "jobs.apple.com", "explore.jobs.netflix.net",
+  "www.ycombinator.com", "ycombinator.com", "yc-oss.github.io"
+]);
+
+function approvedJobURL(value) {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
+    if (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal") || hostname.includes(":")) return null;
+    if (/^(?:0|10|127|169\.254|192\.168)\./.test(hostname) || /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname)) return null;
+    if (!APPROVED_JOB_HOSTS.has(hostname) && !hostname.endsWith(".myworkdayjobs.com")) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchApprovedJobURL(initialURL, headers) {
+  let url = approvedJobURL(initialURL);
+  if (!url) return null;
+  for (let redirect = 0; redirect <= 5; redirect++) {
+    const response = await fetch(url, {
+      headers,
+      redirect: "manual",
+      signal: AbortSignal.timeout(20000)
+    });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location || redirect === 5) return null;
+    url = approvedJobURL(new URL(location, url).toString());
+    if (!url) return null;
+  }
+  return null;
+}
+
 async function fetchJobSource(posting) {
   const detailURL = greenhouseDetailURL(posting);
   const sourceURL = detailURL || posting.url;
   if (!sourceURL || !/^https:\/\//i.test(sourceURL)) return { status: "unsupported" };
-  const result = await fetch(sourceURL, { headers: { accept: detailURL ? "application/json" : "text/html,application/json" } });
+  const result = await fetchApprovedJobURL(sourceURL, { accept: detailURL ? "application/json" : "text/html,application/json" });
+  if (!result) return { status: "unsupported" };
   if (result.status === 404 || result.status === 410) return { status: "closed", statusCode: result.status, sourceURL };
   if (!result.ok) throw new Error(`job_hydration_${result.status}`);
   const declaredLength = Number(result.headers.get("content-length") || 0);
@@ -722,22 +856,14 @@ async function generateEmails(env, deps, build, posting, requirements, canonical
   return result.parsed;
 }
 
-function bytesFromBase64(value) {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
 async function renderArtifacts(env, deps, build, version, profile, posting, canonical, emails) {
-  if (!env.RESUME_RENDERER || !env.RESUME_FILES) throw new Error("resume_renderer_not_configured");
-  const renderResponse = await env.RESUME_RENDERER.fetch("https://resume-renderer/render", {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: json({ canonical_resume: canonical, emails, template: profile.template, page_target: Number(profile.page_target) })
+  if (!env.RESUME_FILES) throw new Error("resume_storage_not_configured");
+  const rendered = await renderResumeArtifacts({
+    canonical_resume: canonical,
+    emails,
+    template: profile.template,
+    page_target: Number(profile.page_target)
   });
-  const rendered = await renderResponse.json().catch(() => ({}));
-  if (!renderResponse.ok || !rendered.docx_base64 || !rendered.pdf_base64) throw new Error("resume_render_failed");
   const qa = rendered.qa || {};
   const readiness = atsReadinessChecklist(canonical, qa);
   if (!qa.passed || !readiness.passed) return { passed: false, qa: { ...qa, ats_readiness: readiness } };
@@ -747,8 +873,8 @@ async function renderArtifacts(env, deps, build, version, profile, posting, cano
   const filenameBase = `${userPart}-${companyPart}-${rolePart}`;
   const prefix = `users/${build.user_id}/builds/${build.id}/versions/${version.version_number}`;
   for (const artifact of [
-    { format: "docx", mime: SOURCE_MIME_DOCX, bytes: bytesFromBase64(rendered.docx_base64), filename: `${filenameBase}.docx` },
-    { format: "pdf", mime: "application/pdf", bytes: bytesFromBase64(rendered.pdf_base64), filename: `${filenameBase}.pdf` }
+    { format: "docx", mime: SOURCE_MIME_DOCX, bytes: rendered.docx, filename: `${filenameBase}.docx` },
+    { format: "pdf", mime: "application/pdf", bytes: rendered.pdf, filename: `${filenameBase}.pdf` }
   ]) {
     const key = `${prefix}/resume.${artifact.format}`;
     await env.RESUME_FILES.put(key, artifact.bytes, { httpMetadata: { contentType: artifact.mime }, customMetadata: { filename: artifact.filename } });
@@ -792,7 +918,7 @@ async function failBuild(env, deps, build, status, code, notificationType) {
     eventKey: `${notificationType}:${build.id}:${code}`,
     title,
     body: status === "NEEDS_EVIDENCE" ? "Verify or add career evidence before generating this application pack." : "Open Resume Studio to review the build status.",
-    actionUrl: `/resumes?build=${encodeURIComponent(build.id)}`,
+    actionUrl: `/app/resumes?build=${encodeURIComponent(build.id)}`,
     jobId: build.job_id,
     buildId: build.id
   });
@@ -800,7 +926,15 @@ async function failBuild(env, deps, build, status, code, notificationType) {
 
 export async function processResumeBuild(env, buildId, deps) {
   let build = normalizeBuild(await deps.first(env, "select * from resume_builds where id = ?", buildId));
-  if (!build || ["READY", "NEEDS_EVIDENCE", "NEEDS_REVIEW", "JOB_CLOSED"].includes(build.status)) return;
+  if (!build || ["READY", "NEEDS_EVIDENCE", "NEEDS_REVIEW", "JOB_CLOSED", "FAILED"].includes(build.status)) return;
+  const lifecycle = await deps.first(env, "select lifecycle_state from users where id = ?", build.user_id);
+  if (!lifecycle || lifecycle.lifecycle_state === "deletion_pending" || lifecycle.lifecycle_state === "deleted") return;
+  const claimToken = crypto.randomUUID();
+  const claimed = await deps.run(env, `update resume_builds set claim_token = ?, lease_expires_at = ?, updated_at = ?
+    where id = ? and user_id = ? and status not in ('READY','NEEDS_EVIDENCE','NEEDS_REVIEW','JOB_CLOSED','FAILED')
+      and (lease_expires_at is null or lease_expires_at <= ?)`, claimToken,
+  new Date(Date.now() + 15 * 60 * 1000).toISOString(), nowISO(), build.id, build.user_id, nowISO());
+  if (claimed?.meta && Number(claimed.meta.changes || 0) === 0) return;
   try {
     await setBuildStatus(env, deps, build.id, build.user_id, "JOB_REVALIDATION", { started_at: build.started_at || nowISO() });
     const context = await buildContext(env, deps, build);
@@ -824,7 +958,7 @@ export async function processResumeBuild(env, buildId, deps) {
     if (hard.length) {
       await setBuildStatus(env, deps, build.id, build.user_id, "NEEDS_REVIEW", { hard_blockers: hard, completed_at: nowISO() });
       await settleCredit(env, build, "released", "hard_blocker", deps);
-      await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${build.id}:hard_blocker`, title: "Application has a hard blocker", body: hard[0].detail || "Review the job requirements before continuing.", actionUrl: `/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
+      await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${build.id}:hard_blocker`, title: "Application has a hard blocker", body: hard[0].detail || "Review the job requirements before continuing.", actionUrl: `/app/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
       return;
     }
 
@@ -860,7 +994,7 @@ export async function processResumeBuild(env, buildId, deps) {
       if (resumeAudit.unsupported_count > 0 || resumeAudit.ambiguous_count > 0 || !resumeAudit.passed) {
         await setBuildStatus(env, deps, build.id, build.user_id, "NEEDS_REVIEW", { failure_code: "claim_audit_failed", completed_at: nowISO() });
         await settleCredit(env, build, "released", "claim_audit_failed", deps);
-        await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${build.id}:claims`, title: "Claims need review", body: "One or more generated claims were unsupported or ambiguous. Export remains blocked.", actionUrl: `/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
+        await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${build.id}:claims`, title: "Claims need review", body: "One or more generated claims were unsupported or ambiguous. Export remains blocked.", actionUrl: `/app/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
         return;
       }
       emails = await generateEmails(env, deps, build, context.posting, requirements, canonical, evidence);
@@ -873,7 +1007,7 @@ export async function processResumeBuild(env, buildId, deps) {
       if (!emailAudit.passed) {
         await setBuildStatus(env, deps, build.id, build.user_id, "NEEDS_REVIEW", { failure_code: "email_claim_audit_failed", completed_at: nowISO() });
         await settleCredit(env, build, "released", "email_claim_audit_failed", deps);
-        await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${build.id}:email_claims`, title: "Email claims need review", body: "An email claim was unsupported or ambiguous. Export remains blocked.", actionUrl: `/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
+        await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${build.id}:email_claims`, title: "Email claims need review", body: "An email claim was unsupported or ambiguous. Export remains blocked.", actionUrl: `/app/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
         return;
       }
       const audit = { passed: true, resume: resumeAudit, email: emailAudit, unsupported_count: 0, ambiguous_count: 0 };
@@ -899,13 +1033,13 @@ export async function processResumeBuild(env, buildId, deps) {
     if (!rendered.passed) {
       await setBuildStatus(env, deps, build.id, build.user_id, "FAILED", { ats_readiness: rendered.qa?.ats_readiness, failure_code: "artifact_qa_failed", completed_at: nowISO() });
       await settleCredit(env, build, "released", "artifact_qa_failed", deps);
-      await createNotification(env, deps, { userId: build.user_id, type: "build_failed", eventKey: `build_failed:${build.id}:qa`, title: "Artifact QA failed", body: "The generated files did not pass export QA. Your credit was released.", actionUrl: `/resumes?build=${build.id}`, buildId: build.id });
+      await createNotification(env, deps, { userId: build.user_id, type: "build_failed", eventKey: `build_failed:${build.id}:qa`, title: "Artifact QA failed", body: "The generated files did not pass export QA. Your credit was released.", actionUrl: `/app/resumes?build=${build.id}`, buildId: build.id });
       return;
     }
     await setBuildStatus(env, deps, build.id, build.user_id, "QA_PASSED", { ats_readiness: rendered.qa.ats_readiness });
     await settleCredit(env, build, "committed", "first_qa_passed_version", deps);
     await setBuildStatus(env, deps, build.id, build.user_id, "READY", { completed_at: nowISO() });
-    await createNotification(env, deps, { userId: build.user_id, type: "build_ready", eventKey: `build_ready:${build.id}:${versionNumber}`, title: "Application pack ready", body: `${context.posting.title} at ${context.posting.company} is ready to review and export.`, actionUrl: `/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
+    await createNotification(env, deps, { userId: build.user_id, type: "build_ready", eventKey: `build_ready:${build.id}:${versionNumber}`, title: "Application pack ready", body: `${context.posting.title} at ${context.posting.company} is ready to review and export.`, actionUrl: `/app/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
   } catch (failure) {
     build = normalizeBuild(await deps.first(env, "select * from resume_builds where id = ?", buildId)) || build;
     const failureCode = clean(failure?.message || "build_failed", 160);
@@ -915,10 +1049,13 @@ export async function processResumeBuild(env, buildId, deps) {
     attempts >= 3 ? nowISO() : null, nowISO(), build.id, build.user_id);
     if (attempts >= 3) {
       await settleCredit(env, build, "released", failureCode, deps);
-      await createNotification(env, deps, { userId: build.user_id, type: "build_failed", eventKey: `build_failed:${build.id}:exhausted`, title: "Application pack failed", body: "The build could not be completed after bounded retries. Your credit was released.", actionUrl: `/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
+      await createNotification(env, deps, { userId: build.user_id, type: "build_failed", eventKey: `build_failed:${build.id}:exhausted`, title: "Application pack failed", body: "The build could not be completed after bounded retries. Your credit was released.", actionUrl: `/app/resumes?build=${build.id}`, jobId: build.job_id, buildId: build.id });
       await env.RESUME_DLQ?.send?.({ type: "build_exhausted", build_id: build.id, failure_code: failureCode }, { contentType: "json" }).catch(() => null);
     }
     throw failure;
+  } finally {
+    await deps.run(env, `update resume_builds set claim_token = null, lease_expires_at = null, updated_at = ?
+      where id = ? and user_id = ? and claim_token = ?`, nowISO(), build.id, build.user_id, claimToken).catch(() => null);
   }
 }
 
@@ -962,7 +1099,7 @@ async function executeResumeRevision(env, buildId, deps) {
     if (!audit.passed) {
       await deps.run(env, "update resume_build_drafts set pending_ai_instruction = null, pending_ai_version_id = null, updated_at = ? where build_id = ? and user_id = ?", nowISO(), buildId, build.user_id);
       await setBuildStatus(env, deps, buildId, build.user_id, "NEEDS_REVIEW", { failure_code: "revision_claim_audit_failed" });
-      await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${buildId}:revision:${draft.ai_revision_count}`, title: "Revision needs review", body: "The requested AI revision produced an unsupported or ambiguous claim and was not exported.", actionUrl: `/resumes?build=${buildId}`, buildId });
+      await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${buildId}:revision:${draft.ai_revision_count}`, title: "Revision needs review", body: "The requested AI revision produced an unsupported or ambiguous claim and was not exported.", actionUrl: `/app/resumes?build=${buildId}`, buildId });
       return;
     }
     const previous = await deps.first(env, "select max(version_number) as version from resume_build_versions where build_id = ? and user_id = ?", buildId, build.user_id);
@@ -989,10 +1126,19 @@ async function executeResumeRevision(env, buildId, deps) {
   }
   await deps.run(env, "update resume_build_drafts set pending_ai_instruction = null, pending_ai_version_id = null, updated_at = ? where build_id = ? and user_id = ?", nowISO(), buildId, build.user_id);
   await setBuildStatus(env, deps, buildId, build.user_id, "READY", { ats_readiness: rendered.qa.ats_readiness, completed_at: nowISO() });
-  await createNotification(env, deps, { userId: build.user_id, type: "build_ready", eventKey: `build_ready:${buildId}:revision:${draft.ai_revision_count}`, title: "Résumé revision ready", body: "Your requested revision passed claim and artifact QA.", actionUrl: `/resumes?build=${buildId}`, buildId });
+  await createNotification(env, deps, { userId: build.user_id, type: "build_ready", eventKey: `build_ready:${buildId}:revision:${draft.ai_revision_count}`, title: "Résumé revision ready", body: "Your requested revision passed claim and artifact QA.", actionUrl: `/app/resumes?build=${buildId}`, buildId });
 }
 
 export async function processResumeRevision(env, buildId, deps) {
+  const initial = await deps.first(env, "select user_id, status, lease_expires_at from resume_builds where id = ?", buildId);
+  if (!initial || ["NEEDS_EVIDENCE", "JOB_CLOSED", "FAILED"].includes(initial.status)) return;
+  const lifecycle = await deps.first(env, "select lifecycle_state from users where id = ?", initial.user_id);
+  if (!lifecycle || lifecycle.lifecycle_state === "deletion_pending" || lifecycle.lifecycle_state === "deleted") return;
+  const claimToken = crypto.randomUUID();
+  const claimed = await deps.run(env, `update resume_builds set claim_token = ?, lease_expires_at = ?, updated_at = ?
+    where id = ? and user_id = ? and (lease_expires_at is null or lease_expires_at <= ?)`,
+  claimToken, new Date(Date.now() + 15 * 60 * 1000).toISOString(), nowISO(), buildId, initial.user_id, nowISO());
+  if (claimed?.meta && Number(claimed.meta.changes || 0) === 0) return;
   try {
     return await executeResumeRevision(env, buildId, deps);
   } catch (failure) {
@@ -1005,10 +1151,13 @@ export async function processResumeRevision(env, buildId, deps) {
     if (attempts >= 3) {
       await deps.run(env, `update resume_build_drafts set pending_ai_instruction = null, pending_ai_version_id = null,
         updated_at = ? where build_id = ? and user_id = ?`, nowISO(), buildId, build.user_id);
-      await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${buildId}:revision_exhausted`, title: "Revision could not be completed", body: "The revision exhausted its bounded retries. The last QA-passed version remains available.", actionUrl: `/resumes?build=${buildId}`, buildId });
+      await createNotification(env, deps, { userId: build.user_id, type: "build_needs_review", eventKey: `build_needs_review:${buildId}:revision_exhausted`, title: "Revision could not be completed", body: "The revision exhausted its bounded retries. The last QA-passed version remains available.", actionUrl: `/app/resumes?build=${buildId}`, buildId });
       await env.RESUME_DLQ?.send?.({ type: "revision_exhausted", build_id: buildId, failure_code: clean(failure?.message || "revision_failed", 160) }, { contentType: "json" }).catch(() => null);
     }
     throw failure;
+  } finally {
+    await deps.run(env, `update resume_builds set claim_token = null, lease_expires_at = null, updated_at = ?
+      where id = ? and user_id = ? and claim_token = ?`, nowISO(), buildId, initial.user_id, claimToken).catch(() => null);
   }
 }
 
@@ -1019,8 +1168,41 @@ export async function handleResumeQueue(batch, env, deps) {
       if (message.body?.type === "build") await processResumeBuild(env, message.body.build_id, deps);
       if (message.body?.type === "revision") await processResumeRevision(env, message.body.build_id, deps);
       if (message.body?.type === "daily_match_job") await runDailyResumeMatching(env, deps, message.body.scan_date, null, message.body.job_id);
+      if (message.body?.type === "digest_tick") {
+        const token = await claimMaintenanceLease(env, deps, "digest_tick", 55 * 60);
+        if (token) {
+          try {
+            await dispatchResumeDigests(env, deps);
+            if (env.RESUME_QUEUE?.send) {
+              await env.RESUME_QUEUE.send({ type: "digest_tick", scheduled_at: nowISO() }, { contentType: "json", delaySeconds: 3600 });
+            }
+          } catch (failure) {
+            await releaseMaintenanceLease(env, deps, "digest_tick", token);
+            throw failure;
+          }
+        }
+      }
+      if (message.body?.type === "maintenance_tick") {
+        const token = await claimMaintenanceLease(env, deps, "maintenance_tick", 55 * 60);
+        if (token) {
+          try {
+            await runResumeMaintenance(env, deps);
+            if (env.RESUME_QUEUE?.send) {
+              await env.RESUME_QUEUE.send({ type: "maintenance_tick", scheduled_at: nowISO() }, { contentType: "json", delaySeconds: 3600 });
+            }
+          } catch (failure) {
+            await releaseMaintenanceLease(env, deps, "maintenance_tick", token);
+            throw failure;
+          }
+        }
+      }
       message.ack?.();
-    } catch {
+    } catch (failure) {
+      console.error(JSON.stringify({
+        event: "resume_queue_message_failed",
+        type: message.body?.type || "unknown",
+        message: clean(failure?.message || "queue_failure", 180)
+      }));
       message.retry?.({ delaySeconds: 60 });
     }
   }
@@ -1046,6 +1228,42 @@ async function enqueue(env, ctx, message, fallback) {
   else await fallback();
 }
 
+async function acquireMutationClaim(env, userId, key) {
+  if (!env.USER_COORDINATOR?.getByName) return { token: null };
+  const stub = env.USER_COORDINATOR.getByName(userId);
+  const response = await stub.fetch("https://user-coordinator.internal/claim", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: json({ key, ttl_ms: 60000 })
+  });
+  const result = await response.json().catch(() => ({}));
+  return response.ok ? { token: result.token, stub } : { error: "operation_in_progress" };
+}
+
+async function releaseMutationClaim(claim, key) {
+  if (!claim?.stub || !claim.token) return;
+  await claim.stub.fetch("https://user-coordinator.internal/release", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: json({ key, token: claim.token })
+  }).catch(() => null);
+}
+
+async function reserveGlobalBuildCapacity(env, deps) {
+  const date = nowISO().slice(0, 10);
+  const limit = Math.max(1, Number(env.RESUME_DAILY_BUILD_LIMIT || 25));
+  const budget = Math.max(0, Number(env.RESUME_DAILY_AI_BUDGET_USD || 5));
+  const at = nowISO();
+  const result = await deps.run(env, `insert into ai_daily_budgets
+    (budget_date, accepted_builds, estimated_cost_usd, updated_at) values (?, 1, 0, ?)
+    on conflict(budget_date) do update set accepted_builds = accepted_builds + 1, updated_at = excluded.updated_at
+      where ai_daily_budgets.accepted_builds < ? and ai_daily_budgets.estimated_cost_usd < ?`,
+  date, at, limit, budget);
+  if (result?.meta && Number(result.meta.changes || 0) === 0) return false;
+  const row = await deps.first(env, "select accepted_builds, estimated_cost_usd from ai_daily_budgets where budget_date = ?", date);
+  return Number(row?.accepted_builds || 0) <= limit && Number(row?.estimated_cost_usd || 0) < budget;
+}
+
 async function handleSourceCollection(request, env, ctx, user, deps) {
   if (request.method === "GET") {
     const rows = await deps.all(env, `select id, original_filename, safe_filename, mime_type, byte_size, sha256,
@@ -1055,11 +1273,15 @@ async function handleSourceCollection(request, env, ctx, user, deps) {
   }
   if (request.method !== "POST") return error(405, "method_not_allowed");
   if (!env.RESUME_FILES) return error(503, "resume_storage_not_configured");
+  const dailyUploads = await deps.first(env, `select count(*) as count from resume_sources
+    where user_id = ? and created_at >= datetime('now','-1 day')`, user.id);
+  if (Number(dailyUploads?.count || 0) >= 10) return error(429, "upload_daily_limit_reached");
   const contentType = clean(request.headers.get("content-type"), 200).split(";")[0].toLowerCase();
   const filename = clean(request.headers.get("x-filename"), 255);
   const declared = Number(request.headers.get("content-length") || 0);
-  if (declared > 8 * 1024 * 1024) return error(413, "invalid_file_size");
-  const bytes = await request.arrayBuffer();
+  if (declared > 10 * 1024 * 1024) return error(413, "invalid_file_size");
+  const bytes = await readBoundedBody(request, 10 * 1024 * 1024);
+  if (!bytes) return error(413, "invalid_file_size");
   const validation = validateResumeUpload(filename, contentType, bytes);
   if (validation.error) return error(validation.error === "invalid_file_size" ? 413 : 400, validation.error);
   const hash = await sha256Hex(bytes);
@@ -1328,26 +1550,59 @@ async function createBuild(request, env, ctx, user, deps, source) {
   }
   const suppliedIdempotency = clean(request.headers.get("idempotency-key") || payload.idempotency_key, 200);
   const idempotencyKey = suppliedIdempotency || await sha256Hex(`${user.id}|${jobKey}|${profileId}|manual`);
-  const existing = await deps.first(env, "select * from resume_builds where user_id = ? and idempotency_key = ?", user.id, idempotencyKey);
-  if (existing) return response({ build_id: existing.id, status: existing.status, status_url: `/api/resume-builds/${existing.id}`, duplicate: true }, existing.status === "READY" ? 200 : 202);
-  const equivalenceHash = await sha256Hex(equivalentBuildHashInput({ userId: user.id, jobKey, contentHash, profileId }));
-  const equivalent = await deps.first(env, "select * from resume_builds where user_id = ? and equivalence_hash = ?", user.id, equivalenceHash);
-  if (equivalent) return response({ build_id: equivalent.id, status: equivalent.status, status_url: `/api/resume-builds/${equivalent.id}`, duplicate: true }, equivalent.status === "READY" ? 200 : 202);
-  const reservation = await reserveCredit(env, user.id, idempotencyKey, deps, Boolean(payload.auto_build));
-  if (!reservation) {
-    await createNotification(env, deps, { userId: user.id, type: "credit_low", eventKey: `credit_low:${jobKey}:${new Date().toISOString().slice(0, 10)}`, title: "No application-pack credits available", body: "The job match was saved, but automatic generation did not start.", actionUrl: "/resumes" });
-    return error(402, "application_pack_credit_required");
+  const requestHash = await sha256Hex(json({ profile_id: profileId, job_key: jobKey, auto_build: Boolean(payload.auto_build), rule_id: source.ruleId || null }));
+  const claimKey = `build:${idempotencyKey}`;
+  const claim = await acquireMutationClaim(env, user.id, claimKey);
+  if (claim.error) return error(409, claim.error);
+  try {
+    const storedIdempotency = await deps.first(env, `select request_hash, response_status, response_body
+      from api_idempotency_keys where user_id = ? and scope = 'resume_build' and idempotency_key = ? and expires_at > ?`,
+    user.id, idempotencyKey, nowISO());
+    if (storedIdempotency) {
+      if (storedIdempotency.request_hash && storedIdempotency.request_hash !== requestHash) return error(409, "idempotency_conflict");
+      return response(parseJSON(storedIdempotency.response_body, {}), Number(storedIdempotency.response_status || 202));
+    }
+    const existing = await deps.first(env, "select * from resume_builds where user_id = ? and idempotency_key = ?", user.id, idempotencyKey);
+    if (existing) return response({ build_id: existing.id, status: existing.status, status_url: `/api/resume-builds/${existing.id}`, duplicate: true }, existing.status === "READY" ? 200 : 202);
+    const equivalenceHash = await sha256Hex(equivalentBuildHashInput({ userId: user.id, jobKey, contentHash, profileId }));
+    const equivalent = await deps.first(env, "select * from resume_builds where user_id = ? and equivalence_hash = ?", user.id, equivalenceHash);
+    if (equivalent) return response({ build_id: equivalent.id, status: equivalent.status, status_url: `/api/resume-builds/${equivalent.id}`, duplicate: true }, equivalent.status === "READY" ? 200 : 202);
+    const [active, attempts] = await Promise.all([
+      deps.first(env, `select count(*) as count from resume_builds where user_id = ? and status in
+        ('QUEUED','JOB_REVALIDATION','REQUIREMENTS_READY','EVIDENCE_SELECTED','RESUME_GENERATED','CLAIM_AUDITED','EMAIL_GENERATED','RENDERING','QA_PASSED')`, user.id),
+      deps.first(env, "select count(*) as count from resume_builds where user_id = ? and created_at >= datetime('now','-1 day')", user.id)
+    ]);
+    if (Number(active?.count || 0) >= 1) return error(409, "active_build_exists");
+    if (Number(attempts?.count || 0) >= 3) return error(429, "daily_build_attempt_limit");
+    const reservation = await reserveCredit(env, user.id, idempotencyKey, deps, Boolean(payload.auto_build));
+    if (!reservation) {
+      await createNotification(env, deps, { userId: user.id, type: "credit_low", eventKey: `credit_low:${jobKey}:${new Date().toISOString().slice(0, 10)}`, title: "No application-pack credits available", body: "The job match was saved, but automatic generation did not start.", actionUrl: "/app/resumes" });
+      return error(402, "application_pack_credit_required");
+    }
+    if (!await reserveGlobalBuildCapacity(env, deps)) {
+      await deps.run(env, `update usage_reservations set status = 'released', release_reason = 'capacity_reached',
+        released_at = ?, updated_at = ? where id = ? and user_id = ? and status = 'reserved'`,
+      nowISO(), nowISO(), reservation.id, user.id);
+      return error(429, "resume_capacity_reached");
+    }
+    const id = crypto.randomUUID();
+    const now = nowISO();
+    await deps.run(env, `insert into resume_builds
+      (id, user_id, job_id, custom_job_input_id, profile_id, status, generation_version, idempotency_key,
+       equivalence_hash, credit_reservation_id, auto_build, build_rule_id, auto_build_local_date, created_at, updated_at)
+      values (?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, user.id, jobId, customId, profileId, RESUME_GENERATION_VERSION, idempotencyKey, equivalenceHash,
+    reservation.id, payload.auto_build ? 1 : 0, source.ruleId || null, source.localDate || null, now, now);
+    const responseBody = { build_id: id, status: "QUEUED", status_url: `/api/resume-builds/${id}` };
+    await deps.run(env, `insert into api_idempotency_keys
+      (id, user_id, scope, idempotency_key, response_status, response_body, created_at, expires_at, request_hash)
+      values (?, ?, 'resume_build', ?, 202, ?, ?, ?, ?)`, crypto.randomUUID(), user.id, idempotencyKey,
+    json(responseBody), now, new Date(Date.now() + 86400000).toISOString(), requestHash);
+    await enqueue(env, ctx, { type: "build", build_id: id }, () => processResumeBuild(env, id, deps));
+    return response(responseBody, 202);
+  } finally {
+    await releaseMutationClaim(claim, claimKey);
   }
-  const id = crypto.randomUUID();
-  const now = nowISO();
-  await deps.run(env, `insert into resume_builds
-    (id, user_id, job_id, custom_job_input_id, profile_id, status, generation_version, idempotency_key,
-     equivalence_hash, credit_reservation_id, auto_build, build_rule_id, auto_build_local_date, created_at, updated_at)
-    values (?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  id, user.id, jobId, customId, profileId, RESUME_GENERATION_VERSION, idempotencyKey, equivalenceHash,
-  reservation.id, payload.auto_build ? 1 : 0, source.ruleId || null, source.localDate || null, now, now);
-  await enqueue(env, ctx, { type: "build", build_id: id }, () => processResumeBuild(env, id, deps));
-  return response({ build_id: id, status: "QUEUED", status_url: `/api/resume-builds/${id}` }, 202);
 }
 
 async function buildDetail(env, deps, userId, buildId) {
@@ -1629,6 +1884,45 @@ function escapeHTML(value) {
   })[character]);
 }
 
+function tokenBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function tokenDecode(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 ? "=".repeat(4 - normalized.length % 4) : "";
+  return Uint8Array.from(atob(normalized + padding), character => character.charCodeAt(0));
+}
+
+async function unsubscribeToken(env, userId) {
+  if (!env.UNSUBSCRIBE_SECRET) throw new Error("unsubscribe_secret_missing");
+  const payload = tokenBase64Url(new TextEncoder().encode(JSON.stringify({ user_id: userId, exp: Math.floor(Date.now() / 1000) + 90 * 86400 })));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.UNSUBSCRIBE_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return `${payload}.${tokenBase64Url(new Uint8Array(signature))}`;
+}
+
+export async function handleOneClickUnsubscribe(request, env, deps) {
+  if (request.method !== "POST") return error(405, "method_not_allowed");
+  const token = new URL(request.url).searchParams.get("token") || "";
+  const [payloadPart, signaturePart] = token.split(".");
+  if (!payloadPart || !signaturePart || !env.UNSUBSCRIBE_SECRET) return error(400, "invalid_unsubscribe_token");
+  try {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.UNSUBSCRIBE_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const valid = await crypto.subtle.verify("HMAC", key, tokenDecode(signaturePart), new TextEncoder().encode(payloadPart));
+    const payload = JSON.parse(new TextDecoder().decode(tokenDecode(payloadPart)));
+    if (!valid || !payload.user_id || Number(payload.exp || 0) < Math.floor(Date.now() / 1000)) return error(400, "invalid_unsubscribe_token");
+    const now = nowISO();
+    await deps.run(env, `update build_rules set email_opt_in = 0, notification_delivery = 'in_app',
+      unsubscribed_at = ?, updated_at = ? where user_id = ?`, now, now, payload.user_id);
+    return response({ ok: true, email_digests: "unsubscribed" });
+  } catch {
+    return error(400, "invalid_unsubscribe_token");
+  }
+}
+
 export function localTimeParts(date, timezone) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23"
@@ -1662,7 +1956,8 @@ export async function dispatchResumeDigests(env, deps, date = new Date()) {
     if (!notifications.length) continue;
     const textLines = notifications.map(item => `- ${item.title}: ${item.body}${item.action_url ? ` ${new URL(item.action_url, "https://livejobindex.com")}` : ""}`);
     const htmlItems = notifications.map(item => `<li><strong>${escapeHTML(item.title)}</strong><br>${escapeHTML(item.body)}${item.action_url ? ` <a href="${escapeHTML(new URL(item.action_url, "https://livejobindex.com").toString())}">Review</a>` : ""}</li>`).join("");
-    const unsubscribe = "https://livejobindex.com/resumes?settings=notifications";
+    const token = await unsubscribeToken(env, rule.user_id);
+    const unsubscribe = `https://livejobindex.com/api/email/unsubscribe?token=${encodeURIComponent(token)}`;
     const id = existingDelivery?.id || crypto.randomUUID();
     const now = nowISO();
     if (existingDelivery) {
@@ -1676,12 +1971,13 @@ export async function dispatchResumeDigests(env, deps, date = new Date()) {
     try {
       const result = await env.EMAIL.send({
         to: rule.email,
-        from: { email: clean(env.RESUME_EMAIL_FROM, 320) || "updates@livejobindex.com", name: "Live Jobs Index" },
+        from: { email: clean(env.RESUME_EMAIL_FROM, 320) || "updates@livejobindex.com", name: "Live Job Index" },
         subject: `${notifications.length} Resume Studio update${notifications.length === 1 ? "" : "s"}`,
         text: `Hello ${rule.full_name || "there"},\n\n${textLines.join("\n")}\n\nManage notifications: ${unsubscribe}`,
         html: `<p>Hello ${escapeHTML(rule.full_name || "there")},</p><ul>${htmlItems}</ul><p><a href="${unsubscribe}">Manage notifications or unsubscribe</a></p>`,
         headers: {
           "List-Unsubscribe": `<${unsubscribe}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
           "X-Entity-Ref-ID": deliveryKey
         }
       });
@@ -1759,7 +2055,7 @@ export async function runDailyResumeMatching(env, deps, scanDate = nowISO().slic
       await createNotification(env, deps, {
         userId: rule.user_id, type: "new_job_match", eventKey: `new_job_match:${job.id}:${content.content_hash}`,
         title: `${job.title} at ${job.company}`, body: `New ${job.role_family || "role"} match in ${job.country || "your target market"} (${fitScore}% candidate fit).`,
-        actionUrl: `/resumes?job=${encodeURIComponent(job.id)}`, jobId: job.id, metadata: { rule_id: rule.id, fit_score: fitScore }
+        actionUrl: `/app/resumes?job=${encodeURIComponent(job.id)}`, jobId: job.id, metadata: { rule_id: rule.id, fit_score: fitScore }
       });
       matched++;
       const hardBlockers = (requirements.hard_blockers || []).filter(item => item.severity === "hard");
@@ -1819,6 +2115,7 @@ async function dispatchResumeStudioRequest(request, env, ctx, user, deps) {
       !/^\/api\/jobs\/.+\/(preparation-context|application-pack)$/.test(url.pathname)) return null;
 
   if (!enabledForUser(env, user)) return error(404, "resume_studio_disabled");
+  if (!user.email || user.email_verified === false) return error(403, "verified_email_required");
   const individualError = await requireIndividual(env, user, deps);
   if (individualError) return individualError;
   await ensureBetaEntitlement(env, user.id, deps);
@@ -1882,19 +2179,32 @@ export async function handleResumeStudioRequest(request, env, ctx, user, deps) {
   }
   const url = new URL(request.url);
   const scope = `${method}:${url.pathname}`;
-  const existing = await deps.first(env, `select response_status, response_body from api_idempotency_keys
-    where user_id = ? and scope = ? and idempotency_key = ? and expires_at > ?`, user.id, scope, idempotencyKey, nowISO());
-  if (existing) {
-    return new Response(existing.response_body, { status: Number(existing.response_status), headers: { ...JSON_HEADERS, "idempotency-replayed": "true" } });
+  const requestBody = await request.clone().arrayBuffer();
+  const requestHash = await sha256Hex(`${method}|${url.pathname}|${request.headers.get("content-type") || ""}|${await sha256Hex(requestBody)}`);
+  const claimKey = `idempotency:${scope}:${idempotencyKey}`;
+  const claim = await acquireMutationClaim(env, user.id, claimKey);
+  if (claim.error) return error(409, claim.error);
+  try {
+    const existing = await deps.first(env, `select request_hash, response_status, response_body from api_idempotency_keys
+      where user_id = ? and scope = ? and idempotency_key = ? and expires_at > ?`, user.id, scope, idempotencyKey, nowISO());
+    if (existing) {
+      if (existing.request_hash && existing.request_hash !== requestHash) return error(409, "idempotency_conflict");
+      return new Response(existing.response_body, {
+        status: Number(existing.response_status),
+        headers: { ...JSON_HEADERS, "cache-control": "no-store", "idempotency-replayed": "true" }
+      });
+    }
+    const result = await dispatchResumeStudioRequest(request, env, ctx, user, deps);
+    if (!result || result.status >= 500 || !String(result.headers.get("content-type") || "").includes("application/json")) return result;
+    const body = await result.clone().text();
+    const now = nowISO();
+    const expires = new Date(Date.now() + 24 * 3600000).toISOString();
+    await deps.run(env, `insert into api_idempotency_keys
+      (id, user_id, scope, idempotency_key, response_status, response_body, created_at, expires_at, request_hash)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict(user_id, scope, idempotency_key) do nothing`,
+    crypto.randomUUID(), user.id, scope, idempotencyKey, result.status, body, now, expires, requestHash);
+    return result;
+  } finally {
+    await releaseMutationClaim(claim, claimKey);
   }
-  const result = await dispatchResumeStudioRequest(request, env, ctx, user, deps);
-  if (!result || result.status >= 500 || !String(result.headers.get("content-type") || "").includes("application/json")) return result;
-  const body = await result.clone().text();
-  const now = nowISO();
-  const expires = new Date(Date.now() + 24 * 3600000).toISOString();
-  await deps.run(env, `insert into api_idempotency_keys
-    (id, user_id, scope, idempotency_key, response_status, response_body, created_at, expires_at)
-    values (?, ?, ?, ?, ?, ?, ?, ?) on conflict(user_id, scope, idempotency_key) do nothing`,
-  crypto.randomUUID(), user.id, scope, idempotencyKey, result.status, body, now, expires);
-  return result;
 }

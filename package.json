@@ -7,13 +7,23 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "scan": "wrangler tail --format pretty",
-    "test": "node --test"
+    "build:frontend": "node scripts/split-frontend.mjs",
+    "test": "node --test",
+    "test:migrations": "sh scripts/test-migrations.sh",
+    "check:types": "wrangler types --check",
+    "check:deploy": "wrangler deploy --dry-run && wrangler deploy --dry-run -c workflow/wrangler.toml",
+    "verify": "npm run build:frontend && npm audit && npm test && npm run test:migrations && npm run check:types && npm run check:deploy"
   },
   "devDependencies": {
-    "wrangler": "^4.85.0"
+    "wrangler": "4.113.0"
   },
   "dependencies": {
     "@clerk/backend": "^3.8.3",
-    "@cloudflare/containers": "^0.0.26"
+    "docx": "9.7.1",
+    "fflate": "0.8.3",
+    "pdf-lib": "1.17.1"
+  },
+  "overrides": {
+    "sharp": "0.35.0"
   }
 }

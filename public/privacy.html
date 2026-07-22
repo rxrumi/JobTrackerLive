@@ -14,46 +14,12 @@
 <link rel="icon" href="/assets/favicon-16x16.png" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-CNP336YP4G"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-CNP336YP4G');
-</script>
-<style>
-:root { color-scheme: light dark; --bg: #fafaf7; --card: #ffffff; --text: #1a1a1a; --muted: #666; --border: rgba(0,0,0,0.1); --accent: #0d4dff; }
-[data-theme="dark"] { --bg: #131312; --card: #1f1f1d; --text: #e8e8e3; --muted: #aaa; --border: rgba(255,255,255,0.12); --accent: #6dbbff; }
-* { box-sizing: border-box; }
-body { margin: 0; padding: 28px; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; }
-.page { max-width: 820px; margin: 0 auto; }
-.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; color: var(--text); text-decoration: none; }
-.brand img { width: 42px; height: 42px; border-radius: 10px; }
-.brand strong { font-size: 18px; }
-main { background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; padding: 28px; }
-h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.2; }
-h2 { margin: 28px 0 8px; font-size: 18px; }
-p, li { color: var(--muted); }
-a { color: var(--accent); }
-.updated { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
-footer { margin-top: 18px; color: var(--muted); font-size: 13px; display: grid; gap: 10px; padding: 14px 16px; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px; }
-.footer-links, .footer-contact { display: flex; gap: 10px 14px; flex-wrap: wrap; align-items: center; }
-.footer-contact strong { color: var(--text); }
-@media (max-width: 640px) { body { padding: 16px; } main { padding: 20px; } }
-</style>
-<script>
-(function() {
-  try {
-    var stored = localStorage.getItem('jobtrack-theme');
-    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    document.documentElement.setAttribute('data-theme', stored || (prefersDark ? 'dark' : 'light'));
-  } catch (e) {
-    document.documentElement.setAttribute('data-theme', 'light');
-  }
-})();
-</script>
+<link rel="stylesheet" href="/legal.css">
+<script src="/theme.js"></script>
+<script src="/consent.js" defer></script>
 </head>
 <body>
+<aside class="consent-banner" id="consent-banner" role="dialog" aria-modal="false" aria-labelledby="consent-title" hidden><div><strong id="consent-title">Your privacy choices</strong><p>Essential storage keeps authentication and settings working. Analytics is optional.</p></div><div class="consent-actions"><button id="consent-essential" type="button">Essential only</button><button id="consent-analytics" type="button">Allow analytics</button></div></aside>
 <div class="page">
   <a class="brand" href="/">
     <img src="/assets/logo.svg" alt="Live Job Index logo" width="42" height="42">
@@ -61,7 +27,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 13px; display: grid; 
   </a>
   <main>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: July 17, 2026</p>
+    <p class="updated">Last updated: July 22, 2026</p>
 
     <p>Live Job Index is operated by Sohaib Kazmi. This policy explains what information the service collects, how it is used, and the choices available to users.</p>
 
@@ -76,8 +42,8 @@ footer { margin-top: 18px; color: var(--muted); font-size: 13px; display: grid; 
     <h2>Google Sign-In</h2>
     <p>If you sign in with Google, Google shares basic profile information such as your name and email address with Clerk so Live Job Index can create or access your account. The app does not request access to your Gmail, Drive, Calendar, contacts, or other Google account data.</p>
 
-    <h2>Analytics</h2>
-    <p>Live Job Index uses Google Analytics to understand aggregate site usage, page views, and performance of public pages. Google Analytics may use cookies or similar technologies. Analytics data is used to improve the service and is not sold.</p>
+    <h2>Analytics and Consent</h2>
+    <p>Essential cookies support authentication, security, consent choices, and account settings. Google Analytics, Microsoft Clarity, and first-party behavioral analytics remain disabled unless you explicitly allow analytics. Global Privacy Control is treated as a denial. Clarity inputs and all onboarding, profile, and Résumé Studio surfaces are masked. You can withdraw consent at any time through “Privacy choices.” Analytics data is used to improve the service and is never sold.</p>
 
     <h2>How We Use Information</h2>
     <ul>
@@ -91,13 +57,16 @@ footer { margin-top: 18px; color: var(--muted); font-size: 13px; display: grid; 
     </ul>
 
     <h2>Service Providers</h2>
-    <p>The service uses Clerk for authentication; Cloudflare for hosting, D1, KV, private R2 storage, queues, workflows, document-rendering containers, AI Gateway, and transactional email; OpenAI for configured AI processing; and Google Analytics for usage measurement. These providers process data according to their own terms and privacy policies.</p>
+    <p>The service uses Clerk for authentication; Cloudflare for hosting, D1, KV fallback, private R2 storage, queues, workflows, Worker-native document rendering, AI Gateway, and transactional email; OpenAI for configured AI processing; Google Analytics for consented usage measurement; and Microsoft Clarity for consented, masked interaction analytics. These providers process data according to their own terms and privacy policies.</p>
 
     <h2>Data Retention</h2>
-    <p>Account, pipeline, résumé, evidence, build, artifact, and usage data is kept while your account remains active or while it is needed to provide the service. Deleting a résumé source removes its stored file; verified facts retained independently remain until you delete them. You may delete supported Résumé Studio records in the product or request deletion of your account data and private stored files by contacting the operator.</p>
+    <p>Account, pipeline, résumé, evidence, build, artifact, and entitlement data is kept while your account is active or needed to provide the service. Anonymous raw analytics is retained for up to 30 days, identified raw analytics for up to 90 days, and non-identifying aggregates for up to 13 months. Google Analytics retention is configured for two months and Clarity for 30 days. Temporary export archives expire after 24 hours.</p>
+
+    <h2>Exports and Account Deletion</h2>
+    <p>You can request a private account export from Settings. The durable export includes account records and original private files and is available through an authenticated download for 24 hours. You can also request deletion from Settings after recent authentication and typed confirmation. Deletion locks new mutations, revokes sessions, fences active workflows, verifies deletion of provider and private files, removes identifiable analytics and account data, deletes the Clerk identity, and retains only a non-identifying completion ledger.</p>
 
     <h2>Notifications and Choices</h2>
-    <p>In-app recommendations are created only for enabled build rules. Daily email digests are optional and can be disabled in Résumé Studio notification settings. Digest messages link back to the service and include account-level notification controls.</p>
+    <p>In-app recommendations are created only for enabled build rules. Daily email digests are optional and can be disabled in Résumé Studio or through the signed one-click unsubscribe link in each digest; login is not required for that unsubscribe action.</p>
 
     <h2>Contact</h2>
     <p>For privacy questions or data requests, contact Sohaib Kazmi through the contact channel used to provide access to Live Job Index.</p>
@@ -109,6 +78,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 13px; display: grid; 
       <span>General inquiries: <a href="mailto:hello@livejobindex.com">hello@livejobindex.com</a></span>
     </div>
     <nav class="footer-links" aria-label="Footer links">
+      <button type="button" data-privacy-choices>Privacy choices</button>
       <a href="https://livejobindex.com/">Home</a>
       <a href="https://livejobindex.com/terms">Terms of Service</a>
     </nav>

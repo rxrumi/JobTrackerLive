@@ -1,3 +1,0 @@
-python-docx==1.2.0
-pypdf==6.5.0
-

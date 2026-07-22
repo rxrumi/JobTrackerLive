@@ -1,4 +1,7 @@
-export const RESUME_SOURCE_MAX_BYTES = 8 * 1024 * 1024;
+export const RESUME_SOURCE_MAX_BYTES = 10 * 1024 * 1024;
+const RESUME_ARCHIVE_MAX_ENTRIES = 200;
+const RESUME_ARCHIVE_MAX_EXPANDED_BYTES = 50 * 1024 * 1024;
+const RESUME_ARCHIVE_MAX_RATIO = 100;
 export const RESUME_GENERATION_VERSION = "resume-studio-v1";
 export const RESUME_PROMPT_VERSION = "resume-studio-2026-07-17.v1";
 export const BUILD_ACTIVE_STATES = new Set([
@@ -254,7 +257,28 @@ export function validateResumeUpload(filename, contentType, bytes) {
     return { mime_type: RESUME_MIME.pdf, extension: "pdf" };
   }
   if (lower.endsWith(".docx") && isZip && contentType === RESUME_MIME.docx) {
-    const zipDirectoryText = new TextDecoder("latin1").decode(new Uint8Array(bytes));
+    const archive = new Uint8Array(bytes);
+    const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
+    let entries = 0;
+    let expandedBytes = 0;
+    for (let offset = 0; offset + 46 <= archive.byteLength; offset++) {
+      if (view.getUint32(offset, true) !== 0x02014b50) continue;
+      entries++;
+      const compressed = view.getUint32(offset + 20, true);
+      const expanded = view.getUint32(offset + 24, true);
+      expandedBytes += expanded;
+      if (entries > RESUME_ARCHIVE_MAX_ENTRIES
+        || expandedBytes > RESUME_ARCHIVE_MAX_EXPANDED_BYTES
+        || (expanded > 0 && expanded / Math.max(1, compressed) > RESUME_ARCHIVE_MAX_RATIO)) {
+        return { error: "unsafe_archive" };
+      }
+      const filenameLength = view.getUint16(offset + 28, true);
+      const extraLength = view.getUint16(offset + 30, true);
+      const commentLength = view.getUint16(offset + 32, true);
+      offset += 45 + filenameLength + extraLength + commentLength;
+    }
+    if (!entries) return { error: "invalid_docx_container" };
+    const zipDirectoryText = new TextDecoder("latin1").decode(archive);
     if (/vbaProject\.bin|macroEnabled/i.test(zipDirectoryText)) return { error: "macros_not_allowed" };
     if (!/word\/document\.xml/i.test(zipDirectoryText)) return { error: "invalid_docx_container" };
     return { mime_type: RESUME_MIME.docx, extension: "docx" };

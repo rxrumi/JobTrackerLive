@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import worker, { runScan, scanSourceInventory } from "../src/worker.js";
+import worker, { runScan, scanSourceInventory, WORKER_ROLE_FAMILY_NAMES } from "../src/worker.js";
+import { ROLE_FAMILY_NAMES, scoreJob } from "../public/taxonomy.js";
+
+function readFrontendSource() {
+  return ["index.html", "theme.js", "consent.js", "taxonomy.js", "targets.js", "app.js"]
+    .map(file => readFileSync(new URL(`../public/${file}`, import.meta.url), "utf8"))
+    .join("\n");
+}
+
+test("frontend and Worker share canonical role families and scoring", () => {
+  assert.deepEqual([...WORKER_ROLE_FAMILY_NAMES].sort(), [...ROLE_FAMILY_NAMES].sort());
+  assert.equal(scoreJob({ visa: "Strong", seniority: "Manager", freshness: 100 }), 94);
+});
+
+function apiError(payload) {
+  return typeof payload?.error === "object" ? payload.error.message : payload?.error;
+}
 
 function createKV(initialState = { postings: {} }, initialJobs = null) {
   const store = new Map([["state", JSON.stringify(initialState)]]);
@@ -189,7 +205,7 @@ test("legal pages are served from static assets without SPA fallback", async () 
   assert.equal(await privacyResponse.text(), "privacy");
   assert.equal(termsResponse.status, 200);
   assert.equal(await termsResponse.text(), "terms");
-  assert.equal(privacyResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(privacyResponse.headers.get("strict-transport-security"), "max-age=63072000; includeSubDomains; preload");
   assert.equal(privacyResponse.headers.get("x-content-type-options"), "nosniff");
   assert.deepEqual(ASSETS.requests, ["/privacy.html", "/terms.html"]);
 });
@@ -210,29 +226,22 @@ test("crawler files are served as static files without SPA fallback", async () =
   assert.equal(llmsResponse.status, 200);
   assert.match(llmsResponse.headers.get("content-type"), /text\/plain/);
   assert.match(await llmsResponse.text(), /Live Job Index/);
-  assert.deepEqual(ASSETS.requests, ["/robots.txt", "/sitemap.xml", "/llms.txt"]);
+  assert.deepEqual(ASSETS.requests, ["/robots.txt", "/llms.txt"]);
 });
 
-test("protected SPA routes resolve through static asset fallback with trust headers", async () => {
-  const ASSETS = createAssets();
-
-  const profileResponse = await worker.fetch(new Request("https://livejobindex.com/profile"), { ASSETS });
-  const onboardingResponse = await worker.fetch(new Request("https://livejobindex.com/onboarding"), { ASSETS });
-  const resumesResponse = await worker.fetch(new Request("https://livejobindex.com/resumes"), { ASSETS });
-  const historyResponse = await worker.fetch(new Request("https://livejobindex.com/history"), { ASSETS });
-
-  assert.equal(profileResponse.status, 200);
-  assert.match(await profileResponse.text(), /Live Job Index/);
-  assert.equal(profileResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
-  assert.equal(onboardingResponse.status, 200);
-  assert.equal(resumesResponse.status, 200);
-  assert.match(await resumesResponse.text(), /Live Job Index/);
-  assert.match(await onboardingResponse.text(), /Live Job Index/);
-  assert.equal(onboardingResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
-  assert.equal(historyResponse.status, 200);
-  assert.match(await historyResponse.text(), /Live Job Index/);
-  assert.equal(historyResponse.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
-  assert.deepEqual(ASSETS.requests, ["/profile", "/onboarding", "/resumes", "/history"]);
+test("legacy protected routes redirect to the authenticated app namespace", async () => {
+  const cases = [
+    ["/profile", "/app/settings"],
+    ["/onboarding", "/app/onboarding"],
+    ["/resumes", "/app/resumes"],
+    ["/history", "/app/archive"]
+  ];
+  for (const [legacy, current] of cases) {
+    const response = await worker.fetch(new Request(`https://livejobindex.com${legacy}?from=legacy`), {});
+    assert.equal(response.status, 308);
+    assert.equal(response.headers.get("location"), `https://livejobindex.com${current}?from=legacy`);
+    assert.equal(response.headers.get("strict-transport-security"), "max-age=63072000; includeSubDomains; preload");
+  }
 });
 
 test("public SEO pillar routes render crawlable metadata from Worker", async () => {
@@ -254,10 +263,10 @@ test("public SEO pillar routes render crawlable metadata from Worker", async () 
 
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type"), /text\/html/);
-    assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+    assert.equal(response.headers.get("strict-transport-security"), "max-age=63072000; includeSubDomains; preload");
     assert.match(html, new RegExp(`<title>${title}</title>`));
     assert.match(html, new RegExp(`<link rel="canonical" href="${canonical}">`));
-    assert.match(html, /<script type="application\/ld\+json">/);
+    assert.match(html, /<script type="application\/ld\+json" nonce="[^"]+">/);
     assert.match(html, /visa-aware/i);
     assert.match(html, /mailto:business@livejobindex\.com/);
     assert.match(html, /mailto:hello@livejobindex\.com/);
@@ -266,9 +275,9 @@ test("public SEO pillar routes render crawlable metadata from Worker", async () 
 });
 
 test("homepage source exposes legal discovery links and structured data", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
-  assert.match(html, /Live Jobs Index: Find Active Openings at Top Global Tech Companies/);
+  assert.match(html, /Live Job Index: Find Active Openings at Top Global Tech Companies/);
   assert.match(html, /Find real-time openings at the world's leading tech companies/);
   assert.doesNotMatch(html, /<nav class="public-nav" aria-label="Product pages">/);
   assert.match(html, /<nav class="tabs" id="tabs">/);
@@ -309,7 +318,7 @@ test("sitemap source includes public SEO pillar routes", () => {
 });
 
 test("homepage source includes routed profile and onboarding handling", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /APP_ROUTES = new Set\(\['\/', '\/visa-roles', '\/profile', '\/onboarding', '\/pipeline', '\/history', '\/insights', '\/resumes'\]\)/);
   assert.match(html, /function applyRoute\(\)/);
@@ -318,7 +327,7 @@ test("homepage source includes routed profile and onboarding handling", () => {
 });
 
 test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk JS", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const start = html.indexOf("async function startClerkAuth");
   const end = html.indexOf("async function signOutClerk", start);
   const source = html.slice(start, end);
@@ -334,7 +343,7 @@ test("homepage auth buttons prefer hosted Clerk redirects before loading Clerk J
 });
 
 test("homepage keeps signed-out controls hidden until the Clerk session resolves", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const initStart = html.indexOf("async function init()");
   const initSource = html.slice(initStart);
 
@@ -347,7 +356,7 @@ test("homepage keeps signed-out controls hidden until the Clerk session resolves
 });
 
 test("homepage defaults signed-out theme to the light cobalt system and exposes a clear mode toggle", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /<html lang="en" data-theme="light" data-brand-theme="cobalt">/);
   assert.match(html, /var brandTheme = 'cobalt'/);
@@ -359,10 +368,10 @@ test("homepage defaults signed-out theme to the light cobalt system and exposes 
 });
 
 test("homepage exposes United States in market constants and generated country controls", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
-  assert.match(html, /US: 'United States'/);
-  assert.match(html, /US: '🇺🇸'/);
+  assert.match(html, /US:\s*["']United States["']/);
+  assert.match(html, /US:\s*["']🇺🇸["']/);
   assert.match(html, /United States, UK, Ireland, Canada/);
   assert.match(html, /buildCheckGrid\('individual-countries', countryEntries\);/);
   assert.match(html, /buildCheckGrid\('profile-individual-countries', countryEntries\);/);
@@ -370,7 +379,7 @@ test("homepage exposes United States in market constants and generated country c
 });
 
 test("homepage exposes industry switch and engineering niche controls", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /data-industry="tech">Tech<\/button>/);
   assert.match(html, /data-industry="engineering">Engineering<\/button>/);
@@ -384,7 +393,7 @@ test("homepage exposes industry switch and engineering niche controls", () => {
 });
 
 test("homepage aligns deterministic search helpers and role precedence fallbacks", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /function normalizeSearchText\(value\)/);
   assert.match(html, /function searchTokens\(value\)/);
@@ -398,7 +407,7 @@ test("homepage aligns deterministic search helpers and role precedence fallbacks
 });
 
 test("homepage preserves onboarding role families when relaxing profile defaults", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const relaxationSource = html.slice(
     html.indexOf("function relaxedProfileFilterStates(profile)"),
     html.indexOf("async function applyProfileFiltersOnce")
@@ -423,7 +432,7 @@ test("homepage preserves onboarding role families when relaxing profile defaults
 });
 
 test("homepage renders active pages from page-scoped server results", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const renderSource = html.slice(
     html.indexOf("function render()"),
     html.indexOf("function wireRowHandlers()")
@@ -441,7 +450,7 @@ test("homepage renders active pages from page-scoped server results", () => {
 });
 
 test("homepage honors worker-clamped active pages", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const fetchSource = html.slice(
     html.indexOf("async function fetchJobsPage(page,"),
     html.indexOf("function scheduleActiveRefresh()")
@@ -468,7 +477,7 @@ test("homepage honors worker-clamped active pages", () => {
 });
 
 test("homepage scopes filters by account and forces onboarding defaults", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /function filterSnapshotsStorageKey\(scope = FILTER_SCOPE\)/);
   assert.match(html, /`\$\{INDUSTRY_FILTERS_KEY\}:\$\{scope \|\| 'anonymous'\}`/);
@@ -478,7 +487,7 @@ test("homepage scopes filters by account and forces onboarding defaults", () => 
 });
 
 test("homepage makes onboarding resumable and target seniority explicit", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /Choose a level<\/option>/);
   assert.match(html, /function saveOnboardingDraft\(\)/);
@@ -488,7 +497,7 @@ test("homepage makes onboarding resumable and target seniority explicit", () => 
 });
 
 test("homepage exposes auth failures and blocks account-type races", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /class ApiError extends Error/);
   assert.match(html, /AUTH_LOAD_ERROR = error\?\.status && error\.status !== 401/);
@@ -498,7 +507,7 @@ test("homepage exposes auth failures and blocks account-type races", () => {
 });
 
 test("homepage refreshes saved preferences and explains discovery recovery", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /Your updated defaults will apply when you return to jobs\./);
   assert.match(html, /Current job listings do not consistently include salary or work-mode data/);
@@ -508,7 +517,7 @@ test("homepage refreshes saved preferences and explains discovery recovery", () 
 });
 
 test("homepage fetches filtered startup pages without poisoning global active counts", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const initSource = html.slice(
     html.indexOf("async function init()"),
     html.indexOf("const me = ME || await loadMe()")
@@ -1412,8 +1421,8 @@ function createD1Fake({ user, rows = {} } = {}) {
       const [updated_at, id] = params;
       update("users", { onboarding_completed: 1, updated_at }, row => row.id === id);
     } else if (q.startsWith("update users set brand_theme")) {
-      const [brand_theme, updated_at, id] = params;
-      update("users", { brand_theme, updated_at }, row => row.id === id);
+      const [brand_theme, timezone, updated_at, id] = params;
+      update("users", { brand_theme, timezone: timezone || undefined, updated_at }, row => row.id === id);
     } else if (q.startsWith("insert into account_access")) {
       const [user_id, account_type, export_enabled, created_at, updated_at] = params;
       const row = {
@@ -1468,6 +1477,12 @@ function createD1Fake({ user, rows = {} } = {}) {
     } else if (q.startsWith("insert into daily_scan_stats")) {
       const [scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at] = params;
       upsert("daily_scan_stats", { scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at }, ["scan_date"]);
+    } else if (q.startsWith("insert into scan_runs")
+      || q.startsWith("insert into scan_shards")
+      || q.startsWith("insert into scan_sources")
+      || q.startsWith("insert into feed_publications")
+      || q.startsWith("insert into feed_pointer")) {
+      // Operational publication records are covered by migration/integration tests.
     } else {
       throw new Error(`Unhandled D1 run: ${sql}`);
     }
@@ -1564,7 +1579,8 @@ test("account routes require authentication without affecting public jobs", asyn
 
   const jobsResponse = await worker.fetch(new Request("https://example.com/api/jobs"), { KV });
   assert.equal(jobsResponse.status, 200);
-  assert.equal(jobsResponse.headers.get("Cache-Control"), "public, max-age=300");
+  assert.equal(jobsResponse.headers.get("Cache-Control"), "public, max-age=300, stale-while-revalidate=300");
+  assert.match(jobsResponse.headers.get("ETag") || "", /^W\/"/);
   assert.equal(jobsResponse.headers.get("Access-Control-Allow-Origin"), null);
   const jobsPayload = await jobsResponse.json();
   assert.equal(jobsPayload.postings.length, 15);
@@ -1688,7 +1704,7 @@ test("runScan merges shard completion recorded while another shard is running", 
 });
 
 test("homepage keeps scan failures and shard progress out of the public status", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const start = html.indexOf("function updateHeaderStatus");
   const end = html.indexOf("function dynamicQueryKeyFromPayload", start);
   const source = html.slice(start, end);
@@ -1704,7 +1720,7 @@ test("json responses include production security headers", async () => {
   const response = await worker.fetch(new Request("https://livejobindex.com/api/jobs"), { KV });
 
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(response.headers.get("strict-transport-security"), "max-age=63072000; includeSubDomains; preload");
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.match(response.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.match(response.headers.get("content-security-policy"), /cdn\.jsdelivr\.net/);
@@ -1717,7 +1733,73 @@ test("mutating api routes reject mismatched browser origins", async () => {
   }), {});
 
   assert.equal(response.status, 403);
-  assert.equal((await response.json()).error, "invalid_origin");
+  assert.equal(apiError(await response.json()), "invalid_origin");
+});
+
+test("API errors use request IDs and distinguish unknown routes from unsupported methods", async () => {
+  const unknown = await worker.fetch(new Request("https://livejobindex.com/api/does-not-exist"), {});
+  const unsupported = await worker.fetch(new Request("https://livejobindex.com/api/jobs", { method: "POST" }), {});
+  assert.equal(unknown.status, 404);
+  assert.equal(unsupported.status, 405);
+  assert.equal(unsupported.headers.get("Allow"), "GET");
+  for (const response of [unknown, unsupported]) {
+    const payload = await response.json();
+    assert.equal(typeof payload.error, "object");
+    assert.ok(payload.error.code);
+    assert.match(payload.error.request_id, /^[0-9a-f-]{36}$/);
+    assert.equal(response.headers.get("x-request-id"), payload.error.request_id);
+  }
+});
+
+test("public cursor feed emits ETags and gates later pages with a continuation URL", async () => {
+  const KV = createKV({}, { last_scan: "2026-07-22", last_scan_at: "2026-07-22T03:40:00Z", postings: samplePostings(20) });
+  const first = await worker.fetch(new Request("https://livejobindex.com/api/jobs?limit=15"), { KV });
+  const payload = await first.json();
+  assert.equal(payload.items.length, 15);
+  assert.equal(payload.has_more, true);
+  assert.ok(payload.next_cursor);
+  assert.ok(payload.feed_version);
+  const notModified = await worker.fetch(new Request("https://livejobindex.com/api/jobs?limit=15", {
+    headers: { "If-None-Match": first.headers.get("ETag") }
+  }), { KV });
+  assert.equal(notModified.status, 304);
+  const gated = await worker.fetch(new Request(`https://livejobindex.com/api/jobs?limit=15&cursor=${encodeURIComponent(payload.next_cursor)}`), { KV });
+  const gatedPayload = await gated.json();
+  assert.equal(gated.status, 401);
+  assert.equal(gatedPayload.error.code, "auth_required");
+  assert.equal(gatedPayload.error.details.sign_in_url, "/api/login?next=/app/jobs");
+});
+
+test("Global Privacy Control forces analytics denial", async () => {
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/privacy/consent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Sec-GPC": "1" },
+    body: JSON.stringify({ analytics: true })
+  }), {});
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.analytics, false);
+  assert.equal(payload.global_privacy_control, true);
+  assert.match(response.headers.get("Set-Cookie") || "", /lji_consent=essential/);
+});
+
+test("declared mutation bodies over the endpoint limit are rejected", async () => {
+  const body = JSON.stringify({ query: "x".repeat(70 * 1024) });
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/jobs/query", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body
+  }), {});
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).error.code, "request_too_large");
+});
+
+test("production CSP contains no unsafe-inline executable or style sources", async () => {
+  const response = await worker.fetch(new Request("https://livejobindex.com/api/config"), {});
+  const csp = response.headers.get("Content-Security-Policy") || "";
+  assert.doesNotMatch(csp, /unsafe-inline/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /style-src 'self'/);
 });
 
 test("jobs query allows anonymous page one and caps per_page at fifteen", async () => {
@@ -1940,7 +2022,7 @@ test("jobs query rejects low bot scores when Cloudflare bot data is present", as
   const response = await worker.fetch(request, { KV });
 
   assert.equal(response.status, 403);
-  assert.equal((await response.json()).error, "bot_check_failed");
+  assert.equal(apiError(await response.json()), "bot_check_failed");
 });
 
 test("complete onboarding requires an individual profile for individual accounts", async () => {
@@ -1959,7 +2041,7 @@ test("complete onboarding requires an individual profile for individual accounts
   }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 400);
-  assert.equal((await response.json()).error, "individual profile is required");
+  assert.equal(apiError(await response.json()), "individual profile is required");
 });
 
 test("agency feedback requires authentication", async () => {
@@ -2053,9 +2135,9 @@ test("agency feedback validates message length", async () => {
   }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(blankResponse.status, 400);
-  assert.equal((await blankResponse.json()).error, "message is required");
+  assert.equal(apiError(await blankResponse.json()), "message is required");
   assert.equal(longResponse.status, 400);
-  assert.equal((await longResponse.json()).error, "message must be 2000 characters or fewer");
+  assert.equal(apiError(await longResponse.json()), "message must be 2000 characters or fewer");
 });
 
 test("agency feedback saves completed agency feedback with profile metadata", async () => {
@@ -2167,7 +2249,7 @@ test("legacy auth session bridge is gone", async () => {
 
   assert.equal(response.status, 410);
   const payload = await response.json();
-  assert.equal(payload.error, "clerk_auth_required");
+  assert.equal(apiError(payload), "clerk_auth_required");
 });
 
 test("complete onboarding requires an agency profile for agency accounts", async () => {
@@ -2186,7 +2268,7 @@ test("complete onboarding requires an agency profile for agency accounts", async
   }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(response.status, 400);
-  assert.equal((await response.json()).error, "agency profile is required");
+  assert.equal(apiError(await response.json()), "agency profile is required");
 });
 
 test("user job upsert stores status, star, and derived timestamps", async () => {
@@ -2322,7 +2404,7 @@ test("settings route stores per-user brand theme", async () => {
   }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
 
   assert.equal(invalid.status, 400);
-  assert.equal((await invalid.json()).error, "brand_theme must be cobalt, graphite, or aurora");
+  assert.equal(apiError(await invalid.json()), "brand_theme must be cobalt, graphite, or aurora");
 });
 
 test("runScan preserves previous postings from a failed active source", async t => {
@@ -2565,7 +2647,7 @@ test("manual scan uses json security responses for wrong keys", async t => {
 
   assert.equal(response.status, 401);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
-  assert.equal((await response.json()).error, "unauthorized");
+  assert.equal(apiError(await response.json()), "unauthorized");
 });
 
 test("manual scan is POST-only and validates shard numbers", async () => {
@@ -2637,22 +2719,25 @@ test("manual scan persists D1 analytics", async t => {
 
 test("session endpoint creates anonymous session cookie", async () => {
   const response = await worker.fetch(new Request("https://example.com/api/session", {
-    method: "POST"
+    method: "POST",
+    headers: { Cookie: "lji_consent=analytics" }
   }), {});
   assert.equal(response.status, 200);
   const data = await response.json();
-  assert.ok(data.session_token);
-  assert.match(response.headers.get("Set-Cookie") || "", /lji_session=/);
+  assert.equal(data.session_token, undefined);
+  assert.equal(data.analytics, true);
+  assert.match(response.headers.get("Set-Cookie") || "", /lji_session=.*HttpOnly/);
 });
 
-test("session endpoint returns existing token when cookie present", async () => {
+test("session endpoint keeps an existing token server-only", async () => {
   const response = await worker.fetch(new Request("https://example.com/api/session", {
     method: "POST",
-    headers: { Cookie: "lji_session=existing-token" }
+    headers: { Cookie: "lji_consent=analytics; lji_session=existing-token" }
   }), {});
   assert.equal(response.status, 200);
   const data = await response.json();
-  assert.equal(data.session_token, "existing-token");
+  assert.equal(data.session_token, undefined);
+  assert.equal(data.analytics, true);
 });
 
 test("track endpoint accepts job_view, search, and page_view events", async () => {
@@ -2664,7 +2749,7 @@ test("track endpoint accepts job_view, search, and page_view events", async () =
   for (const payload of cases) {
     const response = await worker.fetch(new Request("https://example.com/api/track", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Cookie: "lji_consent=analytics" },
       body: JSON.stringify(payload)
     }), {});
     assert.equal(response.status, 200);
@@ -2676,7 +2761,7 @@ test("track endpoint accepts job_view, search, and page_view events", async () =
 test("track endpoint rejects invalid event types", async () => {
   const response = await worker.fetch(new Request("https://example.com/api/track", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Cookie: "lji_consent=analytics" },
     body: JSON.stringify({ type: "invalid_event" })
   }), {});
   assert.equal(response.status, 400);
@@ -2736,29 +2821,30 @@ test("analytics endpoints require owner allowlist", async () => {
 });
 
 test("homepage render helpers escape dynamic job HTML and constrain apply URLs", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /function safeExternalURL/);
   assert.match(html, /function classToken/);
   assert.match(html, /href="\$\{escapeHTML\(safeExternalURL\(j\.apply\)\)\}"/);
   assert.match(html, /<div class="company-name">\$\{escapeHTML\(j\.company\)\}<\/div>/);
   assert.match(html, /<td class="role">\$\{escapeHTML\(j\.role\)\}<\/td>/);
-  assert.match(html, /title="\$\{escapeHTML\(j\.notes \|\| ''\)\}"/);
+  assert.match(html, /title="\$\{escapeHTML\(loadUserJob\(j\.id\)\?\.notes \|\| j\.notes \|\| ''\)\}"/);
   assert.doesNotMatch(html, /jobs_page_access/);
 });
 
 test("applied jobs remain visible in live jobs with an updated visual state", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
 
   assert.match(html, /function jobAppearsInTab/);
   assert.match(html, /tab === 'active' && loadStatus\(j\.id\) === 'Applied'/);
   assert.match(html, /const label = j\.is_static \? 'Search' : applied \? 'Applied' : 'Apply'/);
   assert.match(html, /class="apply-btn\$\{applied \? ' is-applied' : ''\}"/);
-  assert.match(html, /persistUserJob\(id, \{ viewed: true, status: 'Applied' \}\)/);
+  assert.match(html, /function saveStatus\(id, v\)/);
+  assert.doesNotMatch(html, /persistUserJob\(id, \{ viewed: true, status: 'Applied' \}\)/);
 });
 
 test("logged-in application history tracks every applied job and status transition", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const historySource = html.slice(
     html.indexOf("function formatHistoryDate"),
     html.indexOf("function clearProfileRelaxationNotice")
@@ -2784,7 +2870,7 @@ test("logged-in application history tracks every applied job and status transiti
 });
 
 test("job cards and details use self-explanatory signals", () => {
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const html = readFrontendSource();
   const cardRenderer = html.slice(html.indexOf("function cardHTML"), html.indexOf("function renderJobDetail"));
 
   assert.match(cardRenderer, /explicitSignalsHTML\(j, 'card'\)/);

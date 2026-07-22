@@ -1,5 +1,6 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import { processResumeBuild, processResumeRevision } from "../../src/resume-studio.js";
+import { processAccountDeletion, processDataExport } from "../../src/account-lifecycle.js";
 
 async function run(env, sql, ...params) {
   return env.DB.prepare(sql).bind(...params).run();
@@ -31,6 +32,24 @@ export class ResumeBuildWorkflow extends WorkflowEntrypoint {
     });
 
     return { build_id: buildId, type, completed: true };
+  }
+}
+
+export class AccountLifecycleWorkflow extends WorkflowEntrypoint {
+  async run(event, step) {
+    const requestId = String(event.payload?.request_id || "");
+    const type = event.payload?.type;
+    if (!requestId || !new Set(["delete_account", "export_account"]).has(type)) {
+      throw new Error("invalid_account_lifecycle_request");
+    }
+    await step.do(type === "delete_account" ? "delete-account" : "export-account", {
+      retries: { limit: 8, delay: "30 seconds", backoff: "exponential" },
+      timeout: "30 minutes"
+    }, async () => {
+      if (type === "delete_account") await processAccountDeletion(this.env, requestId);
+      else await processDataExport(this.env, requestId);
+    });
+    return { request_id: requestId, type, completed: true };
   }
 }
 

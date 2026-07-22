@@ -1,6 +1,7 @@
 name = "job-tracker"
 main = "src/worker.js"
 compatibility_date = "2026-07-14"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 
 [[kv_namespaces]]
@@ -15,6 +16,10 @@ database_id = "d0b81077-9b5d-425a-a821-979375f63e89"
 [[r2_buckets]]
 binding = "RESUME_FILES"
 bucket_name = "job-tracker-resume-files"
+
+[[r2_buckets]]
+binding = "JOB_FEEDS"
+bucket_name = "job-tracker-public-feeds"
 
 [[queues.producers]]
 binding = "RESUME_QUEUE"
@@ -37,23 +42,46 @@ name = "job-tracker-resume-build"
 class_name = "ResumeBuildWorkflow"
 script_name = "job-tracker-resume-workflow"
 
-[[services]]
-binding = "RESUME_RENDERER"
-service = "job-tracker-resume-renderer"
+[[workflows]]
+binding = "ACCOUNT_WORKFLOW"
+name = "job-tracker-account-lifecycle"
+class_name = "AccountLifecycleWorkflow"
+script_name = "job-tracker-resume-workflow"
+
+[[durable_objects.bindings]]
+name = "SCAN_COORDINATOR"
+class_name = "ScanCoordinator"
+
+[[durable_objects.bindings]]
+name = "USER_COORDINATOR"
+class_name = "UserMutationCoordinator"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimitCoordinator"
+
+[[migrations]]
+tag = "v1-production-coordinators"
+new_sqlite_classes = ["ScanCoordinator", "UserMutationCoordinator", "RateLimitCoordinator"]
 
 [[send_email]]
 name = "EMAIL"
 
 [vars]
-RESUME_STUDIO_ENABLED = "false"
-RESUME_DAILY_MATCHING_ENABLED = "false"
+RESUME_STUDIO_ENABLED = "true"
+RESUME_DAILY_MATCHING_ENABLED = "true"
 RESUME_AUTO_BUILD_ENABLED = "false"
-RESUME_EMAIL_DIGESTS_ENABLED = "false"
-CREDIT_ENFORCEMENT_ENABLED = "false"
-BETA_APPLICATION_PACK_CREDITS = "3"
+RESUME_EMAIL_DIGESTS_ENABLED = "true"
+CREDIT_ENFORCEMENT_ENABLED = "true"
+BETA_APPLICATION_PACK_CREDITS = "1"
+RESUME_ROLLOUT_PERCENT = "0"
+RESUME_DAILY_BUILD_LIMIT = "25"
+RESUME_DAILY_AI_BUDGET_USD = "5"
 RESUME_MODEL = "gpt-5.6-sol"
 REQUIRE_AI_GATEWAY = "true"
 RESUME_EMAIL_FROM = "updates@livejobindex.com"
+PRIVACY_POLICY_VERSION = "2026-07-22"
+ANALYTICS_RETENTION_DAYS = "90"
 
 [triggers]
 crons = ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *", "40 3 * * *"]
@@ -66,6 +94,7 @@ run_worker_first = true
 
 [observability]
 enabled = true
+head_sampling_rate = 1
 
 # Required secrets (set via `npx wrangler secret put <name>`):
 # - CLERK_PUBLISHABLE_KEY     (public Clerk browser key)
@@ -79,6 +108,8 @@ enabled = true
 # - OPENAI_API_KEY            (Responses and temporary Files API access)
 # - AI_GATEWAY_URL            (full Cloudflare AI Gateway OpenAI-compatible base URL)
 # - AI_GATEWAY_TOKEN          (optional authenticated AI Gateway token)
+# - CLERK_WEBHOOK_SECRET      (Svix signing secret for Clerk user lifecycle webhooks)
+# - UNSUBSCRIBE_SECRET        (HMAC secret for one-click digest unsubscribe tokens)
 
 [[routes]]
 pattern = "livejobindex.com"

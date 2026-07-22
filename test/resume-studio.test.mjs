@@ -4,8 +4,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { strToU8, zipSync } from "fflate";
 import worker from "../src/worker.js";
 import { localTimeParts } from "../src/resume-studio.js";
+import { renderResumeArtifacts } from "../src/resume-renderer.js";
 
 import {
   atsReadinessChecklist,
@@ -50,18 +52,39 @@ test("resume coverage uses the published weighted formula exactly", () => {
 
 test("resume upload validation enforces size, extension, MIME, magic bytes, and macro rejection", () => {
   const pdf = new TextEncoder().encode("%PDF-1.7\nfixture").buffer;
-  const zipName = new TextEncoder().encode("word/document.xml");
-  const zipBytes = new Uint8Array(8 + zipName.length);
-  zipBytes.set([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]);
-  zipBytes.set(zipName, 8);
-  const zip = zipBytes.buffer;
+  const zipBytes = zipSync({ "word/document.xml": strToU8("<w:document/>") });
+  const zip = zipBytes.buffer.slice(zipBytes.byteOffset, zipBytes.byteOffset + zipBytes.byteLength);
   assert.equal(validateResumeUpload("resume.pdf", "application/pdf", pdf).extension, "pdf");
   assert.equal(validateResumeUpload("resume.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", zip).extension, "docx");
   assert.equal(validateResumeUpload("resume.pdf", "application/pdf", zip).error, "file_type_mismatch");
   assert.equal(validateResumeUpload("../resume.pdf", "application/pdf", pdf).error, "unsafe_filename");
   assert.equal(validateResumeUpload("resume.docm", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", zip).error, "macros_not_allowed");
-  const macroZip = new Uint8Array([...new Uint8Array(zip), ...new TextEncoder().encode("word/vbaProject.bin")]).buffer;
+  const macroBytes = zipSync({ "word/document.xml": strToU8("<w:document/>"), "word/vbaProject.bin": strToU8("macro") });
+  const macroZip = macroBytes.buffer.slice(macroBytes.byteOffset, macroBytes.byteOffset + macroBytes.byteLength);
   assert.equal(validateResumeUpload("resume.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", macroZip).error, "macros_not_allowed");
+  const bombBytes = zipSync({ "word/document.xml": strToU8("A".repeat(2 * 1024 * 1024)) }, { level: 9 });
+  const bomb = bombBytes.buffer.slice(bombBytes.byteOffset, bombBytes.byteOffset + bombBytes.byteLength);
+  assert.equal(validateResumeUpload("resume.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", bomb).error, "unsafe_archive");
+});
+
+test("Worker-native rendering produces structurally identifiable DOCX and PDF artifacts", async () => {
+  const rendered = await renderResumeArtifacts({
+    template: "classic",
+    page_target: 1,
+    canonical_resume: {
+      contact: { name: "Sohaib Kazmi", email: "candidate@example.com", location: "Dubai" },
+      headline: "Revenue Operations Leader",
+      summary_claims: [{ text: "Built evidence-led revenue operations systems.", evidence_ids: ["e1"] }],
+      skills: ["HubSpot", "n8n", "Clay"],
+      experience: [{ employer: "Example", title: "BizOps Manager", start_date: "2022", end_date: "Present", bullets: [{ text: "Improved operating cadence using verified workflows.", evidence_ids: ["e1"] }] }],
+      education: [], certifications: [], projects: []
+    }
+  });
+  assert.deepEqual([...rendered.docx.slice(0, 2)], [0x50, 0x4b]);
+  assert.equal(new TextDecoder().decode(rendered.pdf.slice(0, 5)), "%PDF-");
+  assert.equal(rendered.qa.passed, true);
+  assert.equal(rendered.qa.renderer, "worker-native-v1");
+  assert.equal(rendered.qa.page_count, 1);
 });
 
 test("claim audit blocks missing and cross-evidence citations", () => {

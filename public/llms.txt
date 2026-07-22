@@ -8,7 +8,7 @@ Terms of service: https://livejobindex.com/terms
 
 The tracker combines daily public ATS scans with curated company-location target rows. Live postings come from supported public ATS APIs such as Greenhouse, Ashby, Lever, and SmartRecruiters. Target rows are not confirmed live postings; they are curated careers searches for top companies or locations that are worth checking manually.
 
-Target countries: United Kingdom, Ireland, Canada, Australia, Singapore, Germany, Netherlands, Switzerland, Sweden, Denmark, Norway, Spain, Portugal, Estonia, and New Zealand.
+Target countries: United Kingdom, Ireland, Canada, Australia, United States, Singapore, Germany, Netherlands, Switzerland, Sweden, Denmark, Norway, Spain, Portugal, Estonia, New Zealand, France, Italy, Poland, Belgium, Finland, Austria, Japan, South Korea, India, and Taiwan.
 
 Departments and role families: Engineering, Product, Design, Data/Analytics, Security/IT, Sales, Marketing, Finance, Operations, Customer Success/Support, People/HR, Legal/Compliance, Strategy/Program, and Other professional technology-company roles across different seniority levels.
 

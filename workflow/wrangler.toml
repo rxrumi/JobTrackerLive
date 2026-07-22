@@ -1,6 +1,7 @@
 name = "job-tracker-resume-workflow"
 main = "src/index.js"
 compatibility_date = "2026-07-14"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 
 [[d1_databases]]
@@ -16,14 +17,15 @@ bucket_name = "job-tracker-resume-files"
 binding = "RESUME_DLQ"
 queue = "job-tracker-resume-jobs-dlq"
 
-[[services]]
-binding = "RESUME_RENDERER"
-service = "job-tracker-resume-renderer"
-
 [[workflows]]
 binding = "RESUME_BUILD_WORKFLOW"
 name = "job-tracker-resume-build"
 class_name = "ResumeBuildWorkflow"
+
+[[workflows]]
+binding = "ACCOUNT_LIFECYCLE_WORKFLOW"
+name = "job-tracker-account-lifecycle"
+class_name = "AccountLifecycleWorkflow"
 
 [vars]
 RESUME_MODEL = "gpt-5.6-sol"
@@ -32,6 +34,7 @@ REQUIRE_AI_GATEWAY = "true"
 
 [observability]
 enabled = true
+head_sampling_rate = 1
 
 # Required secrets mirror the main Worker:
 # - OPENAI_API_KEY

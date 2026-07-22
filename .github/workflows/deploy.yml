@@ -7,13 +7,24 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: c0cf7c4ffa0f725dd4c485a5c9032f7e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
-      - run: npx wrangler deploy -c wrangler.github.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: c0cf7c4ffa0f725dd4c485a5c9032f7e
+          cache: npm
+      - run: npm ci
+      - run: npm run build:frontend
+      - run: git diff --exit-code -- public
+      - run: npm audit
+      - run: npm test
+      - run: npm run test:migrations
+      - run: npx wrangler types --check
+      - run: npx wrangler deploy --dry-run -c workflow/wrangler.toml
+      - run: npx wrangler deploy --dry-run
+      - run: npx wrangler d1 migrations apply job-tracker-app-db --remote
+      - run: npx wrangler deploy -c workflow/wrangler.toml
+      - run: npx wrangler deploy

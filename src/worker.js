@@ -1,12 +1,14 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
+import { ROLE_FAMILY_NAMES, scoreJob } from "../public/taxonomy.js";
 import {
   dispatchDailyResumeMatching,
-  dispatchResumeDigests,
   deleteUserResumeObjects,
+  handleOneClickUnsubscribe,
   handleResumeQueue,
   handleResumeStudioRequest,
   terminateUserResumeWorkflows,
 } from "./resume-studio.js";
+import { processAccountDeletion } from "./account-lifecycle.js";
 
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
@@ -68,6 +70,7 @@ const ACTIVE_SOURCES = new Set([
 ]);
 const FAILURE_ABORT_RATIO = 0.5;
 const FETCH_TIMEOUT_MS = 12000;
+const MAX_UPSTREAM_RESPONSE_BYTES = 8 * 1024 * 1024;
 const STALE_SCAN_LOCK_KEY_PREFIX = "scan:stale-refresh-lock";
 const STALE_SCAN_LOCK_TTL_SECONDS = 2 * 60;
 const PARTIAL_SOURCE_STALE_DAYS = 30;
@@ -363,6 +366,15 @@ const ROLE_FAMILIES = [
     patterns: [/\baccount executive\b/, /\bsales\b/, /\bbusiness development\b/, /\bbdr\b/, /\bsdr\b/, /\baccount manager\b/, /\bpartnerships\b/, /\bpartner manager\b/, /\benterprise account\b/, /\bcommercial account\b/, /\bsales strategy\b/, /\bsales excellence\b/]
   }
 ];
+
+export const WORKER_ROLE_FAMILY_NAMES = Object.freeze([
+  ...ROLE_FAMILIES.map(group => group.family),
+  "Other"
+]);
+
+if (JSON.stringify([...WORKER_ROLE_FAMILY_NAMES].sort()) !== JSON.stringify([...ROLE_FAMILY_NAMES].sort())) {
+  throw new Error("role_family_taxonomy_mismatch");
+}
 
 const ROLE_FALLBACK_KEYWORDS = [
   "engineer", "developer", "designer", "analyst", "manager", "lead", "director",
@@ -742,7 +754,9 @@ async function dbBatch(env, statements) {
   const database = db(env);
   if (!database || !statements.length) return;
   if (typeof database.batch === "function") {
-    await database.batch(statements);
+    for (let index = 0; index < statements.length; index += 50) {
+      await database.batch(statements.slice(index, index + 50));
+    }
     return;
   }
   for (const statement of statements) await statement.run();
@@ -755,7 +769,7 @@ const RESUME_STUDIO_DEPS = {
   batch: dbBatch
 };
 
-async function persistScanToD1(env, scanResult, today) {
+async function persistScanToD1(env, scanResult, today, scanRunId = null) {
   const database = db(env);
   if (!database) return;
 
@@ -805,9 +819,9 @@ async function persistScanToD1(env, scanResult, today) {
     statements.push(database.prepare(`
       insert into job_snapshots (
         job_id, scan_date, title, location, city, country, industry, niche,
-        role_family, seniority, visa, score, tier, is_new, is_filled, created_at
+        role_family, seniority, visa, score, tier, is_new, is_filled, created_at, scan_run_id
       )
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       on conflict(job_id, scan_date) do update set
         title = excluded.title,
         location = excluded.location,
@@ -821,7 +835,8 @@ async function persistScanToD1(env, scanResult, today) {
         score = excluded.score,
         tier = excluded.tier,
         is_new = excluded.is_new,
-        is_filled = excluded.is_filled
+        is_filled = excluded.is_filled,
+        scan_run_id = excluded.scan_run_id
     `).bind(
       p.id,
       today,
@@ -838,7 +853,8 @@ async function persistScanToD1(env, scanResult, today) {
       p.tier,
       p.first_seen === today ? 1 : 0,
       p.last_filled ? 1 : 0,
-      now
+      now,
+      scanRunId
     ));
   }
 
@@ -904,17 +920,8 @@ async function persistScanToD1(env, scanResult, today) {
 }
 
 function calcScore({ visa, seniority, firstSeen, lastFilled, today }) {
-  const visaW = { Strong: 100, Likely: 75, Unknown: 50 };
-  const seniorityW = {
-    Executive: 95,
-    "Director/Head": 90,
-    "Senior/Lead": 85,
-    Manager: 80,
-    "Associate/Analyst": 70,
-    Unknown: 65
-  };
   const freshness = lastFilled ? 30 : daysBetween(firstSeen, today) <= 7 ? 100 : 80;
-  return Math.round((visaW[visa] || 50) * 0.5 + (seniorityW[seniority] || 65) * 0.3 + freshness * 0.2);
+  return scoreJob({ visa, seniority, freshness });
 }
 
 function normalizePosting(posting, today) {
@@ -975,7 +982,31 @@ async function fetchWithTimeout(url, init = {}, diagnostics = null) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const r = await fetch(url, { cf: { cacheTtl: 0 }, ...init, signal: controller.signal });
+    let current = new URL(url);
+    let r;
+    for (let redirect = 0; redirect <= 5; redirect++) {
+      const hostname = current.hostname.toLowerCase();
+      const approved = current.protocol === "https:"
+        && !current.username && !current.password && !current.port
+        && !hostname.includes(":")
+        && !/^(?:localhost|0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(hostname)
+        && (new Set([
+          "boards-api.greenhouse.io", "api.ashbyhq.com", "api.lever.co", "api.smartrecruiters.com",
+          "www.amazon.jobs", "jobs.apple.com", "explore.jobs.netflix.net", "www.ycombinator.com", "yc-oss.github.io"
+        ]).has(hostname) || hostname.endsWith(".myworkdayjobs.com"));
+      if (!approved) {
+        recordFetchFailure(diagnostics, { url: current, reason: "unapproved_hostname" });
+        return null;
+      }
+      r = await fetch(current.toString(), { cf: { cacheTtl: 0 }, ...init, redirect: "manual", signal: controller.signal });
+      if (![301, 302, 303, 307, 308].includes(r.status)) break;
+      const location = r.headers.get("location");
+      if (!location || redirect === 5) {
+        recordFetchFailure(diagnostics, { url: current, reason: "redirect_limit" });
+        return null;
+      }
+      current = new URL(location, current);
+    }
     if (!r.ok) {
       recordFetchFailure(diagnostics, { url, reason: "http_error", status: r.status });
       return null;
@@ -997,7 +1028,9 @@ async function fetchJSON(url, init = {}, diagnostics = null) {
   const r = await fetchWithTimeout(url, init, diagnostics);
   if (!r) return null;
   try {
-    return await r.json();
+    const text = await readBoundedResponseText(r);
+    if (text == null) throw new Error("response_too_large");
+    return JSON.parse(text);
   } catch {
     recordFetchFailure(diagnostics, { url, reason: "invalid_json" });
     return null;
@@ -1008,11 +1041,32 @@ async function fetchText(url, diagnostics = null) {
   const r = await fetchWithTimeout(url, {}, diagnostics);
   if (!r) return null;
   try {
-    return await r.text();
+    return await readBoundedResponseText(r);
   } catch {
     recordFetchFailure(diagnostics, { url, reason: "invalid_text" });
     return null;
   }
+}
+
+async function readBoundedResponseText(response) {
+  const declared = Number(response.headers.get("content-length") || 0);
+  if (declared > MAX_UPSTREAM_RESPONSE_BYTES) return null;
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let result = "";
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_UPSTREAM_RESPONSE_BYTES) {
+      await reader.cancel("response_too_large").catch(() => {});
+      return null;
+    }
+    result += decoder.decode(value, { stream: true });
+  }
+  return result + decoder.decode();
 }
 
 function normalizeFetchResult(result) {
@@ -1913,7 +1967,7 @@ const SEO_PAGES = {
     eyebrow: "Live jobs",
     intro: "Browse active roles from public company career feeds, organized by market, company tier, seniority, and role family.",
     cta: "Open Live Jobs",
-    appHref: "/",
+    appHref: "/app/jobs",
     schemaType: "CollectionPage"
   },
   "/visa-roles": {
@@ -1923,7 +1977,7 @@ const SEO_PAGES = {
     eyebrow: "Sponsorship signals",
     intro: "Focus your search on companies with strong or likely sponsorship history while keeping the current signal heuristic clear.",
     cta: "View Visa-Aware Roles",
-    appHref: "/",
+    appHref: "/app/visa-roles",
     schemaType: "CollectionPage"
   },
   "/pipeline": {
@@ -1933,7 +1987,7 @@ const SEO_PAGES = {
     eyebrow: "Application tracking",
     intro: "Keep saved targets, application status, notes, and account preferences together once you sign in.",
     cta: "Sign In to Track Pipeline",
-    appHref: "/profile",
+    appHref: "/app/pipeline",
     schemaType: "WebPage"
   },
   "/insights": {
@@ -1943,7 +1997,7 @@ const SEO_PAGES = {
     eyebrow: "Hiring trends",
     intro: "Review lightweight trends from the current job feed, including strongest markets, role families, and visa-aware hiring signals.",
     cta: "Explore Hiring Trends",
-    appHref: "/",
+    appHref: "/app/insights",
     schemaType: "CollectionPage"
   }
 };
@@ -1951,33 +2005,79 @@ const SEO_PAGES = {
 const ANON_SESSION_COOKIE = "lji_session";
 const ANON_SESSION_TTL_DAYS = 365;
 const TRACKABLE_EVENTS = new Set(["job_view", "search", "page_view"]);
-const MAX_JSON_BODY_BYTES = 32 * 1024;
+const MAX_JSON_BODY_BYTES = 64 * 1024;
+const MAX_TRACKING_BODY_BYTES = 32 * 1024;
 const SAFE_SERVER_ERRORS = new Set(["account_setup_failed", "analytics unavailable", "account_deletion_provider_failed"]);
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-const CSP_DIRECTIVES = [
+function contentSecurityPolicy(nonce = "") {
+  const inlineScriptSources = [
+    "'sha256-ldkzr2CsTnpA+uKoOmgTy6Jh/kWXTzLF8D3PRDBeTtM='",
+    ...(nonce ? [`'nonce-${nonce}'`] : [])
+  ].join(" ");
+  return [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
   "upgrade-insecure-requests",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://static.cloudflareinsights.com",
+  `script-src 'self' ${inlineScriptSources} https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms`,
   "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com https://api.clerk.com https://img.clerk.com https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.clarity.ms https://cloudflareinsights.com",
   "frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.livejobindex.com https://accounts.livejobindex.com",
   "img-src 'self' data: https: https://img.clerk.com",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self'",
   "worker-src 'self' blob:"
-].join("; ");
+  ].join("; ");
+}
 
 function jsonResponse(data, init = {}) {
   const headers = new Headers(init.headers || {});
   headers.set("Content-Type", "application/json");
+  if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
   return withTrustHeaders(new Response(JSON.stringify(data), { ...init, headers }));
 }
 
-function errorResponse(status, message) {
+function errorResponse(status, message, details = null) {
   const safeMessage = status >= 500 && !SAFE_SERVER_ERRORS.has(message) ? "internal_error" : message;
-  return jsonResponse({ error: safeMessage }, { status });
+  const requestId = crypto.randomUUID();
+  return jsonResponse({
+    error: {
+      code: String(safeMessage).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+      message: safeMessage,
+      request_id: requestId,
+      ...(details ? { details } : {})
+    }
+  }, { status, headers: { "X-Request-ID": requestId } });
+}
+
+function methodNotAllowed(allow) {
+  const response = errorResponse(405, "method_not_allowed");
+  const headers = new Headers(response.headers);
+  headers.set("Allow", allow.join(", "));
+  return withTrustHeaders(new Response(response.body, { status: 405, headers }));
+}
+
+function allowedApiMethods(pathname) {
+  const exact = new Map([
+    ["/api/jobs", ["GET"]], ["/api/jobs/query", ["POST"]], ["/api/status", ["GET"]],
+    ["/api/admin/health", ["GET"]], ["/api/config", ["GET"]], ["/api/me", ["GET", "DELETE"]],
+    ["/api/me/export", ["POST"]], ["/api/privacy/consent", ["GET", "POST"]],
+    ["/api/saved-searches", ["GET", "POST"]], ["/api/alert-preferences", ["GET", "PATCH"]],
+    ["/api/user-jobs", ["GET"]],
+    ["/api/activity", ["POST"]], ["/api/session", ["POST"]], ["/api/track", ["POST"]],
+    ["/api/settings", ["PATCH"]], ["/api/logout", ["POST"]], ["/api/auth/session", ["POST"]],
+    ["/api/agency-feedback", ["POST"]], ["/api/webhooks/clerk", ["POST"]], ["/api/scan-now", ["POST"]],
+    ["/api/onboarding/account-type", ["PATCH"]], ["/api/onboarding/individual-profile", ["PATCH"]],
+    ["/api/onboarding/agency-profile", ["PATCH"]], ["/api/onboarding/complete", ["POST"]],
+    ["/api/analytics/jobs", ["GET"]], ["/api/analytics/searches", ["GET"]], ["/api/analytics/views", ["GET"]]
+  ]);
+  if (exact.has(pathname)) return exact.get(pathname);
+  if (/^\/api\/saved-searches\/[^/]+$/.test(pathname)) return ["PATCH", "DELETE"];
+  if (/^\/api\/me\/export\/[^/]+(?:\/download)?$/.test(pathname)) return ["GET"];
+  if (/^\/api\/me\/deletion\/[^/]+$/.test(pathname)) return ["GET"];
+  if (/^\/api\/user-jobs\/[^/]+\/history$/.test(pathname)) return ["GET"];
+  if (/^\/api\/user-jobs\/[^/]+$/.test(pathname)) return ["PUT"];
+  return null;
 }
 
 function redirectResponse(location, status = 303) {
@@ -2018,6 +2118,23 @@ function escapeHTML(value) {
     "\"": "&quot;",
     "'": "&#39;"
   }[ch]));
+}
+
+function slugify(value) {
+  return String(value || "job").toLowerCase().normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "job";
+}
+
+function safeApplyUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" ? url.toString() : SITE_ORIGIN;
+  } catch {
+    return SITE_ORIGIN;
+  }
 }
 
 function clampInteger(value, fallback, min, max) {
@@ -2153,6 +2270,47 @@ function pagePostings(data, query) {
   };
 }
 
+function encodeJobCursor(page, query) {
+  return base64UrlEncode(new TextEncoder().encode(JSON.stringify({
+    page,
+    per_page: query.per_page,
+    sort: query.sort,
+    dir: query.dir
+  })));
+}
+
+function decodeJobCursor(value) {
+  if (!value) return null;
+  try {
+    const normalized = String(value).replace(/-/g, "+").replace(/_/g, "/");
+    const padding = normalized.length % 4 ? "=".repeat(4 - normalized.length % 4) : "";
+    const bytes = Uint8Array.from(atob(normalized + padding), character => character.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    return { page: clampInteger(parsed.page, 1, 1, 10000) };
+  } catch {
+    return null;
+  }
+}
+
+function cursorJobResponse(pageResult, data, query, authenticated = false) {
+  const nextCursor = pageResult.pagination.has_next
+    ? encodeJobCursor(pageResult.pagination.page + 1, query)
+    : null;
+  return {
+    ...pageResult,
+    items: pageResult.postings,
+    next_cursor: nextCursor,
+    has_more: pageResult.pagination.has_next,
+    feed_version: data.feed_version || data.last_scan_at || data.last_scan || null,
+    generated_at: data.last_scan_at || null,
+    gate: {
+      authentication_required_after_first_page: true,
+      authenticated,
+      sign_in_url: authenticated ? null : "/api/login?next=/app/jobs"
+    }
+  };
+}
+
 function base64UrlEncode(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -2204,12 +2362,53 @@ function allowedOrigins(request, env) {
 
 function hasValidOrigin(request, env) {
   const origin = request.headers.get("Origin");
-  if (!origin) return true;
+  if (!origin) {
+    const pathname = new URL(request.url).pathname;
+    // Browsers advertise Fetch Metadata on scripted/form mutations. Require an
+    // Origin for those requests, while keeping signed server-to-server and CLI
+    // integrations usable (curl and webhooks do not necessarily send Origin).
+    const browserMutation = Boolean(
+      request.headers.get("Sec-Fetch-Site")
+      || request.headers.get("Sec-Fetch-Mode")
+      || request.headers.get("Sec-Fetch-Dest")
+    );
+    return Boolean(
+      !browserMutation
+      ||
+      env.ALLOW_MISSING_ORIGIN === "true"
+      || env.CLERK_USER
+      || request.headers.get("X-Scan-Key")
+      || request.headers.get("svix-signature")
+      || pathname === "/api/email/unsubscribe"
+    );
+  }
   return allowedOrigins(request, env).has(origin);
 }
 
 function requireSameOrigin(request, env) {
   return hasValidOrigin(request, env) ? null : errorResponse(403, "invalid_origin");
+}
+
+async function enforceRateLimit(request, env, { scope, limit, windowSeconds, cost = 1 }) {
+  if (!env.RATE_LIMITER?.getByName) return null;
+  const ip = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
+  const authSubject = authTokenFromRequest(request);
+  const key = await sha256Base64Url(`${scope}:${authSubject || ip}`);
+  const shard = env.RATE_LIMITER.getByName(key.slice(0, 2));
+  const response = await shard.fetch("https://rate-limit.internal/check", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, limit, window_seconds: windowSeconds, cost })
+  });
+  if (response.ok) return null;
+  const result = await response.json().catch(() => ({}));
+  return jsonResponse({
+    error: "rate_limit_exceeded",
+    retry_after: result.retry_after || windowSeconds
+  }, {
+    status: 429,
+    headers: { "Retry-After": String(result.retry_after || windowSeconds) }
+  });
 }
 
 function safeRedirectPath(value) {
@@ -2225,18 +2424,19 @@ function assetRequest(request, pathname) {
 }
 
 const TRUST_HEADERS = {
-  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
-  "Content-Security-Policy": CSP_DIRECTIVES
+  "Content-Security-Policy": contentSecurityPolicy()
 };
 
-function withTrustHeaders(response) {
+function withTrustHeaders(response, nonce = "") {
   const headers = new Headers(response.headers);
   for (const [key, value] of Object.entries(TRUST_HEADERS)) {
     headers.set(key, value);
   }
+  if (nonce) headers.set("Content-Security-Policy", contentSecurityPolicy(nonce));
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -2246,15 +2446,26 @@ function withTrustHeaders(response) {
 
 async function fetchAsset(request, env, pathname) {
   const response = await env.ASSETS.fetch(pathname ? assetRequest(request, pathname) : request);
-  return withTrustHeaders(response);
+  const headers = new Headers(response.headers);
+  const assetPath = pathname || new URL(request.url).pathname;
+  if (/\.html?$/.test(assetPath) || !/\.[a-z0-9]+$/i.test(assetPath)) {
+    headers.set("Cache-Control", "no-cache, must-revalidate");
+  } else if (/\.(?:avif|webp|png|jpe?g|gif|svg|ico|woff2?)$/i.test(assetPath)) {
+    headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+  }
+  return withTrustHeaders(new Response(response.body, { status: response.status, statusText: response.statusText, headers }));
 }
 
-async function readJSON(request) {
+const BODY_TOO_LARGE = Symbol("body_too_large");
+
+async function readJSON(request, maxBytes = MAX_JSON_BODY_BYTES) {
   try {
     const length = Number(request.headers.get("Content-Length") || "0");
-    if (Number.isFinite(length) && length > MAX_JSON_BODY_BYTES) return null;
+    if (Number.isFinite(length) && length > maxBytes) return BODY_TOO_LARGE;
     const text = await request.text();
-    if (text.length > MAX_JSON_BODY_BYTES) return null;
+    if (new TextEncoder().encode(text).byteLength > maxBytes) return BODY_TOO_LARGE;
     return JSON.parse(text);
   } catch {
     return null;
@@ -2346,14 +2557,41 @@ function clerkUserEmail(clerkUser) {
   return cleanString(primary?.emailAddress || primary?.email_address, 320);
 }
 
-async function requireUser(request, env) {
+function clerkUserEmailVerified(clerkUser) {
+  if (typeof clerkUser?.email_verified === "boolean") return clerkUser.email_verified;
+  const primaryId = clerkUser?.primaryEmailAddressId || clerkUser?.primary_email_address_id;
+  const emails = clerkUser?.emailAddresses || clerkUser?.email_addresses || [];
+  const primary = emails.find(email => (email.id || email.emailAddress) === primaryId) || emails[0];
+  const status = primary?.verification?.status || primary?.verification_status;
+  return status ? status === "verified" : true;
+}
+
+async function userLifecycleResponse(env, userId, allowDeletionPending = false) {
+  if (!env.DB) return null;
+  try {
+    const row = await dbFirst(env, "select lifecycle_state from users where id = ?", userId);
+    if (row?.lifecycle_state === "deleted") return errorResponse(401, "account_deleted");
+    if (row?.lifecycle_state === "deletion_pending" && !allowDeletionPending) {
+      return errorResponse(423, "account_deletion_pending");
+    }
+  } catch {
+    // The additive lifecycle migration may not be applied during a rolling deploy.
+  }
+  return null;
+}
+
+async function requireUser(request, env, options = {}) {
   if (env.CLERK_USER) {
     const user = {
       id: env.CLERK_USER.id,
       email: env.CLERK_USER.email || "",
+      email_verified: env.CLERK_USER.email_verified !== false,
       full_name: cleanString(env.CLERK_USER.full_name || env.CLERK_USER.name, 180) || null
     };
-    return { context: {}, user };
+    const lifecycleResponse = await userLifecycleResponse(env, user.id, options.allowDeletionPending);
+    return lifecycleResponse
+      ? { response: lifecycleResponse }
+      : { context: { iat: Math.floor(Date.now() / 1000) }, user };
   }
 
   const token = authTokenFromRequest(request);
@@ -2374,9 +2612,11 @@ async function requireUser(request, env) {
     const user = {
       id: userId,
       email: clerkUserEmail(clerkUser) || cleanString(claims.email, 320) || "",
+      email_verified: clerkUserEmailVerified(clerkUser),
       full_name: clerkUserName(clerkUser) || cleanString(claims.name || claims.full_name, 180) || null
     };
-    return { context: {}, user };
+    const lifecycleResponse = await userLifecycleResponse(env, user.id, options.allowDeletionPending);
+    return lifecycleResponse ? { response: lifecycleResponse } : { context: claims || {}, user };
   } catch {
     return { response: errorResponse(401, "unauthorized") };
   }
@@ -2459,6 +2699,7 @@ async function ensureAccountRows(env, user, accountType = "individual") {
       email = excluded.email,
       full_name = coalesce(excluded.full_name, users.full_name),
       updated_at = excluded.updated_at
+    where users.lifecycle_state not in ('deletion_pending', 'deleted')
   `, user.id, user.email || "", user.full_name || null, safeAccountType, now, now);
 
   await dbRun(env, `
@@ -2605,6 +2846,11 @@ async function handleMe(request, env) {
   await ensureAccountRows(env, auth.user);
   await dbRun(env, "update users set last_login_at = ?, email = ?, updated_at = ? where id = ?",
     new Date().toISOString(), auth.user.email || "", new Date().toISOString(), auth.user.id);
+  const sessionToken = getAnonSessionCookie(request);
+  if (sessionToken) {
+    await dbRun(env, "update anonymous_sessions set user_id = ?, last_seen_at = ? where session_token = ?",
+      auth.user.id, new Date().toISOString(), sessionToken).catch(() => {});
+  }
   return jsonResponse(await fetchMe(env, auth.user));
 }
 
@@ -2612,20 +2858,91 @@ async function handleDeleteMe(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
   const payload = await readJSON(request);
-  if (payload?.confirmation !== "DELETE MY ACCOUNT") return errorResponse(400, "account_deletion_confirmation_required");
-  if (!env.CLERK_USER && !env.CLERK_SECRET_KEY) return errorResponse(503, "account_deletion_provider_failed");
-  await terminateUserResumeWorkflows(env, auth.user.id, RESUME_STUDIO_DEPS);
-  if (!env.CLERK_USER && env.CLERK_SECRET_KEY) {
-    try {
-      const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
-      await clerk.users.deleteUser(auth.user.id);
-    } catch {
-      return errorResponse(503, "account_deletion_provider_failed");
-    }
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
+  const confirmation = cleanString(payload?.confirmation, 320).toLowerCase();
+  if (!["delete my account", cleanString(auth.user.email, 320).toLowerCase()].includes(confirmation)) {
+    return errorResponse(400, "account_deletion_confirmation_required");
   }
-  await deleteUserResumeObjects(env, auth.user.id);
-  await dbRun(env, "delete from users where id = ?", auth.user.id);
-  return jsonResponse({ ok: true, deleted: true });
+  const issuedAt = Number(auth.context?.iat || 0) * 1000;
+  if (!issuedAt || Date.now() - issuedAt > 10 * 60 * 1000) return errorResponse(401, "recent_authentication_required");
+  if (!env.CLERK_USER && !env.CLERK_SECRET_KEY) return errorResponse(503, "account_deletion_provider_failed");
+  if (!env.ACCOUNT_WORKFLOW?.create) {
+    await terminateUserResumeWorkflows(env, auth.user.id, RESUME_STUDIO_DEPS);
+    await deleteUserResumeObjects(env, auth.user.id);
+    if (!env.CLERK_USER && env.CLERK_SECRET_KEY) {
+      try {
+        const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+        await clerk.users.deleteUser(auth.user.id);
+      } catch {
+        return errorResponse(503, "account_deletion_provider_failed");
+      }
+    }
+    await dbRun(env, "delete from users where id = ?", auth.user.id);
+    return jsonResponse({ ok: true, deleted: true });
+  }
+  const deletionId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const userHash = await sha256Base64Url(`deleted-user:${auth.user.id}`);
+  await dbBatch(env, [
+    env.DB.prepare(`insert into account_deletion_requests
+      (id, user_id, user_hash, source, status, current_step, created_at, updated_at)
+      values (?, ?, ?, 'user', 'pending', 'requested', ?, ?)`)
+      .bind(deletionId, auth.user.id, userHash, now, now),
+    env.DB.prepare(`update users set lifecycle_state = 'deletion_pending', deletion_requested_at = ?, updated_at = ? where id = ?`)
+      .bind(now, now, auth.user.id)
+  ]);
+  try {
+    await env.ACCOUNT_WORKFLOW.create({ id: deletionId, params: { type: "delete_account", request_id: deletionId } });
+  } catch (failure) {
+    await dbRun(env, "update account_deletion_requests set status = 'retrying', failure_code = ?, updated_at = ? where id = ?",
+      "workflow_start_failed", new Date().toISOString(), deletionId);
+    console.error(JSON.stringify({ event: "account_deletion_workflow_start_failed", deletionId, message: failure?.message || String(failure) }));
+  }
+  return jsonResponse({ deletion_id: deletionId, status: "pending" }, { status: 202 });
+}
+
+async function handleDeletionStatus(request, env, deletionId) {
+  const auth = await requireUser(request, env, { allowDeletionPending: true });
+  if (auth.response) return auth.response;
+  const row = await dbFirst(env, `select id, status, current_step, failure_code, created_at, updated_at, completed_at
+    from account_deletion_requests where id = ? and user_id = ?`, deletionId, auth.user.id);
+  return row ? jsonResponse({ deletion: row }) : errorResponse(404, "deletion_request_not_found");
+}
+
+async function handleDataExports(request, env, exportId = null, download = false) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+  if (request.method === "POST" && !exportId) {
+    if (!env.ACCOUNT_WORKFLOW?.create || !env.RESUME_FILES) return errorResponse(503, "export_unavailable");
+    const recent = await dbFirst(env, `select id, status from data_export_requests where user_id = ?
+      and created_at >= datetime('now','-1 day') order by created_at desc limit 1`, auth.user.id);
+    if (recent && new Set(["pending", "processing", "ready"]).has(recent.status)) {
+      return jsonResponse({ export_id: recent.id, status: recent.status }, { status: 202 });
+    }
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await dbRun(env, `insert into data_export_requests (id, user_id, status, created_at, updated_at)
+      values (?, ?, 'pending', ?, ?)`, id, auth.user.id, now, now);
+    await env.ACCOUNT_WORKFLOW.create({ id, params: { type: "export_account", request_id: id } });
+    return jsonResponse({ export_id: id, status: "pending" }, { status: 202 });
+  }
+  if (request.method !== "GET" || !exportId) return errorResponse(405, "method_not_allowed");
+  const row = await dbFirst(env, "select * from data_export_requests where id = ? and user_id = ?", exportId, auth.user.id);
+  if (!row) return errorResponse(404, "export_not_found");
+  if (!download) return jsonResponse({ export: { ...row, r2_key: undefined } });
+  if (row.status !== "ready" || !row.r2_key || !row.expires_at || Date.parse(row.expires_at) <= Date.now()) {
+    return errorResponse(410, "export_not_available");
+  }
+  const object = await env.RESUME_FILES.get(row.r2_key);
+  if (!object) return errorResponse(404, "export_file_not_found");
+  return withTrustHeaders(new Response(object.body, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="live-job-index-export-${exportId}.zip"`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    }
+  }));
 }
 
 async function handleAccountType(request, env) {
@@ -2633,6 +2950,7 @@ async function handleAccountType(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   const accountType = cleanString(payload?.account_type);
   if (!ACCOUNT_TYPES.has(accountType)) {
     return errorResponse(400, "account_type must be individual or agency");
@@ -2640,7 +2958,7 @@ async function handleAccountType(request, env) {
 
   await ensureAccountRows(env, auth.user, accountType);
   await dbRun(env,
-    "update users set account_type = ?, onboarding_completed = 0, updated_at = ? where id = ?",
+    "update users set account_type = ?, onboarding_completed = 0, lifecycle_state = 'pending_onboarding', updated_at = ? where id = ?",
     accountType,
     new Date().toISOString(),
     auth.user.id
@@ -2656,6 +2974,7 @@ async function handleIndividualProfile(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
   const validated = validateIndividualProfile(payload);
@@ -2709,6 +3028,7 @@ async function handleAgencyProfile(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
   const validated = validateAgencyProfile(payload);
@@ -2768,7 +3088,7 @@ async function handleCompleteOnboarding(request, env) {
   }
 
   await dbRun(env,
-    "update users set onboarding_completed = 1, updated_at = ? where id = ?",
+    "update users set onboarding_completed = 1, lifecycle_state = 'active', updated_at = ? where id = ?",
     new Date().toISOString(),
     auth.user.id
   );
@@ -2782,22 +3102,289 @@ async function handleSettings(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
-  const brandTheme = cleanString(payload.brand_theme);
-  if (!BRAND_THEMES.has(brandTheme)) {
+  const brandTheme = payload.brand_theme == null ? null : cleanString(payload.brand_theme);
+  if (brandTheme != null && !BRAND_THEMES.has(brandTheme)) {
     return errorResponse(400, "brand_theme must be cobalt, graphite, or aurora");
   }
+  const timezone = payload.timezone == null ? null : cleanString(payload.timezone, 100);
+  if (timezone) {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date());
+    } catch {
+      return errorResponse(400, "invalid_timezone");
+    }
+  }
+  if (!brandTheme && !timezone) return errorResponse(400, "settings_update_required");
 
   await dbRun(env,
-    "update users set brand_theme = ?, updated_at = ? where id = ?",
+    "update users set brand_theme = coalesce(?, brand_theme), timezone = coalesce(?, timezone), updated_at = ? where id = ?",
     brandTheme,
+    timezone,
     new Date().toISOString(),
     auth.user.id
   );
 
-  await recordActivity(env, auth.user.id, "settings_updated", "account", auth.user.id, { brand_theme: brandTheme });
+  await recordActivity(env, auth.user.id, "settings_updated", "account", auth.user.id, { brand_theme: brandTheme, timezone });
   return jsonResponse(await fetchMe(env, auth.user));
+}
+
+const CONSENT_COOKIE = "lji_consent";
+const CONSENT_MAX_AGE_SECONDS = 180 * 24 * 60 * 60;
+
+function analyticsConsentFromRequest(request) {
+  return cookieValue(request, CONSENT_COOKIE) === "analytics"
+    && request.headers.get("Sec-GPC") !== "1";
+}
+
+async function handlePrivacyConsent(request, env) {
+  const sessionToken = getAnonSessionCookie(request);
+  let user = null;
+  if (hasAuthMaterial(request)) {
+    const auth = await requireUser(request, env, { allowDeletionPending: true });
+    if (!auth.response) user = auth.user;
+  }
+  if (request.method === "GET") {
+    let analytics = analyticsConsentFromRequest(request);
+    if (user) {
+      const row = await dbFirst(env, "select analytics_consent from users where id = ?", user.id).catch(() => null);
+      if (row) analytics = Boolean(row.analytics_consent) && request.headers.get("Sec-GPC") !== "1";
+    }
+    return jsonResponse({
+      essential: true,
+      analytics,
+      global_privacy_control: request.headers.get("Sec-GPC") === "1",
+      policy_version: env.PRIVACY_POLICY_VERSION || "2026-07-22"
+    }, { headers: { "Cache-Control": "no-store" } });
+  }
+  if (request.method !== "POST") return errorResponse(405, "method_not_allowed");
+  const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
+  if (!payload || typeof payload.analytics !== "boolean") return errorResponse(400, "analytics_consent_required");
+  const gpc = request.headers.get("Sec-GPC") === "1";
+  const analytics = gpc ? false : payload.analytics;
+  const now = new Date().toISOString();
+  let sessionId = null;
+  if (sessionToken) {
+    const session = await dbFirst(env, "select id from anonymous_sessions where session_token = ?", sessionToken).catch(() => null);
+    sessionId = session?.id || null;
+    await dbRun(env, "update anonymous_sessions set consent_state = ?, user_id = coalesce(?, user_id), last_seen_at = ? where session_token = ?",
+      analytics ? "analytics" : "essential", user?.id || null, now, sessionToken).catch(() => {});
+  }
+  await dbRun(env, `insert into privacy_consents
+    (id, user_id, session_id, policy_version, essential, analytics, global_privacy_control, source, created_at, updated_at)
+    values (?, ?, ?, ?, 1, ?, ?, 'web', ?, ?)`,
+  crypto.randomUUID(), user?.id || null, sessionId, env.PRIVACY_POLICY_VERSION || "2026-07-22",
+  analytics ? 1 : 0, gpc ? 1 : 0, now, now).catch(() => {});
+  if (user) {
+    await dbRun(env, "update users set analytics_consent = ?, analytics_consent_updated_at = ?, updated_at = ? where id = ?",
+      analytics ? 1 : 0, now, now, user.id);
+  }
+  return jsonResponse({ essential: true, analytics, global_privacy_control: gpc }, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Set-Cookie": serializeCookieHeader(CONSENT_COOKIE, analytics ? "analytics" : "essential", {
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: CONSENT_MAX_AGE_SECONDS
+      })
+    }
+  });
+}
+
+function normalizeSavedSearch(row) {
+  return row ? { ...row, query: parseJSONCell(row.query_json, {}), alerts_enabled: Boolean(row.alerts_enabled) } : null;
+}
+
+async function handleSavedSearches(request, env, id = null) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+  if (request.method === "GET" && !id) {
+    const rows = await dbAll(env, "select * from saved_searches where user_id = ? order by updated_at desc", auth.user.id);
+    return jsonResponse({ searches: rows.map(normalizeSavedSearch) });
+  }
+  if (request.method === "POST" && !id) {
+    const payload = await readJSON(request);
+    if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
+    const name = cleanString(payload?.name, 100);
+    const query = payload?.query && typeof payload.query === "object" && !Array.isArray(payload.query) ? payload.query : null;
+    if (!name || !query) return errorResponse(400, "saved_search_name_and_query_required");
+    normalizeJobQuery(query);
+    const now = new Date().toISOString();
+    const searchId = crypto.randomUUID();
+    try {
+      await dbRun(env, `insert into saved_searches
+        (id, user_id, name, query_json, alerts_enabled, created_at, updated_at)
+        values (?, ?, ?, ?, ?, ?, ?)`, searchId, auth.user.id, name, jsonText(query), payload.alerts_enabled ? 1 : 0, now, now);
+    } catch {
+      return errorResponse(409, "saved_search_name_exists");
+    }
+    return jsonResponse({ search: normalizeSavedSearch(await dbFirst(env, "select * from saved_searches where id = ? and user_id = ?", searchId, auth.user.id)) }, { status: 201 });
+  }
+  if (!id) return errorResponse(405, "method_not_allowed");
+  const existing = await dbFirst(env, "select * from saved_searches where id = ? and user_id = ?", id, auth.user.id);
+  if (!existing) return errorResponse(404, "saved_search_not_found");
+  if (request.method === "DELETE") {
+    await dbRun(env, "delete from saved_searches where id = ? and user_id = ?", id, auth.user.id);
+    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+  }
+  if (request.method === "PATCH") {
+    const payload = await readJSON(request);
+    if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
+    if (!payload) return errorResponse(400, "invalid_json");
+    const name = payload.name == null ? existing.name : cleanString(payload.name, 100);
+    const query = payload.query == null ? parseJSONCell(existing.query_json, {}) : payload.query;
+    if (!name || !query || typeof query !== "object" || Array.isArray(query)) return errorResponse(400, "invalid_saved_search");
+    normalizeJobQuery(query);
+    await dbRun(env, `update saved_searches set name = ?, query_json = ?, alerts_enabled = ?, updated_at = ?
+      where id = ? and user_id = ?`, name, jsonText(query), payload.alerts_enabled == null ? existing.alerts_enabled : (payload.alerts_enabled ? 1 : 0),
+    new Date().toISOString(), id, auth.user.id);
+    return jsonResponse({ search: normalizeSavedSearch(await dbFirst(env, "select * from saved_searches where id = ? and user_id = ?", id, auth.user.id)) });
+  }
+  return errorResponse(405, "method_not_allowed");
+}
+
+async function handleAlertPreferences(request, env) {
+  const auth = await requireUser(request, env);
+  if (auth.response) return auth.response;
+  await ensureAccountRows(env, auth.user);
+  const existing = await dbFirst(env, "select * from alert_preferences where user_id = ?", auth.user.id);
+  if (request.method === "GET") {
+    return jsonResponse({
+      alerts_enabled: Boolean(existing?.alerts_enabled),
+      delivery: existing?.delivery || "daily",
+      local_hour: Number(existing?.local_hour ?? 8),
+      timezone: existing?.timezone || "UTC"
+    });
+  }
+  if (request.method !== "PATCH") return methodNotAllowed(["GET", "PATCH"]);
+  const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
+  if (!payload || typeof payload !== "object") return errorResponse(400, "invalid_json");
+  const delivery = payload.delivery == null ? (existing?.delivery || "daily") : cleanString(payload.delivery, 20);
+  if (!["immediate", "daily", "weekly"].includes(delivery)) return errorResponse(400, "invalid_alert_delivery");
+  const localHour = payload.local_hour == null ? Number(existing?.local_hour ?? 8) : Number(payload.local_hour);
+  if (!Number.isInteger(localHour) || localHour < 0 || localHour > 23) return errorResponse(400, "invalid_alert_hour");
+  const timezone = payload.timezone == null ? (existing?.timezone || "UTC") : cleanString(payload.timezone, 100);
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone }).format(new Date());
+  } catch {
+    return errorResponse(400, "invalid_timezone");
+  }
+  const enabled = payload.alerts_enabled == null ? Boolean(existing?.alerts_enabled) : Boolean(payload.alerts_enabled);
+  const now = new Date().toISOString();
+  await dbRun(env, `insert into alert_preferences
+    (user_id, alerts_enabled, delivery, local_hour, timezone, created_at, updated_at)
+    values (?, ?, ?, ?, ?, ?, ?)
+    on conflict(user_id) do update set alerts_enabled = excluded.alerts_enabled,
+      delivery = excluded.delivery, local_hour = excluded.local_hour,
+      timezone = excluded.timezone, updated_at = excluded.updated_at`,
+  auth.user.id, enabled ? 1 : 0, delivery, localHour, timezone, now, now);
+  return jsonResponse({ alerts_enabled: enabled, delivery, local_hour: localHour, timezone });
+}
+
+async function handleStatus(request, env, admin = false) {
+  if (admin) {
+    const auth = await requireUser(request, env);
+    if (auth.response) return auth.response;
+    const ownerError = requireAnalyticsOwner(auth, env);
+    if (ownerError) return ownerError;
+    const [latestRun, pendingDeletions, failedBuilds] = await Promise.all([
+      dbFirst(env, "select * from scan_runs order by scan_date desc limit 1"),
+      dbFirst(env, "select count(*) as count from account_deletion_requests where status in ('pending','processing','retrying')"),
+      dbFirst(env, "select count(*) as count from resume_builds where status = 'FAILED' and updated_at >= datetime('now','-1 day')")
+    ]);
+    return jsonResponse({ latest_scan: latestRun, pending_deletions: Number(pendingDeletions?.count || 0), failed_builds_24h: Number(failedBuilds?.count || 0) });
+  }
+  const data = await readJobsPayloadSafe(env);
+  return jsonResponse({
+    status: data.scan_meta?.failCount ? "degraded" : "ok",
+    last_scan: data.last_scan || null,
+    last_scan_at: data.last_scan_at || null,
+    feed_version: data.feed_version || null,
+    active_jobs: (data.postings || []).filter(posting => !posting.last_filled).length
+  }, { headers: { "Cache-Control": "public, max-age=60" } });
+}
+
+function decodeBase64Bytes(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 ? "=".repeat(4 - normalized.length % 4) : "";
+  const binary = atob(normalized + padding);
+  return Uint8Array.from(binary, character => character.charCodeAt(0));
+}
+
+async function verifyClerkWebhook(request, rawBody, env) {
+  if (!env.CLERK_WEBHOOK_SECRET) return false;
+  const id = request.headers.get("svix-id") || "";
+  const timestamp = request.headers.get("svix-timestamp") || "";
+  const signatureHeader = request.headers.get("svix-signature") || "";
+  const timestampMs = Number(timestamp) * 1000;
+  if (!id || !Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) return false;
+  try {
+    const secret = env.CLERK_WEBHOOK_SECRET.startsWith("whsec_")
+      ? env.CLERK_WEBHOOK_SECRET.slice(6)
+      : env.CLERK_WEBHOOK_SECRET;
+    const key = await crypto.subtle.importKey("raw", decodeBase64Bytes(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`));
+    const expected = btoa(String.fromCharCode(...new Uint8Array(digest)));
+    return signatureHeader.split(" ").some(entry => {
+      const [version, signature] = entry.split(",");
+      return version === "v1" && signature && timingSafeEqual(signature, expected);
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function handleClerkWebhook(request, env) {
+  const contentLength = Number(request.headers.get("Content-Length") || "0");
+  if (contentLength > 64 * 1024) return errorResponse(413, "request_too_large");
+  const rawBody = await request.text();
+  if (new TextEncoder().encode(rawBody).byteLength > 64 * 1024) return errorResponse(413, "request_too_large");
+  if (!await verifyClerkWebhook(request, rawBody, env)) return errorResponse(401, "invalid_webhook_signature");
+  let event;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return errorResponse(400, "invalid_json");
+  }
+  const data = event?.data || {};
+  const userId = cleanString(data.id, 160);
+  if (!userId) return errorResponse(400, "webhook_user_id_required");
+  if (event.type === "user.created" || event.type === "user.updated") {
+    const primary = (data.email_addresses || []).find(item => item.id === data.primary_email_address_id) || data.email_addresses?.[0];
+    await ensureAccountRows(env, {
+      id: userId,
+      email: cleanString(primary?.email_address, 320),
+      full_name: [data.first_name, data.last_name].map(value => cleanString(value, 100)).filter(Boolean).join(" ") || null
+    });
+    return jsonResponse({ ok: true });
+  }
+  if (event.type === "user.deleted") {
+    const existing = await dbFirst(env, "select id from users where id = ?", userId);
+    if (!existing) return jsonResponse({ ok: true, already_deleted: true });
+    const deletionId = `clerk:${cleanString(event.id, 160) || crypto.randomUUID()}`;
+    const at = new Date().toISOString();
+    await dbRun(env, `insert into account_deletion_requests
+      (id, user_id, user_hash, source, status, current_step, created_at, updated_at)
+      values (?, ?, ?, 'clerk_webhook', 'pending', 'requested', ?, ?)
+      on conflict(id) do nothing`, deletionId, userId, await sha256Base64Url(`deleted-user:${userId}`), at, at);
+    await dbRun(env, "update users set lifecycle_state = 'deletion_pending', deletion_requested_at = ?, updated_at = ? where id = ?", at, at, userId);
+    if (env.ACCOUNT_WORKFLOW?.create) {
+      try {
+        await env.ACCOUNT_WORKFLOW.create({ id: deletionId, params: { type: "delete_account", request_id: deletionId } });
+      } catch (failure) {
+        if (!String(failure?.message || "").toLowerCase().includes("already")) throw failure;
+      }
+    } else {
+      await processAccountDeletion(env, deletionId);
+    }
+    return jsonResponse({ ok: true }, { status: 202 });
+  }
+  return jsonResponse({ ok: true, ignored: true });
 }
 
 async function handleAgencyFeedback(request, env) {
@@ -2805,6 +3392,7 @@ async function handleAgencyFeedback(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
   const message = typeof payload.message === "string" ? payload.message.trim() : "";
@@ -2840,6 +3428,28 @@ async function handleAgencyFeedback(request, env) {
 }
 
 async function readJobsPayload(env) {
+  if (env.DB && env.JOB_FEEDS) {
+    try {
+      const publication = await dbFirst(env, `select p.version, p.r2_key
+        from feed_pointer fp join feed_publications p on p.version = fp.current_version
+        where fp.singleton = 1`);
+      if (publication?.r2_key) {
+        const object = await env.JOB_FEEDS.get(publication.r2_key);
+        if (object) {
+          const published = await object.json();
+          return {
+            ...published,
+            feed_version: publication.version,
+            postings: Array.isArray(published.postings)
+              ? published.postings.map(posting => ({ ...posting, tier: normalizeTier(posting.tier) }))
+              : []
+          };
+        }
+      }
+    } catch (failure) {
+      console.error(JSON.stringify({ event: "feed_publication_read_failed", message: failure?.message || String(failure) }));
+    }
+  }
   const payload = (await env.KV.get("jobs", "json")) || {
     last_scan: null,
     last_scan_at: null,
@@ -2855,7 +3465,7 @@ async function readJobsPayload(env) {
 }
 
 async function readJobsPayloadSafe(env) {
-  if (!env.KV) {
+  if (!env.KV && !(env.DB && env.JOB_FEEDS)) {
     return { last_scan: null, last_scan_at: null, postings: [], scan_meta: null };
   }
   try {
@@ -2870,9 +3480,121 @@ function jobsPayloadIsStale(data) {
 }
 
 async function persistSuccessfulScan(env, result, scanDate = null) {
-  if (result?.next && result.cycleComplete && env.DB) {
-    await persistScanToD1(env, result.next, scanDate || result.next.last_scan);
+  if (!result?.next || !env.DB) return;
+  const date = scanDate || result.next.scan_cycle?.date || result.next.last_scan || todayUTC();
+  const scanRunId = `scan:${date}`;
+  const now = new Date().toISOString();
+  const meta = result.next.scan_meta || {};
+  await dbRun(env, `insert into scan_runs
+    (id, scan_date, status, expected_shards, completed_shards, total_jobs, ok_sources,
+     failed_sources, partial_sources, started_at, updated_at, completed_at)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(scan_date) do update set
+      status = excluded.status,
+      completed_shards = excluded.completed_shards,
+      total_jobs = excluded.total_jobs,
+      ok_sources = excluded.ok_sources,
+      failed_sources = excluded.failed_sources,
+      partial_sources = excluded.partial_sources,
+      updated_at = excluded.updated_at,
+      completed_at = excluded.completed_at`,
+  scanRunId,
+  date,
+  result.cycleComplete ? (Number(meta.failCount || 0) ? "degraded" : "complete") : "running",
+  Number(result.next.scan_cycle?.total_shards || SCAN_CRONS.length),
+  Number(result.next.scan_cycle?.completed_shards?.length || 0),
+  Object.keys(result.next.postings || {}).length,
+  Number(meta.okCount || 0),
+  Number(meta.failCount || 0),
+  Number(meta.partialCount || 0),
+  now,
+  now,
+  result.cycleComplete ? now : null);
+
+  await dbRun(env, `insert into scan_shards
+    (id, scan_run_id, shard_index, status, ok_count, fail_count, partial_count, started_at, completed_at)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(scan_run_id, shard_index) do update set
+      status = excluded.status,
+      ok_count = excluded.ok_count,
+      fail_count = excluded.fail_count,
+      partial_count = excluded.partial_count,
+      completed_at = excluded.completed_at`,
+  `${scanRunId}:${result.shardIndex}`,
+  scanRunId,
+  Number(result.shardIndex || 0),
+  Number(result.failCount || 0) ? "degraded" : "complete",
+  Number(result.okCount || 0),
+  Number(result.failCount || 0),
+  Number(result.partialCount || 0),
+  now,
+  now);
+
+  const sourceStatements = [];
+  const database = db(env);
+  const sourceMeta = meta.sourceMeta || {};
+  for (const sourceId of meta.okSources || []) {
+    sourceStatements.push(database.prepare(`insert into scan_sources
+      (id, scan_run_id, source_id, status, posting_count, updated_at)
+      values (?, ?, ?, 'complete', ?, ?)
+      on conflict(scan_run_id, source_id) do update set status = excluded.status,
+        posting_count = excluded.posting_count, error_code = null, updated_at = excluded.updated_at`)
+      .bind(`${scanRunId}:${sourceId}`, scanRunId, sourceId, Number(sourceMeta[sourceId]?.count || 0), now));
   }
+  for (const sourceId of meta.partialSources || []) {
+    sourceStatements.push(database.prepare(`insert into scan_sources
+      (id, scan_run_id, source_id, status, posting_count, updated_at)
+      values (?, ?, ?, 'partial', ?, ?)
+      on conflict(scan_run_id, source_id) do update set status = excluded.status,
+        posting_count = excluded.posting_count, updated_at = excluded.updated_at`)
+      .bind(`${scanRunId}:${sourceId}`, scanRunId, sourceId, Number(sourceMeta[sourceId]?.count || 0), now));
+  }
+  for (const sourceId of meta.failedSources || []) {
+    sourceStatements.push(database.prepare(`insert into scan_sources
+      (id, scan_run_id, source_id, status, posting_count, error_code, updated_at)
+      values (?, ?, ?, 'carried_forward', 0, 'source_fetch_failed', ?)
+      on conflict(scan_run_id, source_id) do update set status = excluded.status,
+        error_code = excluded.error_code, updated_at = excluded.updated_at`)
+      .bind(`${scanRunId}:${sourceId}`, scanRunId, sourceId, now));
+  }
+  await dbBatch(env, sourceStatements);
+
+  if (!result.cycleComplete) return;
+  await persistScanToD1(env, result.next, date, scanRunId);
+  if (!env.JOB_FEEDS) return;
+
+  const feedPayload = JSON.stringify({
+    last_scan: result.next.last_scan,
+    last_scan_at: result.next.last_scan_at,
+    last_partial_scan_at: result.next.last_partial_scan_at,
+    scan_cycle: result.next.scan_cycle,
+    scan_meta: result.next.scan_meta,
+    postings: Object.values(result.next.postings || {})
+  });
+  const digest = await sha256Base64Url(feedPayload);
+  const version = `${date}-${digest.slice(0, 16)}`;
+  const r2Key = `feeds/${date}/${version}.json`;
+  await env.JOB_FEEDS.put(r2Key, feedPayload, {
+    httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=31536000, immutable" },
+    customMetadata: { version, scanRunId, sha256: digest }
+  });
+
+  const current = await dbFirst(env, "select current_version from feed_pointer where singleton = 1");
+  await dbBatch(env, [
+    database.prepare(`insert into feed_publications
+      (version, scan_run_id, r2_key, sha256, byte_size, job_count, status, created_at, activated_at)
+      values (?, ?, ?, ?, ?, ?, 'current', ?, ?)
+      on conflict(version) do update set status = 'current', activated_at = excluded.activated_at`)
+      .bind(version, scanRunId, r2Key, digest, new TextEncoder().encode(feedPayload).byteLength,
+        Object.keys(result.next.postings || {}).length, now, now),
+    database.prepare("update feed_publications set status = 'retired' where status = 'current' and version <> ?").bind(version),
+    database.prepare(`insert into feed_pointer (singleton, current_version, previous_version, updated_at)
+      values (1, ?, ?, ?)
+      on conflict(singleton) do update set previous_version = feed_pointer.current_version,
+        current_version = excluded.current_version, updated_at = excluded.updated_at`)
+      .bind(version, current?.current_version || null, now),
+    database.prepare("update scan_runs set feed_version = ?, updated_at = ? where id = ?").bind(version, now, scanRunId)
+  ]);
 }
 
 async function maybeRefreshStaleJobs(env, ctx, data) {
@@ -2961,7 +3683,7 @@ function listItems(items, fallback) {
   return values.map(item => `<li>${escapeHTML(item)}</li>`).join("");
 }
 
-function renderSeoPage(path, summary) {
+function renderSeoPage(path, summary, nonce) {
   const page = SEO_PAGES[path];
   const url = `${SITE_ORIGIN}${path}`;
   const activeCopy = summary.activeTotal ? `${formatNumber(summary.activeTotal)} active roles` : "Active roles updated daily";
@@ -3014,42 +3736,13 @@ function renderSeoPage(path, summary) {
 <meta property="og:url" content="${escapeHTML(url)}">
 <meta property="og:title" content="${escapeHTML(page.title)}">
 <meta property="og:description" content="${escapeHTML(page.description)}">
-<meta property="og:image" content="${SITE_ORIGIN}/assets/og-image.png">
+<meta property="og:image" content="${SITE_ORIGIN}/assets/og-image.webp">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escapeHTML(page.title)}">
 <meta name="twitter:description" content="${escapeHTML(page.description)}">
-<meta name="twitter:image" content="${SITE_ORIGIN}/assets/og-image.png">
-<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
-<style>
-:root { color-scheme: dark; --bg: #071016; --panel: #101923; --card: #151f2b; --text: #f6f8fb; --muted: #9ca8b8; --accent: #7dd3fc; --border: rgba(255,255,255,0.14); }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
-.page { max-width: 1120px; margin: 0 auto; padding: 28px 22px 42px; }
-.top-nav, .footer-nav, .footer-contact { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
-.top-nav { justify-content: space-between; margin-bottom: 64px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 650; }
-.brand img { width: 36px; height: 36px; border-radius: 8px; }
-.links { display: flex; flex-wrap: wrap; gap: 14px; }
-a { color: var(--accent); }
-.links a, .footer-nav a { color: var(--muted); text-decoration: none; }
-.links a[aria-current="page"] { color: var(--accent); }
-.eyebrow { color: var(--accent); font-size: 13px; font-weight: 650; margin: 0 0 10px; }
-h1 { max-width: 760px; font-size: clamp(36px, 7vw, 68px); line-height: 0.98; letter-spacing: 0; margin: 0; }
-.intro { max-width: 680px; color: var(--muted); font-size: 18px; margin: 18px 0 28px; }
-.cta { display: inline-block; background: var(--accent); color: #071016; text-decoration: none; font-weight: 650; padding: 11px 15px; border-radius: 8px; }
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 42px 0 28px; }
-.stat-card, .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
-.stat-card span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-.stat-card strong { display: block; font-size: 24px; margin-top: 4px; }
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.panel h2 { font-size: 16px; margin: 0 0 10px; }
-.panel ul { margin: 0; padding-left: 18px; color: var(--muted); }
-.note { color: var(--muted); font-size: 13px; margin-top: 20px; }
-footer { border-top: 1px solid var(--border); margin-top: 44px; padding-top: 18px; color: var(--muted); }
-.footer-contact { margin-bottom: 10px; }
-.footer-contact strong { color: var(--text); }
-@media (max-width: 760px) { .top-nav { margin-bottom: 44px; } .stats, .grid { grid-template-columns: 1fr; } }
-</style>
+<meta name="twitter:image" content="${SITE_ORIGIN}/assets/og-image.webp">
+<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLd)}</script>
+<link rel="stylesheet" href="/seo.css">
 </head>
 <body>
 <div class="page">
@@ -3098,12 +3791,77 @@ footer { border-top: 1px solid var(--border); margin-top: 44px; padding-top: 18p
 
 async function handleSeoPage(path, env) {
   const data = await readJobsPayloadSafe(env);
-  const html = renderSeoPage(path, summarizeJobsPayload(data));
+  const nonce = crypto.randomUUID();
+  const html = renderSeoPage(path, summarizeJobsPayload(data), nonce);
   return withTrustHeaders(new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
       "Cache-Control": "public, max-age=300"
     }
+  }), nonce);
+}
+
+function safeJsonLd(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+async function handlePublicJobPage(request, env, jobId) {
+  const data = await readJobsPayloadSafe(env);
+  const job = (data.postings || []).find(posting => String(posting.id) === String(jobId));
+  if (!job) return withTrustHeaders(new Response("Job not found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } }));
+  const filled = Boolean(job.last_filled);
+  const canonical = `${SITE_ORIGIN}/jobs/${encodeURIComponent(job.id)}/${slugify(job.company)}-${slugify(job.title)}`;
+  const schema = !filled ? {
+    "@context": "https://schema.org",
+    "@type": "JobPosting",
+    title: job.title,
+    description: `${job.title} at ${job.company}. Confirm details and application requirements on the employer's careers page.`,
+    datePosted: job.first_seen || data.last_scan,
+    validThrough: job.last_seen || undefined,
+    employmentType: "FULL_TIME",
+    hiringOrganization: { "@type": "Organization", name: job.company },
+    jobLocation: {
+      "@type": "Place",
+      address: {
+        "@type": "PostalAddress",
+        addressLocality: job.city || job.location || undefined,
+        addressCountry: job.country || undefined
+      }
+    },
+    directApply: false,
+    url: canonical
+  } : null;
+  const nonce = crypto.randomUUID();
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHTML(job.title)} at ${escapeHTML(job.company)} | Live Job Index</title>
+<meta name="description" content="${escapeHTML(`${job.title} at ${job.company} in ${job.location || job.country || "a global market"}. Review current role and visa-aware hiring signals.`)}">
+<link rel="canonical" href="${escapeHTML(canonical)}">${filled ? '<meta name="robots" content="noindex,follow">' : ""}
+${schema ? `<script type="application/ld+json" nonce="${nonce}">${safeJsonLd(schema)}</script>` : ""}
+<link rel="stylesheet" href="/app.css"></head><body><main class="seo-job-page">
+<p><a href="/">← Live jobs</a></p><p class="eyebrow">${filled ? "Previously listed" : "Confirmed live posting"}</p>
+<h1>${escapeHTML(job.title)}</h1><h2>${escapeHTML(job.company)}</h2>
+<dl><dt>Location</dt><dd>${escapeHTML(job.location || job.country || "See employer page")}</dd><dt>Role family</dt><dd>${escapeHTML(job.role_family || "Other")}</dd><dt>Seniority</dt><dd>${escapeHTML(job.seniority || "Not specified")}</dd><dt>Visa signal</dt><dd>${escapeHTML(job.visa || "Unknown")} — heuristic, not a guarantee</dd></dl>
+${filled ? "<p>This posting is no longer present in the employer feed.</p>" : `<p><a class="primary-btn" href="${escapeHTML(safeApplyUrl(job.url))}" rel="noopener noreferrer">Open employer application</a></p>`}
+<p><a href="/app/jobs">Open Live Job Index app</a></p></main></body></html>`;
+  return withTrustHeaders(new Response(html, {
+    headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=300" }
+  }), nonce);
+}
+
+async function handleSitemap(env) {
+  const data = await readJobsPayloadSafe(env);
+  const staticPages = ["", "/jobs", "/visa-roles", "/pipeline", "/insights", "/privacy", "/terms"];
+  const urls = staticPages.map(path => ({ loc: `${SITE_ORIGIN}${path || "/"}`, lastmod: data.last_scan || null }));
+  for (const job of (data.postings || []).filter(item => !item.last_filled).slice(0, 49900)) {
+    urls.push({
+      loc: `${SITE_ORIGIN}/jobs/${encodeURIComponent(job.id)}/${slugify(job.company)}-${slugify(job.title)}`,
+      lastmod: job.last_seen || data.last_scan || null
+    });
+  }
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(item =>
+    `<url><loc>${escapeHTML(item.loc)}</loc>${item.lastmod ? `<lastmod>${escapeHTML(item.lastmod)}</lastmod>` : ""}</url>`).join("")}</urlset>`;
+  return withTrustHeaders(new Response(xml, {
+    headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300" }
   }));
 }
 
@@ -3111,20 +3869,48 @@ async function handlePublicJobs(request, env, ctx) {
   const url = new URL(request.url);
   const requestedIndustry = url.searchParams.get("industry") || INDUSTRIES.TECH;
   const industry = Object.values(INDUSTRIES).includes(requestedIndustry) ? requestedIndustry : INDUSTRIES.TECH;
+  const cursor = url.searchParams.get("cursor");
+  const cursorState = decodeJobCursor(cursor);
+  if (cursor && !cursorState) return errorResponse(400, "invalid_cursor");
+  let authenticated = false;
+  if (cursorState?.page > 1) {
+    const auth = await requireUser(request, env);
+    if (auth.response) return errorResponse(401, "auth_required", { sign_in_url: "/api/login?next=/app/jobs" });
+    authenticated = true;
+  } else if (hasAuthMaterial(request)) {
+    const auth = await requireUser(request, env);
+    authenticated = !auth.response;
+  }
   const data = await readJobsPayload(env);
   await maybeRefreshStaleJobs(env, ctx, data);
-  const payload = pagePostings(data, normalizeJobQuery({
-    page: 1,
-    per_page: JOB_PAGE_SIZE,
-    sort: "first_seen",
-    dir: "desc",
+  const query = normalizeJobQuery({
+    page: cursorState?.page || 1,
+    per_page: clampInteger(url.searchParams.get("limit"), JOB_PAGE_SIZE, 1, MAX_JOB_PAGE_SIZE),
+    sort: url.searchParams.get("sort") || "first_seen",
+    dir: url.searchParams.get("dir") || "desc",
+    search: url.searchParams.get("search") || "",
     industry,
-    active_only: true
-  }));
-  return jsonResponse(payload, {
-    headers: {
-      "Cache-Control": "public, max-age=300"
+    active_only: true,
+    filters: {
+      industry: [industry],
+      country: url.searchParams.getAll("country"),
+      family: url.searchParams.getAll("family"),
+      seniority: url.searchParams.getAll("seniority"),
+      visa: url.searchParams.getAll("visa")
     }
+  });
+  const payload = cursorJobResponse(pagePostings(data, query), data, query, authenticated);
+  const etag = `W/"${await sha256Base64Url(`${payload.feed_version || "empty"}:${url.search}`)}"`;
+  const cacheHeaders = {
+    "Cache-Control": hasAuthMaterial(request) ? "no-store" : "public, max-age=300, stale-while-revalidate=300",
+    ETag: etag,
+    Vary: "Cookie, Authorization"
+  };
+  if (request.headers.get("If-None-Match") === etag) {
+    return withTrustHeaders(new Response(null, { status: 304, headers: cacheHeaders }));
+  }
+  return jsonResponse(payload, {
+    headers: cacheHeaders
   });
 }
 
@@ -3144,13 +3930,16 @@ async function handleJobsQuery(request, env, ctx) {
   if (isLowBotScore(request)) return errorResponse(403, "bot_check_failed");
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
   const query = normalizeJobQuery(payload);
 
+  let authenticated = false;
   if (query.page > 1 || query.filters.presets.includes("starred")) {
     const auth = await requireUser(request, env);
     if (auth.response) return auth.response;
+    authenticated = true;
     if (query.filters.presets.includes("starred")) {
       const starred = await dbAll(
         env,
@@ -3163,7 +3952,9 @@ async function handleJobsQuery(request, env, ctx) {
 
   const data = await readJobsPayload(env);
   await maybeRefreshStaleJobs(env, ctx, data);
-  return jsonResponse(pagePostings(data, query));
+  return jsonResponse(cursorJobResponse(pagePostings(data, query), data, query, authenticated), {
+    headers: { "Cache-Control": "no-store" }
+  });
 }
 
 async function handleGetUserJobs(request, env) {
@@ -3238,6 +4029,7 @@ async function handlePutUserJob(request, env, jobId) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
   const normalizedJobId = cleanString(jobId, 300);
@@ -3347,6 +4139,7 @@ async function handleActivity(request, env) {
   if (auth.response) return auth.response;
 
   const payload = await readJSON(request);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
   const eventType = cleanString(payload.event_type, 120);
@@ -3361,6 +4154,139 @@ async function handleActivity(request, env) {
     metadataObject(payload.metadata)
   );
   return jsonResponse({ ok: true }, { status: 201 });
+}
+
+async function coordinatedScan(env, options = {}) {
+  if (!env.SCAN_COORDINATOR?.getByName) {
+    const result = await runScan(env, options);
+    if (!result.error) await persistSuccessfulScan(env, result, options.scanDate || null);
+    return result;
+  }
+  const scanDate = options.scanDate || todayUTC();
+  const coordinator = env.SCAN_COORDINATOR.getByName(scanDate);
+  const response = await coordinator.fetch("https://scan-coordinator.internal/run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ shardIndex: normalizeShardIndex(options.shardIndex), scanDate })
+  });
+  const payload = await response.json();
+  if (!response.ok) return { error: payload.error || "scan_coordination_failed", ...payload };
+  return payload;
+}
+
+export class ScanCoordinator {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname !== "/run" || request.method !== "POST") {
+      return Response.json({ error: "not_found" }, { status: 404 });
+    }
+    const payload = await request.json().catch(() => ({}));
+    const scanDate = /^\d{4}-\d{2}-\d{2}$/.test(payload.scanDate || "") ? payload.scanDate : todayUTC();
+    const shardIndex = normalizeShardIndex(payload.shardIndex);
+    const active = await this.state.storage.get("active");
+    if (active) {
+      return Response.json({ error: "scan_already_running", active }, { status: 409 });
+    }
+    const claim = { id: crypto.randomUUID(), scanDate, shardIndex, startedAt: new Date().toISOString() };
+    await this.state.storage.put("active", claim);
+    try {
+      const result = await runScan(this.env, { shardIndex });
+      if (result.error) return Response.json(result, { status: 503 });
+      await persistSuccessfulScan(this.env, result, scanDate);
+      await this.state.storage.put("last_result", {
+        scanDate,
+        shardIndex,
+        cycleComplete: result.cycleComplete,
+        completedAt: new Date().toISOString()
+      });
+      return Response.json({
+        okCount: result.okCount,
+        failCount: result.failCount,
+        partialCount: result.partialCount,
+        total: result.total,
+        shardIndex: result.shardIndex,
+        completedShards: result.completedShards,
+        cycleComplete: result.cycleComplete
+      });
+    } catch (failure) {
+      console.error(JSON.stringify({
+        event: "coordinated_scan_failed",
+        scanDate,
+        shardIndex,
+        message: failure?.message || String(failure)
+      }));
+      return Response.json({ error: "scan_failed" }, { status: 503 });
+    } finally {
+      await this.state.storage.delete("active");
+    }
+  }
+}
+
+export class UserMutationCoordinator {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const payload = await request.json().catch(() => ({}));
+    const key = cleanString(payload.key, 200);
+    if (!key) return Response.json({ error: "key_required" }, { status: 400 });
+    if (url.pathname === "/claim" && request.method === "POST") {
+      const current = await this.state.storage.get(`claim:${key}`);
+      const now = Date.now();
+      if (current?.expiresAt > now) return Response.json({ error: "operation_in_progress" }, { status: 409 });
+      const claim = { token: crypto.randomUUID(), expiresAt: now + clampInteger(payload.ttl_ms, 30000, 1000, 300000) };
+      await this.state.storage.put(`claim:${key}`, claim, { expirationTtl: Math.ceil((claim.expiresAt - now) / 1000) });
+      return Response.json(claim, { status: 201 });
+    }
+    if (url.pathname === "/release" && request.method === "POST") {
+      const current = await this.state.storage.get(`claim:${key}`);
+      if (current && timingSafeEqual(String(current.token || ""), String(payload.token || ""))) {
+        await this.state.storage.delete(`claim:${key}`);
+      }
+      return Response.json({ ok: true });
+    }
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }
+}
+
+export class RateLimitCoordinator {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    if (request.method !== "POST") return Response.json({ error: "method_not_allowed" }, { status: 405 });
+    const payload = await request.json().catch(() => ({}));
+    const key = cleanString(payload.key, 200);
+    const limit = clampInteger(payload.limit, 60, 1, 10000);
+    const windowSeconds = clampInteger(payload.window_seconds, 60, 1, 86400);
+    const cost = clampInteger(payload.cost, 1, 1, limit);
+    if (!key) return Response.json({ error: "key_required" }, { status: 400 });
+    const bucket = `limit:${key}`;
+    const now = Date.now();
+    const current = await this.state.storage.get(bucket);
+    const record = !current || current.resetAt <= now
+      ? { count: 0, resetAt: now + windowSeconds * 1000 }
+      : current;
+    const allowed = record.count + cost <= limit;
+    if (allowed) {
+      record.count += cost;
+      await this.state.storage.put(bucket, record, { expirationTtl: windowSeconds + 1 });
+    }
+    return Response.json({
+      allowed,
+      limit,
+      remaining: Math.max(0, limit - record.count),
+      retry_after: allowed ? 0 : Math.max(1, Math.ceil((record.resetAt - now) / 1000))
+    }, { status: allowed ? 200 : 429 });
+  }
 }
 
 export default {
@@ -3380,6 +4306,23 @@ export default {
     if (url.pathname.startsWith("/api/") && MUTATING_METHODS.has(request.method)) {
       const originError = requireSameOrigin(request, env);
       if (originError) return originError;
+      const declaredLength = Number(request.headers.get("Content-Length") || 0);
+      const studioMutation = url.pathname.startsWith("/api/resume-") || url.pathname.startsWith("/api/evidence")
+        || url.pathname.startsWith("/api/custom-jobs") || url.pathname.startsWith("/api/build-rules")
+        || url.pathname.startsWith("/api/notifications") || /\/application-pack$/.test(url.pathname);
+      const limit = url.pathname === "/api/track" ? MAX_TRACKING_BODY_BYTES
+        : (url.pathname === "/api/resume-sources" ? 10 * 1024 * 1024 : studioMutation ? 100 * 1024 : MAX_JSON_BODY_BYTES);
+      if (Number.isFinite(declaredLength) && declaredLength > limit) return errorResponse(413, "request_too_large");
+    }
+
+    if (url.pathname.startsWith("/api/")) {
+      let limitRule = request.method === "GET"
+        ? { scope: "public_read", limit: 120, windowSeconds: 60 }
+        : { scope: "mutation", limit: 60, windowSeconds: 60 };
+      if (url.pathname === "/api/session") limitRule = { scope: "session", limit: 10, windowSeconds: 3600 };
+      if (url.pathname === "/api/track") limitRule = { scope: "tracking", limit: 60, windowSeconds: 60 };
+      const limited = await enforceRateLimit(request, env, limitRule);
+      if (limited) return limited;
     }
 
     if (url.pathname === "/privacy") {
@@ -3390,8 +4333,33 @@ export default {
       return fetchAsset(request, env, "/terms.html");
     }
 
+    if (url.pathname === "/sitemap.xml") return handleSitemap(env);
+
+    const legacyAppRoutes = {
+      "/resumes": "/app/resumes",
+      "/archive": "/app/archive",
+      "/history": "/app/archive",
+      "/onboarding": "/app/onboarding",
+      "/settings": "/app/settings",
+      "/profile": "/app/settings"
+    };
+    if (legacyAppRoutes[url.pathname]) {
+      const destination = new URL(legacyAppRoutes[url.pathname], SITE_ORIGIN);
+      destination.search = url.search;
+      return redirectResponse(destination.toString(), 308);
+    }
+
+    const publicJobMatch = url.pathname.match(/^\/jobs\/([^/]+)(?:\/[^/]+)?$/);
+    if (publicJobMatch) {
+      return handlePublicJobPage(request, env, decodeURIComponent(publicJobMatch[1]));
+    }
+
     if (SEO_PAGES[url.pathname]) {
       return handleSeoPage(url.pathname, env);
+    }
+
+    if (url.pathname === "/api/email/unsubscribe") {
+      return withTrustHeaders(await handleOneClickUnsubscribe(request, env, RESUME_STUDIO_DEPS));
     }
 
     const resumeStudioPath = url.pathname.startsWith("/api/resume-")
@@ -3416,7 +4384,33 @@ export default {
     }
 
     if (url.pathname === "/api/jobs") {
+      if (request.method !== "GET") return methodNotAllowed(["GET"]);
       return handlePublicJobs(request, env, ctx);
+    }
+
+    if (url.pathname === "/api/status" && request.method === "GET") {
+      return handleStatus(request, env, false);
+    }
+
+    if (url.pathname === "/api/admin/health" && request.method === "GET") {
+      return handleStatus(request, env, true);
+    }
+
+    if (url.pathname === "/api/privacy/consent") {
+      return handlePrivacyConsent(request, env);
+    }
+
+    if (url.pathname === "/api/saved-searches") {
+      return handleSavedSearches(request, env);
+    }
+
+    if (url.pathname === "/api/alert-preferences") {
+      return handleAlertPreferences(request, env);
+    }
+
+    const savedSearchMatch = url.pathname.match(/^\/api\/saved-searches\/([^/]+)$/);
+    if (savedSearchMatch) {
+      return handleSavedSearches(request, env, decodeURIComponent(savedSearchMatch[1]));
     }
 
     if (url.pathname === "/api/config" && request.method === "GET") {
@@ -3457,6 +4451,24 @@ export default {
 
     if (url.pathname === "/api/me" && request.method === "DELETE") {
       return handleDeleteMe(request, env);
+    }
+
+    const deletionStatusMatch = url.pathname.match(/^\/api\/me\/deletion\/([^/]+)$/);
+    if (deletionStatusMatch && request.method === "GET") {
+      return handleDeletionStatus(request, env, decodeURIComponent(deletionStatusMatch[1]));
+    }
+
+    if (url.pathname === "/api/me/export") {
+      return handleDataExports(request, env);
+    }
+
+    const exportMatch = url.pathname.match(/^\/api\/me\/export\/([^/]+)(\/download)?$/);
+    if (exportMatch) {
+      return handleDataExports(request, env, decodeURIComponent(exportMatch[1]), Boolean(exportMatch[2]));
+    }
+
+    if (url.pathname === "/api/webhooks/clerk" && request.method === "POST") {
+      return handleClerkWebhook(request, env);
     }
 
     if (url.pathname === "/api/onboarding/account-type" && request.method === "PATCH") {
@@ -3523,10 +4535,10 @@ export default {
 
     if (url.pathname === "/api/scan-now") {
       if (request.method !== "POST") {
-        return jsonResponse({ error: "method_not_allowed" }, {
-          status: 405,
-          headers: { Allow: "POST" }
-        });
+        const response = errorResponse(405, "method_not_allowed");
+        const headers = new Headers(response.headers);
+        headers.set("Allow", "POST");
+        return withTrustHeaders(new Response(response.body, { status: 405, headers }));
       }
       const auth = request.headers.get("X-Scan-Key");
       if (!await timingSafeSecretEqual(auth, env.SCAN_KEY)) {
@@ -3540,11 +4552,10 @@ export default {
       const shardIndex = requestedShard == null
         ? nextIncompleteShard(current, todayUTC())
         : normalizeShardIndex(requestedShard);
-      const result = await runScan(env, { shardIndex });
+      const result = await coordinatedScan(env, { shardIndex });
       if (result.error) {
         return jsonResponse(result, { status: 503 });
       }
-      await persistSuccessfulScan(env, result);
       return jsonResponse({
         okCount: result.okCount,
         failCount: result.failCount,
@@ -3556,30 +4567,37 @@ export default {
       });
     }
 
+    if (url.pathname.startsWith("/api/")) {
+      const allow = allowedApiMethods(url.pathname);
+      return allow ? methodNotAllowed(allow) : errorResponse(404, "not_found");
+    }
     return fetchAsset(request, env);
   },
 
   async scheduled(event, env, ctx) {
-    if (event?.cron === "7 * * * *") {
-      const digestPromise = dispatchResumeDigests(env, RESUME_STUDIO_DEPS).catch(error => {
-        console.error(JSON.stringify({ event: "resume_digest_failed", message: error?.message || String(error) }));
-      });
-      if (ctx?.waitUntil) ctx.waitUntil(digestPromise);
-      else await digestPromise;
-      return;
-    }
     const today = todayUTC();
     const shardIndex = scanShardForCron(event?.cron);
-    const scanPromise = runScan(env, { shardIndex }).then(async result => {
+    const scanPromise = coordinatedScan(env, { shardIndex, scanDate: today }).then(async result => {
       if (result.error) {
         console.error(JSON.stringify({ event: "scheduled_scan_failed", shardIndex, ...result }));
+        if (env.RESUME_QUEUE?.send) {
+          await env.RESUME_QUEUE.send({ type: "scan_retry", shard_index: shardIndex, scan_date: today, attempt: 1 }, { contentType: "json", delaySeconds: 300 });
+        }
         return;
       }
-      await persistSuccessfulScan(env, result, today);
+      if (Number(result.failCount || 0) > 0 && env.RESUME_QUEUE?.send) {
+        await env.RESUME_QUEUE.send({ type: "scan_retry", shard_index: shardIndex, scan_date: today, attempt: 1 }, { contentType: "json", delaySeconds: 300 });
+      }
       if (result.cycleComplete) {
         await dispatchDailyResumeMatching(env, RESUME_STUDIO_DEPS, today, ctx).catch(error => {
           console.error(JSON.stringify({ event: "resume_matching_failed", message: error?.message || String(error) }));
         });
+        if (env.RESUME_QUEUE?.send && String(env.RESUME_EMAIL_DIGESTS_ENABLED).toLowerCase() === "true") {
+          await env.RESUME_QUEUE.send({ type: "digest_tick", scheduled_at: new Date().toISOString() }, { contentType: "json", delaySeconds: 60 });
+        }
+        if (env.RESUME_QUEUE?.send) {
+          await env.RESUME_QUEUE.send({ type: "maintenance_tick", scheduled_at: new Date().toISOString() }, { contentType: "json", delaySeconds: 120 });
+        }
       }
     });
     if (ctx?.waitUntil) {
@@ -3590,7 +4608,26 @@ export default {
   },
 
   async queue(batch, env) {
-    await handleResumeQueue(batch, env, RESUME_STUDIO_DEPS);
+    const resumeMessages = [];
+    for (const message of batch.messages || []) {
+      if (message.body?.type !== "scan_retry") {
+        resumeMessages.push(message);
+        continue;
+      }
+      try {
+        const result = await coordinatedScan(env, { shardIndex: normalizeShardIndex(message.body.shard_index), scanDate: message.body.scan_date || todayUTC() });
+        if ((result.error || Number(result.failCount || 0) > 0) && Number(message.body.attempt || 1) < 3 && env.RESUME_QUEUE?.send) {
+          await env.RESUME_QUEUE.send({ ...message.body, attempt: Number(message.body.attempt || 1) + 1 }, { contentType: "json", delaySeconds: 300 * Number(message.body.attempt || 1) });
+        } else if (result.error || Number(result.failCount || 0) > 0) {
+          console.error(JSON.stringify({ event: "scan_retry_exhausted", shardIndex: message.body.shard_index, scanDate: message.body.scan_date, result }));
+        }
+        message.ack?.();
+      } catch (failure) {
+        console.error(JSON.stringify({ event: "scan_retry_failed", message: failure?.message || String(failure) }));
+        message.retry?.({ delaySeconds: 300 });
+      }
+    }
+    if (resumeMessages.length) await handleResumeQueue({ messages: resumeMessages }, env, RESUME_STUDIO_DEPS);
   }
 };
 
@@ -3604,9 +4641,13 @@ function getAnonSessionCookie(request) {
 }
 
 async function handleSession(request, env) {
+  if (!analyticsConsentFromRequest(request)) {
+    return jsonResponse({ ok: true, analytics: false }, { headers: { "Cache-Control": "no-store" } });
+  }
   const existing = getAnonSessionCookie(request);
   if (existing) {
-    return jsonResponse({ session_token: existing });
+    await dbRun(env, "update anonymous_sessions set last_seen_at = ? where session_token = ?", new Date().toISOString(), existing).catch(() => {});
+    return jsonResponse({ ok: true, analytics: true });
   }
   const token = crypto.randomUUID();
   const cookie = serializeCookieHeader(ANON_SESSION_COOKIE, token, {
@@ -3618,18 +4659,24 @@ async function handleSession(request, env) {
   });
 
   await dbRun(env, `
-    insert into anonymous_sessions (id, session_token, ip_hash, user_agent_fingerprint, created_at, last_seen_at)
-    values (?, ?, null, null, ?, ?)
-    on conflict(session_token) do update set last_seen_at = excluded.last_seen_at
-  `, crypto.randomUUID(), token, new Date().toISOString(), new Date().toISOString()).catch(() => {});
+    insert into anonymous_sessions (id, session_token, ip_hash, user_agent_fingerprint, created_at, last_seen_at, consent_state, expires_at)
+    values (?, ?, null, null, ?, ?, 'analytics', ?)
+    on conflict(session_token) do update set last_seen_at = excluded.last_seen_at,
+      consent_state = 'analytics', expires_at = excluded.expires_at
+  `, crypto.randomUUID(), token, new Date().toISOString(), new Date().toISOString(),
+  new Date(Date.now() + ANON_SESSION_TTL_DAYS * 86400000).toISOString()).catch(() => {});
 
-  return jsonResponse({ session_token: token }, {
+  return jsonResponse({ ok: true, analytics: true }, {
     headers: { "Set-Cookie": cookie }
   });
 }
 
 async function handleTrack(request, env) {
-  const payload = await readJSON(request);
+  if (!analyticsConsentFromRequest(request)) {
+    return jsonResponse({ ok: true, tracked: false }, { headers: { "Cache-Control": "no-store" } });
+  }
+  const payload = await readJSON(request, MAX_TRACKING_BODY_BYTES);
+  if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
   if (!payload) return errorResponse(400, "invalid_json");
 
   const eventType = cleanString(payload.type, 80);
@@ -3650,7 +4697,10 @@ async function handleTrack(request, env) {
     }
   }
 
-  const sessionId = cleanString(payload.session_id, 120) || sessionToken || null;
+  const session = sessionToken
+    ? await dbFirst(env, "select id from anonymous_sessions where session_token = ? and consent_state = 'analytics'", sessionToken).catch(() => null)
+    : null;
+  const sessionId = session?.id || null;
 
   try {
     if (eventType === "job_view") {
@@ -3676,8 +4726,9 @@ async function handleTrack(request, env) {
         values (?, ?, ?, ?, ?)
       `, userId, sessionId, cleanString(payload.page_path, 300) || "/", cleanString(payload.referrer, 500) || null, new Date().toISOString());
     }
-  } catch {
-    // Silently ignore tracking errors so they never break the UX
+  } catch (failure) {
+    console.error(JSON.stringify({ event: "analytics_event_write_failed", type: eventType, message: failure?.message || String(failure) }));
+    return errorResponse(503, "analytics_unavailable");
   }
 
   return jsonResponse({ ok: true });
