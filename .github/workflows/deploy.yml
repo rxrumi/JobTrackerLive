@@ -8,10 +8,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: production
-  cancel-in-progress: false
-
 jobs:
   deploy:
     name: Deploy tested master commit
@@ -20,6 +16,9 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'master' &&
       github.event.workflow_run.head_repository.full_name == github.repository
+    concurrency:
+      group: production
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment:
