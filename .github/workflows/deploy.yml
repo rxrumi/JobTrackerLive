@@ -38,7 +38,7 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$TESTED_SHA"
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)" = "$TESTED_SHA"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
