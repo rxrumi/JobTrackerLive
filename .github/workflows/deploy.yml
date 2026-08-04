@@ -30,7 +30,7 @@ jobs:
       TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TESTED_SHA }}
       - name: Confirm the tested commit is still master
