@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible non-security defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report vulnerabilities here. Use private vulnerability reporting from the Security tab.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide minimal, non-sensitive steps and inputs.
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or deployment date
+      placeholder: Commit SHA or approximate date
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Logs or screenshots with credentials and personal data removed.

@@ -1,0 +1,16 @@
+# Placeholder values for local contribution testing only.
+# Copy this file to .dev.vars. Never commit real values.
+
+CLERK_PUBLISHABLE_KEY="pk_test_placeholder"
+CLERK_SECRET_KEY="sk_test_placeholder"
+CLERK_JWT_KEY="placeholder-public-key"
+CLERK_SIGN_IN_URL="https://example.invalid/sign-in"
+CLERK_SIGN_UP_URL="https://example.invalid/sign-up"
+CLERK_WEBHOOK_SECRET="whsec_placeholder"
+SCAN_KEY="local-scan-placeholder"
+ANALYTICS_ALLOWED_EMAILS="owner@example.invalid"
+RESUME_STUDIO_ALLOWED_USERS="owner@example.invalid"
+OPENAI_API_KEY="sk-placeholder"
+AI_GATEWAY_URL="https://example.invalid/v1"
+AI_GATEWAY_TOKEN="placeholder"
+UNSUBSCRIBE_SECRET="local-unsubscribe-placeholder"

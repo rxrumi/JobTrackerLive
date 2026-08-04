@@ -1,6 +1,16 @@
 # Live Job Index
 
+> **Source-available, not open source.** Copyright (c) 2026 Sohaib Kazmi.
+> You may inspect the code, run it locally for evaluation or contribution
+> testing, and create a temporary fork to propose a pull request. Independent
+> deployment, self-hosting, redistribution, and reuse are not licensed. Read
+> [LICENSE.md](LICENSE.md) before copying or running the code.
+
 Live Job Index is a Cloudflare-hosted, visa-aware job discovery and application-tracking product. It combines confirmed roles from supported public ATS feeds with clearly labelled company-career targets, authenticated pipeline tools, consented analytics, account export/deletion, and an evidence-grounded Resume Studio.
+
+- Production: [livejobindex.com](https://livejobindex.com)
+- Contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security reports: [SECURITY.md](SECURITY.md)
 
 Runtime data is Cloudflare D1/R2/Queues/Workflows/Durable Objects. Clerk provides identity. Supabase is not used.
 
@@ -127,49 +137,59 @@ migrations/                  additive production D1 migrations
 test/                        deterministic backend/frontend-source/lifecycle tests
 ```
 
-## Local verification
+## Local contribution verification
+
+Node.js 22 or newer is required. Copy the placeholder environment file only
+when local Worker development needs it; the values provide no production
+access.
 
 ```bash
 npm ci
-npm audit --omit=dev
+cp .dev.vars.example .dev.vars
 npm run build:frontend
+git diff --exit-code -- public
+npm audit --omit=dev
 npm test
 npm run test:migrations
-npx wrangler types --check
-npx wrangler deploy --dry-run -c workflow/wrangler.toml
-npx wrangler deploy --dry-run
+npm run check:types
+npm run check:deploy
 ```
 
-`npm run verify` runs the production audit, tests, migration validation, and both dry runs. Repository policy deliberately excludes browser, Chrome, Playwright, and other browser automation.
+`npm run verify` runs frontend generation, the dependency audit, tests,
+migration validation, type checks, and both deployment dry runs. Repository
+policy deliberately excludes browser, Chrome, Playwright, and other browser
+automation.
 
-## Production deployment
+Local execution is permitted only for evaluation and preparing contributions.
+It does not grant permission to host, deploy, redistribute, or reuse Live Job
+Index. All pull requests require acceptance of [CLA.md](CLA.md).
 
-Configure the resources and secrets documented in `wrangler.toml`, including Clerk, scan, webhook, unsubscribe, owner allowlist, OpenAI, and AI Gateway values. Create the `job-tracker-public-feeds` R2 bucket before first deployment.
+## Owner-controlled production deployment
 
-Deployment order:
+Production deployment is reserved to the repository owner. Pull requests run
+unprivileged checks without Cloudflare or application secrets. After a pull
+request is approved and merged, the exact tested `master` commit becomes
+eligible for the protected `production` environment and requires owner
+approval before deployment.
 
-```bash
-npm ci
-npx wrangler d1 migrations apply job-tracker-app-db --remote
-npx wrangler deploy -c workflow/wrangler.toml
-npx wrangler deploy
+The deployment workflow preserves this order:
+
+```text
+CI succeeds on master
+└── owner approves the production environment
+    ├── apply additive D1 migrations
+    ├── deploy the Workflow Worker
+    └── deploy the main Worker
 ```
 
-Trigger a complete initial scan without deleting KV history:
-
-```bash
-for shard in 0 1 2 3 4; do
-  curl -X POST -H "X-Scan-Key: <secret>" \
-    "https://livejobindex.com/api/scan-now?shard=$shard"
-  [ "$shard" = 4 ] || sleep 65
-done
-```
-
-During migration, dual-write/compare the D1/R2 publication with KV for two complete cycles. Keep KV fallback and the prior feed pointer for 14 days. Roll back with feature flags and the prior D1 pointer; migrations remain additive and production data is never reset.
+Production credentials live only in GitHub environment/repository secrets.
+They must never be placed in code, issues, pull requests, logs, `.dev.vars`, or
+fork configuration. Migrations remain additive and production data is never
+reset.
 
 ## Manual browser acceptance checklist
 
-Sohaib performs this checklist on desktop and mobile after automated checks pass:
+The repository owner performs this checklist on desktop and mobile after automated checks pass:
 
 1. Clerk sign-in/sign-up redirects return to the requested `/app/...` route.
 2. Essential-only consent loads no GA/Clarity requests; opt-in loads both; withdrawal and GPC deny analytics.
@@ -189,3 +209,10 @@ Sohaib performs this checklist on desktop and mobile after automated checks pass
 - Role matching is title-based unless a job is hydrated for Resume Studio.
 - Visa classification is a company-level prioritization heuristic, not a sponsorship fact or immigration advice.
 - There is no payment system; Cloudflare usage is designed for free-tier constraints and OpenAI usage is service-managed and capped.
+
+## License and third-party software
+
+Original code, documentation, data curation, and brand assets are governed by
+the restrictive [Live Job Index Source-Available License](LICENSE.md). This is
+not an OSI-approved open-source license. Dependencies retain their own
+licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
