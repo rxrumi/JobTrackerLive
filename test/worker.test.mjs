@@ -15,6 +15,44 @@ test("frontend and Worker share canonical role families and scoring", () => {
   assert.equal(scoreJob({ visa: "Strong", seniority: "Manager", freshness: 100 }), 94);
 });
 
+test("public job pages use an indexed D1 lookup without loading the full feed", async () => {
+  let feedReads = 0;
+  const queries = [];
+  const DB = {
+    prepare(sql) {
+      return {
+        bind(id) {
+          queries.push({ sql, id });
+          return this;
+        },
+        async first() {
+          return {
+            id: "job-1", company: "Example", title: "Engineer", url: "https://example.com/apply",
+            first_seen_date: "2026-09-01", last_seen_date: "2026-09-23", last_filled_date: null,
+            location: "Remote", country: "US", role_family: "Engineering", seniority: "Senior", visa: "Unknown"
+          };
+        }
+      };
+    }
+  };
+  const JOB_FEEDS = { async get() { feedReads++; throw new Error("full feed loaded"); } };
+  const response = await worker.fetch(new Request("https://livejobindex.com/jobs/job-1/example-engineer"), { DB, JOB_FEEDS });
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Engineer at Example/);
+  assert.equal(queries[0].id, "job-1");
+  assert.match(queries[0].sql, /where p.id = \?/);
+  assert.equal(feedReads, 0);
+});
+
+test("unknown public job IDs return 404 without parsing the published feed", async () => {
+  let feedReads = 0;
+  const DB = { prepare() { return { bind() { return this; }, async first() { return null; } }; } };
+  const JOB_FEEDS = { async get() { feedReads++; throw new Error("full feed loaded"); } };
+  const response = await worker.fetch(new Request("https://livejobindex.com/jobs/missing/scanner"), { DB, JOB_FEEDS });
+  assert.equal(response.status, 404);
+  assert.equal(feedReads, 0);
+});
+
 test("frontend split modules expose engineering static targets", () => {
   const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   const targets = readFileSync(new URL("../public/targets.js", import.meta.url), "utf8");

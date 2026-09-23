@@ -3814,8 +3814,37 @@ function safeJsonLd(value) {
 }
 
 async function handlePublicJobPage(request, env, jobId) {
-  const data = await readJobsPayloadSafe(env);
-  const job = (data.postings || []).find(posting => String(posting.id) === String(jobId));
+  let job = null;
+  let lastScan = null;
+  let needsFallback = !env.DB;
+  if (env.DB) {
+    try {
+      const row = await dbFirst(env, `select p.id, p.company, p.title, p.url,
+          p.first_seen_date, p.last_seen_date, p.last_filled_date,
+          s.location, s.city, s.country, s.role_family, s.seniority, s.visa
+        from job_postings p
+        left join job_snapshots s on s.id = (
+          select id from job_snapshots where job_id = p.id order by scan_date desc limit 1
+        )
+        where p.id = ?`, jobId);
+      if (row) {
+        job = {
+          ...row,
+          first_seen: row.first_seen_date,
+          last_seen: row.last_seen_date,
+          last_filled: row.last_filled_date
+        };
+      }
+    } catch (failure) {
+      needsFallback = true;
+      console.error(JSON.stringify({ event: "public_job_read_failed", message: failure?.message || String(failure) }));
+    }
+  }
+  if (needsFallback) {
+    const data = await readJobsPayloadSafe(env);
+    job = (data.postings || []).find(posting => String(posting.id) === String(jobId));
+    lastScan = data.last_scan;
+  }
   if (!job) return withTrustHeaders(new Response("Job not found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } }));
   const filled = Boolean(job.last_filled);
   const canonical = `${SITE_ORIGIN}/jobs/${encodeURIComponent(job.id)}/${slugify(job.company)}-${slugify(job.title)}`;
@@ -3824,7 +3853,7 @@ async function handlePublicJobPage(request, env, jobId) {
     "@type": "JobPosting",
     title: job.title,
     description: `${job.title} at ${job.company}. Confirm details and application requirements on the employer's careers page.`,
-    datePosted: job.first_seen || data.last_scan,
+    datePosted: job.first_seen || lastScan,
     validThrough: job.last_seen || undefined,
     employmentType: "FULL_TIME",
     hiringOrganization: { "@type": "Organization", name: job.company },
