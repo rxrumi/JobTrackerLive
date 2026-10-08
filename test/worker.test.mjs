@@ -1523,6 +1523,9 @@ function createD1Fake({ user, rows = {} } = {}) {
     } else if (q.startsWith("insert into job_snapshots")) {
       const [job_id, scan_date, title, location, city, country, industry, niche, role_family, seniority, visa, score, tier, is_new, is_filled, created_at] = params;
       upsert("job_snapshots", { id: data.job_snapshots.length + 1, job_id, scan_date, title, location, city, country, industry, niche, role_family, seniority, visa, score, tier, is_new, is_filled, created_at }, ["job_id", "scan_date"]);
+    } else if (q.startsWith("update job_postings")) {
+      const [company, industry, is_active, updated_at, id] = params;
+      update("job_postings", { company, industry, is_active, updated_at }, row => row.id === id);
     } else if (q.startsWith("insert into daily_scan_stats")) {
       const [scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at] = params;
       upsert("daily_scan_stats", { scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at }, ["scan_date"]);

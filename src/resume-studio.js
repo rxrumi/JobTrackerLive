@@ -12,6 +12,7 @@ import {
   validateResumeUpload
 } from "./resume-core.js";
 import { renderResumeArtifacts } from "./resume-renderer.js";
+import { runScanStorageMaintenance } from "./scan-storage.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 const SOURCE_MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -521,7 +522,7 @@ async function releaseMaintenanceLease(env, deps, leaseKey, token) {
 export async function runResumeMaintenance(env, deps) {
   const now = nowISO();
   await deps.run(env, `update usage_reservations set status = 'expired', release_reason = 'reservation_expired',
-    released_at = ?, updated_at = ? where status = 'reserved' and expires_at <= ?`, now, now, now);
+    updated_at = ? where status = 'reserved' and expires_at <= ?`, now, now);
   const cleanup = await deps.all(env, `select * from provider_file_cleanup
     where status != 'complete' and (next_attempt_at is null or next_attempt_at <= ?) and attempt_count < 10
     order by created_at limit 25`, now);
@@ -534,7 +535,8 @@ export async function runResumeMaintenance(env, deps) {
   await deps.run(env, "delete from search_queries where user_id is not null and created_at < datetime('now','-90 days')");
   await deps.run(env, "delete from page_views where user_id is not null and created_at < datetime('now','-90 days')");
   await deps.run(env, "delete from daily_scan_stats where scan_date < date('now','-13 months')");
-  return { provider_files_checked: cleanup.length };
+  const scanStorage = await runScanStorageMaintenance(env, deps);
+  return { provider_files_checked: cleanup.length, ...scanStorage };
 }
 
 async function createNotification(env, deps, { userId, type, eventKey, title, body, actionUrl = null, jobId = null, buildId = null, metadata = {} }) {

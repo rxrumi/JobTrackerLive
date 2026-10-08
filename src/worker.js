@@ -9,6 +9,7 @@ import {
   terminateUserResumeWorkflows,
 } from "./resume-studio.js";
 import { processAccountDeletion } from "./account-lifecycle.js";
+import { expireCoordinatorEntries, scheduleExpiry } from "./coordinator-storage.js";
 
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
@@ -769,7 +770,7 @@ const RESUME_STUDIO_DEPS = {
   batch: dbBatch
 };
 
-async function persistScanToD1(env, scanResult, today, scanRunId = null) {
+export async function persistScanToD1(env, scanResult, today, scanRunId = null) {
   const database = db(env);
   if (!database) return;
 
@@ -789,16 +790,21 @@ async function persistScanToD1(env, scanResult, today, scanRunId = null) {
       on conflict(id) do update set
         source = excluded.source,
         source_token = excluded.source_token,
-        company = excluded.company,
         title = excluded.title,
         url = excluded.url,
-        industry = excluded.industry,
         niche = excluded.niche,
         first_seen_date = excluded.first_seen_date,
         last_seen_date = excluded.last_seen_date,
         last_filled_date = excluded.last_filled_date,
-        is_active = excluded.is_active,
         updated_at = excluded.updated_at
+      where job_postings.source is not excluded.source
+        or job_postings.source_token is not excluded.source_token
+        or job_postings.title is not excluded.title
+        or job_postings.url is not excluded.url
+        or job_postings.niche is not excluded.niche
+        or job_postings.first_seen_date is not excluded.first_seen_date
+        or job_postings.last_seen_date is not excluded.last_seen_date
+        or job_postings.last_filled_date is not excluded.last_filled_date
     `).bind(
       p.id,
       p.source,
@@ -816,12 +822,39 @@ async function persistScanToD1(env, scanResult, today, scanRunId = null) {
       now
     ));
 
+    // D1 bills index entries as rows written. Keep indexed columns out of the
+    // daily freshness update, and touch their indexes only when values change.
+    statements.push(database.prepare(`update job_postings
+      set company = ?, industry = ?, is_active = ?, updated_at = ?
+      where id = ? and (company is not ? or industry is not ? or is_active is not ?)`)
+      .bind(p.company, p.industry || INDUSTRIES.TECH, p.last_filled ? 0 : 1, now,
+        p.id, p.company, p.industry || INDUSTRIES.TECH, p.last_filled ? 0 : 1));
+
     statements.push(database.prepare(`
       insert into job_snapshots (
         job_id, scan_date, title, location, city, country, industry, niche,
         role_family, seniority, visa, score, tier, is_new, is_filled, created_at, scan_run_id
       )
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      select ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      where not exists (
+        select 1 from job_snapshots previous
+        where previous.id = (
+          select id from job_snapshots where job_id = ? order by scan_date desc limit 1
+        )
+          and previous.title is ?
+          and previous.location is ?
+          and previous.city is ?
+          and previous.country is ?
+          and previous.industry is ?
+          and previous.niche is ?
+          and previous.role_family is ?
+          and previous.seniority is ?
+          and previous.visa is ?
+          and previous.score is ?
+          and previous.tier is ?
+          and previous.is_filled is ?
+          and (? = 0 or (previous.scan_date = ? and previous.is_new = 1))
+      )
       on conflict(job_id, scan_date) do update set
         title = excluded.title,
         location = excluded.location,
@@ -837,6 +870,20 @@ async function persistScanToD1(env, scanResult, today, scanRunId = null) {
         is_new = excluded.is_new,
         is_filled = excluded.is_filled,
         scan_run_id = excluded.scan_run_id
+      where job_snapshots.title is not excluded.title
+        or job_snapshots.location is not excluded.location
+        or job_snapshots.city is not excluded.city
+        or job_snapshots.country is not excluded.country
+        or job_snapshots.industry is not excluded.industry
+        or job_snapshots.niche is not excluded.niche
+        or job_snapshots.role_family is not excluded.role_family
+        or job_snapshots.seniority is not excluded.seniority
+        or job_snapshots.visa is not excluded.visa
+        or job_snapshots.score is not excluded.score
+        or job_snapshots.tier is not excluded.tier
+        or job_snapshots.is_new is not excluded.is_new
+        or job_snapshots.is_filled is not excluded.is_filled
+        or job_snapshots.scan_run_id is not excluded.scan_run_id
     `).bind(
       p.id,
       today,
@@ -854,7 +901,25 @@ async function persistScanToD1(env, scanResult, today, scanRunId = null) {
       p.first_seen === today ? 1 : 0,
       p.last_filled ? 1 : 0,
       now,
-      scanRunId
+      scanRunId,
+      // Store changes rather than another copy of every job each day. New
+      // arrivals always get today's snapshot for daily matching. Freshness
+      // lives on job_postings; daily counts live in daily_scan_stats.
+      p.id,
+      p.title,
+      p.location || null,
+      p.city || null,
+      p.country,
+      p.industry || INDUSTRIES.TECH,
+      p.niche || TECH_NICHE,
+      p.role_family,
+      p.seniority,
+      p.visa,
+      p.score,
+      p.tier,
+      p.last_filled ? 1 : 0,
+      p.first_seen === today ? 1 : 0,
+      today
     ));
   }
 
@@ -4279,7 +4344,8 @@ export class UserMutationCoordinator {
       const now = Date.now();
       if (current?.expiresAt > now) return Response.json({ error: "operation_in_progress" }, { status: 409 });
       const claim = { token: crypto.randomUUID(), expiresAt: now + clampInteger(payload.ttl_ms, 30000, 1000, 300000) };
-      await this.state.storage.put(`claim:${key}`, claim, { expirationTtl: Math.ceil((claim.expiresAt - now) / 1000) });
+      await this.state.storage.put(`claim:${key}`, claim);
+      await scheduleExpiry(this.state.storage, claim.expiresAt);
       return Response.json(claim, { status: 201 });
     }
     if (url.pathname === "/release" && request.method === "POST") {
@@ -4290,6 +4356,10 @@ export class UserMutationCoordinator {
       return Response.json({ ok: true });
     }
     return Response.json({ error: "not_found" }, { status: 404 });
+  }
+
+  async alarm() {
+    await expireCoordinatorEntries(this.state.storage, "claim:", "expiresAt");
   }
 }
 
@@ -4315,7 +4385,8 @@ export class RateLimitCoordinator {
     const allowed = record.count + cost <= limit;
     if (allowed) {
       record.count += cost;
-      await this.state.storage.put(bucket, record, { expirationTtl: windowSeconds + 1 });
+      await this.state.storage.put(bucket, record);
+      await scheduleExpiry(this.state.storage, record.resetAt);
     }
     return Response.json({
       allowed,
@@ -4323,6 +4394,10 @@ export class RateLimitCoordinator {
       remaining: Math.max(0, limit - record.count),
       retry_after: allowed ? 0 : Math.max(1, Math.ceil((record.resetAt - now) / 1000))
     }, { status: allowed ? 200 : 429 });
+  }
+
+  async alarm() {
+    await expireCoordinatorEntries(this.state.storage, "limit:", "resetAt");
   }
 }
 

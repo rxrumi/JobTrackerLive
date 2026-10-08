@@ -48,6 +48,10 @@ KV
 
 Scan publication is fail-safe: sources succeed independently, failed sources carry forward their last known-good jobs, D1 writes are chunked to at most 50 statements, the immutable R2 feed is written first, and the D1 pointer advances only after persistence succeeds. The prior pointer remains available for rollback.
 
+D1 job snapshots record new arrivals and changes to job details, classification, score, or filled status. Unchanged jobs keep their latest snapshot while `job_postings` tracks daily freshness and `daily_scan_stats` records daily totals. Consumers must use the latest snapshot for job details; snapshot dates describe changes rather than every day a job was observed. D1 quotas include secondary-index writes, so routine freshness updates avoid rewriting unchanged indexed columns.
+
+Hourly maintenance removes historical snapshots older than 20 days, retaining each job's latest snapshot even when older so saved jobs and Resume Studio keep their details. Each pass deletes at most 250 snapshots to limit cleanup's own D1 writes. Retired R2 feeds older than 20 days are also deleted, up to 25 per pass; current and previous feed pointers remain protected. Large backlogs drain over multiple passes. Account records, private resume files, KV scan state, and aggregate retention policies are unaffected. Cloudflare's finite plan limits still apply.
+
 ## Product and API behavior
 
 - Public visitors can read feed page one (15 jobs). A later cursor returns `401 auth_required` with a continuation URL.
