@@ -72,6 +72,7 @@ const ACTIVE_SOURCES = new Set([
 const FAILURE_ABORT_RATIO = 0.5;
 const FETCH_TIMEOUT_MS = 12000;
 const MAX_UPSTREAM_RESPONSE_BYTES = 8 * 1024 * 1024;
+const SCAN_FETCH_CONCURRENCY = 4;
 const STALE_SCAN_LOCK_KEY_PREFIX = "scan:stale-refresh-lock";
 const STALE_SCAN_LOCK_TTL_SECONDS = 2 * 60;
 const PARTIAL_SOURCE_STALE_DAYS = 30;
@@ -1043,7 +1044,7 @@ function recordFetchFailure(diagnostics, failure) {
   });
 }
 
-async function fetchWithTimeout(url, init = {}, diagnostics = null) {
+async function fetchWithTimeout(url, init = {}, diagnostics = null, consumeResponse = response => response) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -1066,6 +1067,7 @@ async function fetchWithTimeout(url, init = {}, diagnostics = null) {
       r = await fetch(current.toString(), { cf: { cacheTtl: 0 }, ...init, redirect: "manual", signal: controller.signal });
       if (![301, 302, 303, 307, 308].includes(r.status)) break;
       const location = r.headers.get("location");
+      await r.body?.cancel().catch(() => {});
       if (!location || redirect === 5) {
         recordFetchFailure(diagnostics, { url: current, reason: "redirect_limit" });
         return null;
@@ -1073,10 +1075,12 @@ async function fetchWithTimeout(url, init = {}, diagnostics = null) {
       current = new URL(location, current);
     }
     if (!r.ok) {
+      await r.body?.cancel().catch(() => {});
       recordFetchFailure(diagnostics, { url, reason: "http_error", status: r.status });
       return null;
     }
-    return r;
+    // Keep the abort timer alive through the body read, not just the headers.
+    return await consumeResponse(r);
   } catch (error) {
     recordFetchFailure(diagnostics, {
       url,
@@ -1090,32 +1094,64 @@ async function fetchWithTimeout(url, init = {}, diagnostics = null) {
 }
 
 async function fetchJSON(url, init = {}, diagnostics = null) {
-  const r = await fetchWithTimeout(url, init, diagnostics);
-  if (!r) return null;
-  try {
-    const text = await readBoundedResponseText(r);
-    if (text == null) throw new Error("response_too_large");
-    return JSON.parse(text);
-  } catch {
-    recordFetchFailure(diagnostics, { url, reason: "invalid_json" });
-    return null;
-  }
+  return withFetchSlot(diagnostics, () => readFetchJSON(url, init, diagnostics));
+}
+
+// Share slots across every source in one scan, including YC's nested fan-out.
+function createFetchLimiter() {
+  let active = 0;
+  const waiting = [];
+  return async callback => {
+    if (active >= SCAN_FETCH_CONCURRENCY) await new Promise(resolve => waiting.push(resolve));
+    else active++;
+    try {
+      return await callback();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}
+
+function withFetchSlot(diagnostics, callback) {
+  return diagnostics?.fetchLimiter ? diagnostics.fetchLimiter(callback) : callback();
+}
+
+async function readFetchJSON(url, init, diagnostics) {
+  return fetchWithTimeout(url, init, diagnostics, async response => {
+    try {
+      const text = await readBoundedResponseText(response);
+      if (text == null) throw new Error("response_too_large");
+      return JSON.parse(text);
+    } catch {
+      recordFetchFailure(diagnostics, { url, reason: "invalid_json" });
+      return null;
+    }
+  });
 }
 
 async function fetchText(url, diagnostics = null) {
-  const r = await fetchWithTimeout(url, {}, diagnostics);
-  if (!r) return null;
-  try {
-    return await readBoundedResponseText(r);
-  } catch {
-    recordFetchFailure(diagnostics, { url, reason: "invalid_text" });
-    return null;
-  }
+  return withFetchSlot(diagnostics, () => readFetchText(url, diagnostics));
+}
+
+async function readFetchText(url, diagnostics) {
+  return fetchWithTimeout(url, {}, diagnostics, async response => {
+    try {
+      return await readBoundedResponseText(response);
+    } catch {
+      recordFetchFailure(diagnostics, { url, reason: "invalid_text" });
+      return null;
+    }
+  });
 }
 
 async function readBoundedResponseText(response) {
   const declared = Number(response.headers.get("content-length") || 0);
-  if (declared > MAX_UPSTREAM_RESPONSE_BYTES) return null;
+  if (declared > MAX_UPSTREAM_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
   if (!response.body) return "";
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1762,11 +1798,12 @@ export async function runScan(env, options = {}) {
   const sourceMeta = {};
   let okCount = 0;
   let failCount = 0;
+  const fetchLimiter = createFetchLimiter();
 
   for (let i = 0; i < sources.length; i += 8) {
     const batch = sources.slice(i, i + 8);
     const results = await Promise.allSettled(batch.map(async s => {
-      const sourceForFetch = { ...s, fetchMeta: { failures: [] } };
+      const sourceForFetch = { ...s, fetchMeta: { failures: [], fetchLimiter } };
       try {
         const result = normalizeFetchResult(await sourceForFetch.fetch(sourceForFetch));
         return { s, fetchMeta: sourceForFetch.fetchMeta, ...result };
@@ -3674,6 +3711,22 @@ async function maybeRefreshStaleJobs(env, ctx, data) {
   if (!ctx?.waitUntil || !env.KV || !jobsPayloadIsStale(data)) return;
 
   const shardIndex = nextIncompleteShard(data, todayUTC());
+  // Production scans belong to a queue invocation, beyond HTTP waitUntil's
+  // short post-response window. The coordinator deduplicates stale readers.
+  if (env.SCAN_COORDINATOR?.getByName && env.RESUME_QUEUE?.send) {
+    const coordinator = env.SCAN_COORDINATOR.getByName(todayUTC());
+    ctx.waitUntil(coordinator.fetch("https://scan-coordinator.internal/enqueue", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ shardIndex })
+    }).then(async response => {
+      if (!response.ok) throw new Error(`scan_enqueue_failed:${response.status}`);
+      await response.body?.cancel();
+    }).catch(error => {
+      console.error(JSON.stringify({ event: "stale_scan_enqueue_failed", shardIndex, message: error.message }));
+    }));
+    return;
+  }
   const lockKey = `${STALE_SCAN_LOCK_KEY_PREFIX}:${todayUTC()}:${shardIndex}`;
   const lockToken = crypto.randomUUID();
 
@@ -3692,12 +3745,11 @@ async function maybeRefreshStaleJobs(env, ctx, data) {
   ctx.waitUntil((async () => {
     let completed = false;
     try {
-      const result = await runScan(env, { shardIndex });
+      const result = await coordinatedScan(env, { shardIndex });
       if (result.error) {
         console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, ...result }));
         return;
       }
-      await persistSuccessfulScan(env, result);
       completed = true;
     } catch (error) {
       console.error(JSON.stringify({ event: "stale_scan_failed", shardIndex, message: error?.message || String(error) }));
@@ -4284,14 +4336,32 @@ export class ScanCoordinator {
 
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname !== "/run" || request.method !== "POST") {
+    if (!["/run", "/enqueue"].includes(url.pathname) || request.method !== "POST") {
       return Response.json({ error: "not_found" }, { status: 404 });
     }
     const payload = await request.json().catch(() => ({}));
     const scanDate = /^\d{4}-\d{2}-\d{2}$/.test(payload.scanDate || "") ? payload.scanDate : todayUTC();
-    const shardIndex = normalizeShardIndex(payload.shardIndex);
+    let shardIndex = normalizeShardIndex(payload.shardIndex);
+    if (url.pathname === "/enqueue") {
+      const current = await this.env.KV.get("state", "json");
+      if (current?.last_scan === todayUTC()) return Response.json({ queued: false });
+      shardIndex = nextIncompleteShard(current, todayUTC());
+      const key = `queued:${shardIndex}`;
+      const queuedAt = await this.state.storage.get(key);
+      if (queuedAt && Date.now() - queuedAt < 10 * 60 * 1000) {
+        return Response.json({ queued: false });
+      }
+      await this.state.storage.put(key, Date.now());
+      try {
+        await this.env.RESUME_QUEUE.send({ type: "scan_retry", shard_index: shardIndex, scan_date: scanDate, attempt: 0 }, { contentType: "json" });
+      } catch (failure) {
+        await this.state.storage.delete(key);
+        throw failure;
+      }
+      return Response.json({ queued: true }, { status: 202 });
+    }
     const active = await this.state.storage.get("active");
-    if (active) {
+    if (active && Date.now() - Date.parse(active.startedAt) < 15 * 60 * 1000) {
       return Response.json({ error: "scan_already_running", active }, { status: 409 });
     }
     const claim = { id: crypto.randomUUID(), scanDate, shardIndex, startedAt: new Date().toISOString() };

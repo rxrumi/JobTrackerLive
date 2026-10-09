@@ -1724,6 +1724,67 @@ test("public jobs endpoint schedules stale payload refresh", async t => {
   assert.ok(KV.deletes.some(key => key.startsWith("scan:stale-refresh-lock:")));
 });
 
+test("production stale reads enqueue a scan without invoking ATS fetches", async t => {
+  t.mock.method(globalThis, "fetch", () => { throw new Error("ATS fetch in HTTP invocation"); });
+  const KV = createKV({}, { last_scan: "2000-01-01", postings: samplePostings(1) });
+  const requests = [];
+  const pending = [];
+  const response = await worker.fetch(new Request("https://example.com/api/jobs"), {
+    KV,
+    RESUME_QUEUE: { async send() {} },
+    SCAN_COORDINATOR: { getByName() { return { async fetch(url, init) {
+      requests.push({ url, body: JSON.parse(init.body) });
+      return Response.json({ queued: true }, { status: 202 });
+    } }; } }
+  }, { waitUntil(promise) { pending.push(promise); } });
+  await Promise.all(pending);
+  assert.equal(response.status, 200);
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /\/enqueue$/);
+  assert.equal(KV.puts.length, 0);
+});
+
+test("scan fetch slots bound both headers and body reads across nested YC requests", async t => {
+  const original = mockFetch();
+  let active = 0;
+  let peak = 0;
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    active++;
+    peak = Math.max(peak, active);
+    const result = await original(url, init);
+    const text = await result.text();
+    return new Response(new ReadableStream({
+      async start(controller) {
+        await new Promise(resolve => setImmediate(resolve));
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+        active--;
+      }
+    }), { status: result.status, headers: result.headers });
+  });
+  const result = await runScan({ KV: createKV() });
+  assert.equal(result.error, undefined);
+  assert.equal(active, 0);
+  assert.ok(peak <= 4, `peak concurrent response bodies: ${peak}`);
+  assert.ok(peak > 1);
+});
+
+test("scanner cancels rejected upstream bodies before continuing", async t => {
+  const original = mockFetch();
+  let cancelled = 0;
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    if (String(url).includes("/boards/gongio/jobs")) {
+      return new Response(new ReadableStream({ cancel() { cancelled++; } }), { status: 503 });
+    }
+    if (String(url).includes("/boards/klaviyo/jobs")) {
+      return new Response(new ReadableStream({ cancel() { cancelled++; } }), { headers: { "content-length": String(9 * 1024 * 1024) } });
+    }
+    return original(url, init);
+  });
+  await runScan({ KV: createKV() }, { shardIndex: 0 });
+  assert.equal(cancelled, 2);
+});
+
 test("runScan merges shard completion recorded while another shard is running", async t => {
   t.mock.method(globalThis, "fetch", mockFetch());
   const today = new Date().toISOString().slice(0, 10);

@@ -38,6 +38,13 @@ The placeholder `.dev.vars` values are for local contribution testing only.
 They do not provide access to Live Job Index accounts, data, Cloudflare
 resources, Clerk, OpenAI, or production deployment.
 
+`npm run check:types` generates the installed Wrangler's runtime types under
+the ignored `.wrangler/` directory and checks the committed binding types.
+After changing bindings or variables, regenerate them with
+`npx wrangler types --include-runtime=false`. This keeps routine Wrangler
+updates from failing CI merely because the bundled runtime types changed.
+CI also audits development dependencies, including Wrangler and Miniflare.
+
 ## Pull request expectations
 
 - Keep production behavior backward compatible unless the issue explicitly

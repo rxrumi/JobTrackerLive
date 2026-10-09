@@ -1583,8 +1583,8 @@ async function createBuild(request, env, ctx, user, deps, source) {
     }
     if (!await reserveGlobalBuildCapacity(env, deps)) {
       await deps.run(env, `update usage_reservations set status = 'released', release_reason = 'capacity_reached',
-        released_at = ?, updated_at = ? where id = ? and user_id = ? and status = 'reserved'`,
-      nowISO(), nowISO(), reservation.id, user.id);
+        updated_at = ? where id = ? and user_id = ? and status = 'reserved'`,
+      nowISO(), reservation.id, user.id);
       return error(429, "resume_capacity_reached");
     }
     const id = crypto.randomUUID();

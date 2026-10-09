@@ -74,6 +74,25 @@ test("expiry sweeps page through storage without unbounded alarm work", async ()
   assert.equal(await storage.getAlarm(), expiry);
 });
 
+test("stale scan enqueue uses current progress and deduplicates requests", async () => {
+  const messages = [];
+  const storage = createStorage();
+  const date = new Date().toISOString().slice(0, 10);
+  let current = { scan_cycle: { date, completed_shards: [0, 1] } };
+  const coordinator = new ScanCoordinator({ storage }, {
+    KV: { async get() { return current; } },
+    RESUME_QUEUE: { async send(body) { messages.push(body); } }
+  });
+  assert.equal((await coordinator.fetch(request("/enqueue", { shardIndex: 0 }))).status, 202);
+  await coordinator.fetch(request("/enqueue", { shardIndex: 0 }));
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].shard_index, 2);
+  assert.equal(messages[0].scan_date, date);
+  current = { last_scan: date };
+  await coordinator.fetch(request("/enqueue", { shardIndex: 0 }));
+  assert.equal(messages.length, 1);
+});
+
 test("expiry paging reschedules keys inserted before its cursor", async () => {
   const storage = createStorage(Object.fromEntries(Array.from({ length: 128 }, (_, i) =>
     [`claim:z${String(i).padStart(3, "0")}`, { expiresAt: Date.now() - 1000 }])));
@@ -86,4 +105,30 @@ test("expiry paging reschedules keys inserted before its cursor", async () => {
   storage.fireAlarm();
   await coordinator.alarm();
   assert.equal(storage.entries.size, 0);
+});
+
+test("scan claims survive ordinary overlap and recover after a terminated invocation", async () => {
+  const storage = createStorage({ active: { startedAt: new Date().toISOString() } });
+  let scanStarted = false;
+  const coordinator = new ScanCoordinator({ storage }, {
+    KV: { async get() { scanStarted = true; throw new Error("synthetic scan failure"); } }
+  });
+  assert.equal((await coordinator.fetch(request("/run", {}))).status, 409);
+  assert.equal(scanStarted, false);
+  storage.entries.set("active", { startedAt: new Date(Date.now() - 16 * 60 * 1000).toISOString() });
+  assert.equal((await coordinator.fetch(request("/run", {}))).status, 503);
+  assert.equal(scanStarted, true);
+  assert.equal(storage.entries.has("active"), false);
+});
+
+test("failed queue submission releases its deduplication claim for retry", async () => {
+  const storage = createStorage();
+  let attempts = 0;
+  const coordinator = new ScanCoordinator({ storage }, {
+    KV: { async get() { return null; } },
+    RESUME_QUEUE: { async send() { if (++attempts === 1) throw new Error("queue unavailable"); } }
+  });
+  await assert.rejects(coordinator.fetch(request("/enqueue", {})), /queue unavailable/);
+  assert.equal((await coordinator.fetch(request("/enqueue", {}))).status, 202);
+  assert.equal(attempts, 2);
 });
