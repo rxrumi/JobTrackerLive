@@ -20,11 +20,11 @@
     "verify": "npm run build:frontend && npm audit && npm test && npm run test:migrations && npm run check:types && npm run check:deploy"
   },
   "devDependencies": {
-    "wrangler": "4.149.0"
+    "wrangler": "4.151.0"
   },
   "dependencies": {
-    "@clerk/backend": "^3.23.1",
-    "docx": "9.9.0",
+    "@clerk/backend": "^3.24.0",
+    "docx": "9.11.0",
     "fflate": "0.8.3",
     "pdf-lib": "1.17.1"
   }
