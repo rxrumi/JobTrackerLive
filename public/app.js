@@ -599,7 +599,7 @@ function buildJobs(dynamicPostings) {
     seniority: p.seniority || inferSeniority(p.title),
     visa: p.visa,
     apply: p.url,
-    notes: p.last_filled ? `Last seen ${new Date(p.last_seen).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}, no longer listed` : formatNoteAge(p.first_seen),
+    notes: p.last_filled ? `Last seen ${new Date(p.last_seen).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}, no longer listed` : p.last_seen !== new Date().toISOString().slice(0, 10) ? `Previously verified ${p.last_seen || 'on an unknown date'}; confirm availability` : formatNoteAge(p.first_seen),
     is_static: false,
     first_seen: p.first_seen,
     is_new: !p.last_filled && daysSince(p.first_seen) <= 7,
@@ -2566,7 +2566,7 @@ function wireStaticHandlers() {
     }
     const name = window.prompt('Name this saved search.');
     if (!name?.trim()) return;
-    const alertsEnabled = window.confirm('Enable alerts for new jobs matching this search?');
+    const alertsEnabled = false;
     button.disabled = true;
     try {
       const result = await api('/api/saved-searches', {
@@ -3368,7 +3368,7 @@ function renderSavedSearches() {
   list.innerHTML = SAVED_SEARCHES.length ? SAVED_SEARCHES.map(search => `<div class="saved-search-item" data-saved-search-id="${escapeHTML(search.id)}">
     <label class="sr-only" for="saved-search-name-${escapeHTML(search.id)}">Search name</label>
     <input id="saved-search-name-${escapeHTML(search.id)}" type="text" maxlength="100" value="${escapeHTML(search.name)}">
-    <label><input type="checkbox" data-saved-alert ${search.alerts_enabled ? 'checked' : ''}> Alerts</label>
+    <label><input type="checkbox" data-saved-alert disabled> Alerts unavailable</label>
     <span><button class="secondary-btn" type="button" data-save-saved-search>Save</button> <button class="secondary-btn danger" type="button" data-delete-saved-search>Delete</button></span>
   </div>`).join('') : '<p class="setting-copy">No saved searches yet. Use “Save search” from the jobs view.</p>';
   list.querySelectorAll('[data-save-saved-search]').forEach(button => button.onclick = async () => {
@@ -3386,7 +3386,7 @@ function renderSavedSearches() {
   });
   list.querySelectorAll('[data-delete-saved-search]').forEach(button => button.onclick = async () => {
     const row = button.closest('[data-saved-search-id]');
-    if (!window.confirm('Delete this saved search and its alerts?')) return;
+    if (!window.confirm('Delete this saved search?')) return;
     button.disabled = true;
     try {
       await api(`/api/saved-searches/${encodeURIComponent(row.dataset.savedSearchId)}`, { method: 'DELETE' });

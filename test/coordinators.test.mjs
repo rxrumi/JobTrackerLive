@@ -88,7 +88,7 @@ test("stale scan enqueue uses current progress and deduplicates requests", async
   assert.equal(messages.length, 1);
   assert.equal(messages[0].shard_index, 2);
   assert.equal(messages[0].scan_date, date);
-  current = { last_scan: date };
+  current = { last_scan: date, scan_cycle: { publication_complete: true } };
   await coordinator.fetch(request("/enqueue", { shardIndex: 0 }));
   assert.equal(messages.length, 1);
 });

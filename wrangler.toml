@@ -95,6 +95,7 @@ run_worker_first = true
 [observability]
 enabled = true
 head_sampling_rate = 1
+redact_query_string = true
 
 # Required secrets (set via `npx wrangler secret put <name>`):
 # - CLERK_PUBLISHABLE_KEY     (public Clerk browser key)

@@ -20,18 +20,22 @@ Set `OPENAI_API_KEY`, `AI_GATEWAY_URL`, optional `AI_GATEWAY_TOKEN`, `RESUME_STU
 
 ```bash
 npm ci
+npm run build:frontend
+git diff --exit-code -- public
 npm audit --omit=dev
+npm audit
 npm test
 npm run test:migrations
-npx wrangler types --check
-npx wrangler d1 migrations apply job-tracker-app-db --remote
-npx wrangler deploy --dry-run -c workflow/wrangler.toml
-npx wrangler deploy --dry-run
-npx wrangler deploy -c workflow/wrangler.toml
-npx wrangler deploy
+npm run check:types
+npm run check:deploy
 ```
 
-The Workflow Worker deploys before the main Worker. Browser verification stays manual under repository policy.
+Deploy through the protected Production Deployment workflow after successful CI
+on the exact intended master commit and owner environment approval. The Workflow
+Worker deploys before the main Worker. Do not deploy directly from a contributor
+checkout. Browser verification stays manual under repository policy. See
+[operations recovery](operations-recovery.md) for binding readiness, budget
+measurement and controlled dead-letter handling.
 
 ## Controls
 

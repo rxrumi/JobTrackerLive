@@ -10,6 +10,7 @@ import {
 } from "./resume-studio.js";
 import { processAccountDeletion } from "./account-lifecycle.js";
 import { expireCoordinatorEntries, scheduleExpiry } from "./coordinator-storage.js";
+import { greenhouseBoardToken } from "./ats-sources.js";
 
 // Cloudflare Worker — Job Tracker
 // Serves the static HTML and exposes /api/jobs (KV-backed).
@@ -18,19 +19,19 @@ import { expireCoordinatorEntries, scheduleExpiry } from "./coordinator-storage.
 
 const GREENHOUSE_TOKENS = [
   "gongio", "klaviyo", "datadog", "cloudflare", "hubspot",
-  "pleo", "celonis", "airtable", "gitlab", "figma",
+  "celonis", "airtable", "gitlab", "figma",
   "brex", "mercury", "vercel", "typeform", "feedzai",
   "mentimeter", "trustpilot", "twilio", "asana",
   "databricks", "mongodb", "elastic", "remote",
   "sumologic", "contentful", "n26", "cognite",
   "talkdesk2", "boxinc", "anthropic", "stripe",
-  "pinterest", "linkedin"
+  "pinterest"
 ];
 
 const ASHBY_TOKENS = [
   "confluent", "deel", "linear", "mollie",
   "notion", "ramp", "snowflake", "xero",
-  "openai", "cursor", "perplexity"
+  "openai", "cursor", "perplexity", "pleo"
 ];
 
 const LEVER_TOKENS = ["pipedrive"];
@@ -755,13 +756,16 @@ async function dbAll(env, sql, ...params) {
 async function dbBatch(env, statements) {
   const database = db(env);
   if (!database || !statements.length) return;
+  let rowsWritten = 0;
   if (typeof database.batch === "function") {
     for (let index = 0; index < statements.length; index += 50) {
-      await database.batch(statements.slice(index, index + 50));
+      const results = await database.batch(statements.slice(index, index + 50));
+      for (const result of results || []) rowsWritten += Number(result?.meta?.rows_written || 0);
     }
-    return;
+    return rowsWritten;
   }
-  for (const statement of statements) await statement.run();
+  for (const statement of statements) rowsWritten += Number((await statement.run())?.meta?.rows_written || 0);
+  return rowsWritten;
 }
 
 const RESUME_STUDIO_DEPS = {
@@ -924,7 +928,8 @@ export async function persistScanToD1(env, scanResult, today, scanRunId = null) 
     ));
   }
 
-  await dbBatch(env, statements);
+  const rowsWritten = await dbBatch(env, statements);
+  console.log(JSON.stringify({ event: "scan_postings_persisted", scan_date: today, jobs: postings.length, rows_written: rowsWritten }));
 
   const perSource = {};
   const perIndustry = {};
@@ -1093,8 +1098,8 @@ async function fetchWithTimeout(url, init = {}, diagnostics = null, consumeRespo
   }
 }
 
-async function fetchJSON(url, init = {}, diagnostics = null) {
-  return withFetchSlot(diagnostics, () => readFetchJSON(url, init, diagnostics));
+async function fetchJSON(url, init = {}, diagnostics = null, maxBytes = MAX_UPSTREAM_RESPONSE_BYTES) {
+  return withFetchSlot(diagnostics, () => readFetchJSON(url, init, diagnostics, maxBytes));
 }
 
 // Share slots across every source in one scan, including YC's nested fan-out.
@@ -1118,11 +1123,14 @@ function withFetchSlot(diagnostics, callback) {
   return diagnostics?.fetchLimiter ? diagnostics.fetchLimiter(callback) : callback();
 }
 
-async function readFetchJSON(url, init, diagnostics) {
+async function readFetchJSON(url, init, diagnostics, maxBytes) {
   return fetchWithTimeout(url, init, diagnostics, async response => {
     try {
-      const text = await readBoundedResponseText(response);
-      if (text == null) throw new Error("response_too_large");
+      const text = await readBoundedResponseText(response, maxBytes);
+      if (text == null) {
+        recordFetchFailure(diagnostics, { url, reason: "response_too_large" });
+        return null;
+      }
       return JSON.parse(text);
     } catch {
       recordFetchFailure(diagnostics, { url, reason: "invalid_json" });
@@ -1138,7 +1146,9 @@ async function fetchText(url, diagnostics = null) {
 async function readFetchText(url, diagnostics) {
   return fetchWithTimeout(url, {}, diagnostics, async response => {
     try {
-      return await readBoundedResponseText(response);
+      const text = await readBoundedResponseText(response);
+      if (text == null) recordFetchFailure(diagnostics, { url, reason: "response_too_large" });
+      return text;
     } catch {
       recordFetchFailure(diagnostics, { url, reason: "invalid_text" });
       return null;
@@ -1146,9 +1156,9 @@ async function readFetchText(url, diagnostics) {
   });
 }
 
-async function readBoundedResponseText(response) {
+async function readBoundedResponseText(response, maxBytes = MAX_UPSTREAM_RESPONSE_BYTES) {
   const declared = Number(response.headers.get("content-length") || 0);
-  if (declared > MAX_UPSTREAM_RESPONSE_BYTES) {
+  if (declared > maxBytes) {
     await response.body?.cancel().catch(() => {});
     return null;
   }
@@ -1161,7 +1171,7 @@ async function readBoundedResponseText(response) {
     const { done, value } = await reader.read();
     if (done) break;
     total += value.byteLength;
-    if (total > MAX_UPSTREAM_RESPONSE_BYTES) {
+    if (total > maxBytes) {
       await reader.cancel("response_too_large").catch(() => {});
       return null;
     }
@@ -1453,7 +1463,8 @@ async function fetchYcStartupJobs(source = {}) {
 }
 
 async function fetchGreenhouse(token, diagnostics = null) {
-  const data = await fetchJSON(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=false`, {}, diagnostics);
+  const board = greenhouseBoardToken(token);
+  const data = await fetchJSON(`https://boards-api.greenhouse.io/v1/boards/${board}/jobs?content=false`, {}, diagnostics);
   if (!data) return null;
   return (data.jobs || []).map(j => ({
     id: String(j.id),
@@ -1464,7 +1475,10 @@ async function fetchGreenhouse(token, diagnostics = null) {
 }
 
 async function fetchAshby(token, diagnostics = null) {
-  const data = await fetchJSON(`https://api.ashbyhq.com/posting-api/job-board/${token}`, {}, diagnostics);
+  // OpenAI's board includes descriptions and exceeds the generic 8 MiB limit.
+  // Keep this exception bounded and local to the affected source.
+  const maxBytes = token === "openai" ? 20 * 1024 * 1024 : MAX_UPSTREAM_RESPONSE_BYTES;
+  const data = await fetchJSON(`https://api.ashbyhq.com/posting-api/job-board/${token}`, {}, diagnostics, maxBytes);
   if (!data) return null;
   const out = [];
   for (const j of data.jobs || []) {
@@ -1508,9 +1522,7 @@ async function fetchAmazonJobs(source = {}) {
       const location = job.normalized_location || job.location || [job.city, job.state, job.country_code].filter(Boolean).join(", ");
       const jobUrl = job.job_path ? absoluteUrl("https://www.amazon.jobs", job.job_path) : job.url_next_step;
       out.push({ id: String(id), title, location, url: jobUrl });
-      if (out.length >= CUSTOM_SOURCE_LIMIT) break;
     }
-    if (out.length >= CUSTOM_SOURCE_LIMIT) break;
   }
   if (!okPages) return null;
   return {
@@ -1553,9 +1565,7 @@ async function fetchAppleJobs(source = {}) {
           url: absoluteUrl("https://jobs.apple.com", urlPath)
         });
       });
-      if (out.length >= CUSTOM_SOURCE_LIMIT) break;
     }
-    if (out.length >= CUSTOM_SOURCE_LIMIT) break;
   }
   if (!okPages) return null;
   return {
@@ -1781,6 +1791,7 @@ async function fetchSmartRecruiters(token, diagnostics = null) {
 
 export async function runScan(env, options = {}) {
   const today = todayUTC();
+  if (options.scanDate && options.scanDate !== today) return { error: "expired_scan_date" };
   const now = new Date().toISOString();
   const prev = (await env.KV.get("state", "json")) || { postings: {} };
   prev.postings ||= {};
@@ -1789,7 +1800,15 @@ export async function runScan(env, options = {}) {
   const shards = scanSourceShards();
   const sharded = options.shardIndex !== undefined && options.shardIndex !== null;
   const shardIndex = sharded ? normalizeShardIndex(options.shardIndex) : null;
-  const sources = sharded ? shards[shardIndex] : allSources;
+  const candidates = sharded ? shards[shardIndex] : allSources;
+  const sources = prev.scan_cycle?.date === today
+    ? candidates.filter(s => {
+      const meta = prev.scan_meta?.sourceMeta?.[sourceId(s)];
+      return !["complete", "partial"].includes(meta?.status) && !(meta?.status === "failed" && meta.retryable === false);
+    })
+    : candidates;
+  if (!sources.length) return { next: prev, cycleComplete: Boolean(prev.scan_cycle?.complete), shardIndex,
+    completedShards: prev.scan_cycle?.completed_shards || [], replay: true, failCount: 0, total: Object.keys(prev.postings).length };
   const scannedSourceIds = new Set(sources.map(sourceId));
   const found = {};
   const failedSources = new Set();
@@ -1825,6 +1844,9 @@ export async function runScan(env, options = {}) {
           failedSources.add(sid);
           sourceMeta[sid] = {
             status: "failed",
+            retryable: !(r.value.fetchMeta?.failures || []).some(failure =>
+              [400, 401, 403, 404, 410].includes(failure.status)
+              || ["response_too_large", "invalid_json", "parse_miss", "unapproved_hostname"].includes(failure.reason)),
             ...(sourceDiagnosticsMeta(r.value.fetchMeta) || {})
           };
         }
@@ -1885,6 +1907,7 @@ export async function runScan(env, options = {}) {
             score: calcScore({ visa, seniority, firstSeen, lastFilled: null, today }),
             first_seen: firstSeen,
             last_seen: today,
+            freshness: "verified",
             last_filled: null
           };
           retainedJobs++;
@@ -1903,12 +1926,15 @@ export async function runScan(env, options = {}) {
     }
   }
 
+  const retryableFailCount = [...failedSources].filter(sid => sourceMeta[sid]?.retryable !== false).length;
   if (okCount === 0) {
     return {
       error: "all_fetch_failed",
       shardIndex,
       okCount,
       failCount,
+      retryable: retryableFailCount > 0,
+      retryableFailCount,
       failedSources: [...failedSources]
     };
   }
@@ -1921,6 +1947,8 @@ export async function runScan(env, options = {}) {
       okCount,
       failCount,
       scannedBoards,
+      retryable: retryableFailCount > 0,
+      retryableFailCount,
       failedSources: [...failedSources]
     };
   }
@@ -1934,12 +1962,16 @@ export async function runScan(env, options = {}) {
     if (found[id]) continue;
     if (!ACTIVE_SOURCES.has(p.source)) continue;
     const sid = postingSourceId(p);
-    if (!scannedSourceIds.has(sid) || failedSources.has(sid)) {
-      merged[id] = normalizePosting(p, today);
+    if (!scannedSourceIds.has(sid)) {
+      if (daysBetween(p.last_seen || p.first_seen || "1970-01-01", today) <= PARTIAL_SOURCE_STALE_DAYS) {
+        merged[id] = { ...normalizePosting(p, today), freshness: p.last_seen === today ? "verified" : "carried_forward" };
+      }
       continue;
     }
-    if (partialSources.has(sid) && daysBetween(p.last_seen || p.first_seen || today, today) <= PARTIAL_SOURCE_STALE_DAYS) {
-      merged[id] = normalizePosting(p, today);
+    if (failedSources.has(sid) || partialSources.has(sid)) {
+      if (daysBetween(p.last_seen || p.first_seen || "1970-01-01", today) <= PARTIAL_SOURCE_STALE_DAYS) {
+        merged[id] = { ...normalizePosting(p, today), freshness: "carried_forward" };
+      }
       continue;
     }
     const filledDate = p.last_filled || today;
@@ -1976,7 +2008,8 @@ export async function runScan(env, options = {}) {
       date: today,
       completed_shards: [...completedShards].sort((a, b) => a - b),
       total_shards: shards.length,
-      complete: cycleComplete
+      complete: cycleComplete,
+      publication_complete: false
     },
     postings: merged,
     scan_meta: {
@@ -2009,6 +2042,7 @@ export async function runScan(env, options = {}) {
     completedShards: next.scan_cycle.completed_shards,
     okCount,
     failCount,
+    retryableFailCount,
     partialCount: partialSources.size,
     total: Object.keys(merged).length,
     next
@@ -2538,6 +2572,7 @@ const TRUST_HEADERS = {
 function withTrustHeaders(response, nonce = "") {
   const headers = new Headers(response.headers);
   for (const [key, value] of Object.entries(TRUST_HEADERS)) {
+    if (key === "Referrer-Policy" && headers.get(key) === "no-referrer") continue;
     headers.set(key, value);
   }
   if (nonce) headers.set("Content-Security-Policy", contentSecurityPolicy(nonce));
@@ -2797,6 +2832,9 @@ async function insertJobHistory(env, userId, jobId, eventType, fromStatus = null
 }
 
 async function ensureAccountRows(env, user, accountType = "individual") {
+  const existing = await dbFirst(env, "select * from users where id = ?", user.id);
+  const access = existing && await dbFirst(env, "select * from account_access where user_id = ?", user.id);
+  if (access && existing.email === (user.email || "") && (!user.full_name || existing.full_name === user.full_name)) return;
   const now = new Date().toISOString();
   const safeAccountType = ACCOUNT_TYPES.has(accountType) ? accountType : "individual";
   await dbRun(env, `
@@ -2810,6 +2848,7 @@ async function ensureAccountRows(env, user, accountType = "individual") {
       full_name = coalesce(excluded.full_name, users.full_name),
       updated_at = excluded.updated_at
     where users.lifecycle_state not in ('deletion_pending', 'deleted')
+      and (users.email is not excluded.email or (excluded.full_name is not null and users.full_name is not excluded.full_name))
   `, user.id, user.email || "", user.full_name || null, safeAccountType, now, now);
 
   await dbRun(env, `
@@ -2953,15 +2992,13 @@ async function handleLogout(request, env) {
 async function handleMe(request, env) {
   const auth = await requireUser(request, env);
   if (auth.response) return auth.response;
-  await ensureAccountRows(env, auth.user);
-  await dbRun(env, "update users set last_login_at = ?, email = ?, updated_at = ? where id = ?",
-    new Date().toISOString(), auth.user.email || "", new Date().toISOString(), auth.user.id);
+  const me = await fetchMe(env, auth.user);
   const sessionToken = getAnonSessionCookie(request);
   if (sessionToken) {
-    await dbRun(env, "update anonymous_sessions set user_id = ?, last_seen_at = ? where session_token = ?",
-      auth.user.id, new Date().toISOString(), sessionToken).catch(() => {});
+    await dbRun(env, "update anonymous_sessions set user_id = ?, last_seen_at = ? where session_token = ? and user_id is not ?",
+      auth.user.id, new Date().toISOString(), sessionToken, auth.user.id).catch(() => {});
   }
-  return jsonResponse(await fetchMe(env, auth.user));
+  return jsonResponse(me);
 }
 
 async function handleDeleteMe(request, env) {
@@ -3306,7 +3343,7 @@ async function handlePrivacyConsent(request, env) {
 }
 
 function normalizeSavedSearch(row) {
-  return row ? { ...row, query: parseJSONCell(row.query_json, {}), alerts_enabled: Boolean(row.alerts_enabled) } : null;
+  return row ? { ...row, query: parseJSONCell(row.query_json, {}), alerts_enabled: false, alerts_available: false } : null;
 }
 
 async function handleSavedSearches(request, env, id = null) {
@@ -3323,6 +3360,7 @@ async function handleSavedSearches(request, env, id = null) {
     const query = payload?.query && typeof payload.query === "object" && !Array.isArray(payload.query) ? payload.query : null;
     if (!name || !query) return errorResponse(400, "saved_search_name_and_query_required");
     normalizeJobQuery(query);
+    if (payload.alerts_enabled) return errorResponse(409, "saved_search_alerts_unavailable");
     const now = new Date().toISOString();
     const searchId = crypto.randomUUID();
     try {
@@ -3346,11 +3384,12 @@ async function handleSavedSearches(request, env, id = null) {
     if (payload === BODY_TOO_LARGE) return errorResponse(413, "request_too_large");
     if (!payload) return errorResponse(400, "invalid_json");
     const name = payload.name == null ? existing.name : cleanString(payload.name, 100);
+    if (payload.alerts_enabled) return errorResponse(409, "saved_search_alerts_unavailable");
     const query = payload.query == null ? parseJSONCell(existing.query_json, {}) : payload.query;
     if (!name || !query || typeof query !== "object" || Array.isArray(query)) return errorResponse(400, "invalid_saved_search");
     normalizeJobQuery(query);
     await dbRun(env, `update saved_searches set name = ?, query_json = ?, alerts_enabled = ?, updated_at = ?
-      where id = ? and user_id = ?`, name, jsonText(query), payload.alerts_enabled == null ? existing.alerts_enabled : (payload.alerts_enabled ? 1 : 0),
+      where id = ? and user_id = ?`, name, jsonText(query), 0,
     new Date().toISOString(), id, auth.user.id);
     return jsonResponse({ search: normalizeSavedSearch(await dbFirst(env, "select * from saved_searches where id = ? and user_id = ?", id, auth.user.id)) });
   }
@@ -3364,7 +3403,8 @@ async function handleAlertPreferences(request, env) {
   const existing = await dbFirst(env, "select * from alert_preferences where user_id = ?", auth.user.id);
   if (request.method === "GET") {
     return jsonResponse({
-      alerts_enabled: Boolean(existing?.alerts_enabled),
+      alerts_enabled: false,
+      alerts_available: false,
       delivery: existing?.delivery || "daily",
       local_hour: Number(existing?.local_hour ?? 8),
       timezone: existing?.timezone || "UTC"
@@ -3385,6 +3425,7 @@ async function handleAlertPreferences(request, env) {
     return errorResponse(400, "invalid_timezone");
   }
   const enabled = payload.alerts_enabled == null ? Boolean(existing?.alerts_enabled) : Boolean(payload.alerts_enabled);
+  if (enabled) return errorResponse(409, "saved_search_alerts_unavailable");
   const now = new Date().toISOString();
   await dbRun(env, `insert into alert_preferences
     (user_id, alerts_enabled, delivery, local_hour, timezone, created_at, updated_at)
@@ -3407,16 +3448,50 @@ async function handleStatus(request, env, admin = false) {
       dbFirst(env, "select count(*) as count from account_deletion_requests where status in ('pending','processing','retrying')"),
       dbFirst(env, "select count(*) as count from resume_builds where status = 'FAILED' and updated_at >= datetime('now','-1 day')")
     ]);
-    return jsonResponse({ latest_scan: latestRun, pending_deletions: Number(pendingDeletions?.count || 0), failed_builds_24h: Number(failedBuilds?.count || 0) });
+    const missingBindings = ["CLERK_WEBHOOK_SECRET", "ANALYTICS_ALLOWED_EMAILS", "UNSUBSCRIBE_SECRET", "OPENAI_API_KEY", "AI_GATEWAY_URL"]
+      .filter(name => !env[name]);
+    return jsonResponse({ latest_scan: latestRun, pending_deletions: Number(pendingDeletions?.count || 0), failed_builds_24h: Number(failedBuilds?.count || 0),
+      readiness: { missing_bindings: missingBindings, resume_rollout_percent: Number(env.RESUME_ROLLOUT_PERCENT || 0),
+        resume_allowlist_configured: Boolean(env.RESUME_STUDIO_ALLOWED_USERS), workflow_credentials_require_separate_verification: true } });
   }
-  const data = await readJobsPayloadSafe(env);
+  const data = await readStatusPayload(env);
+  const missing = !data.last_scan;
+  // Allow the normal overnight interval and a short grace after the daily scan.
+  const verifiedAt = Date.parse(data.last_scan_at || `${data.last_scan}T03:40:00Z`);
+  const stale = !missing && (!Number.isFinite(verifiedAt) || Date.now() - verifiedAt > 26 * 3600000);
+  const pending = data.scan_cycle?.publication_complete === false || data.scan_cycle?.complete === false;
+  const degraded = missing || stale || pending || Number(data.scan_meta?.failCount || 0) > 0 || Number(data.scan_meta?.partialCount || 0) > 0;
   return jsonResponse({
-    status: data.scan_meta?.failCount ? "degraded" : "ok",
+    status: missing ? "unavailable" : degraded ? "degraded" : "ok",
+    stale, publication_pending: pending,
+    failed_sources: Number(data.scan_meta?.failCount || 0),
+    partial_sources: Number(data.scan_meta?.partialCount || 0),
     last_scan: data.last_scan || null,
     last_scan_at: data.last_scan_at || null,
     feed_version: data.feed_version || null,
-    active_jobs: (data.postings || []).filter(posting => !posting.last_filled).length
-  }, { headers: { "Cache-Control": "public, max-age=60" } });
+    active_jobs: data.active_jobs ?? (data.postings || []).filter(posting => !posting.last_filled).length
+  }, { status: missing || stale || pending ? 503 : 200, headers: { "Cache-Control": "public, max-age=60" } });
+}
+
+async function readStatusPayload(env) {
+  if (env.DB && env.JOB_FEEDS?.head) {
+    try {
+      const publication = await dbFirst(env, `select p.version as feed_version, p.r2_key,
+        r.scan_date as last_scan, r.completed_at as last_scan_at, r.status,
+        r.failed_sources as fail_count, r.partial_sources as partial_count,
+        coalesce(d.total_jobs - d.filled_jobs, 0) as active_jobs
+        from feed_pointer fp join feed_publications p on p.version = fp.current_version
+        join scan_runs r on r.id = p.scan_run_id
+        left join daily_scan_stats d on d.scan_date = r.scan_date where fp.singleton = 1`);
+      if (!publication || !await env.JOB_FEEDS.head(publication.r2_key)) return {};
+      const latest = await dbFirst(env, "select scan_date, status from scan_runs order by scan_date desc limit 1");
+      return { ...publication, scan_meta: { failCount: publication.fail_count, partialCount: publication.partial_count },
+        scan_cycle: { publication_complete: !(latest?.scan_date === todayUTC() && latest.status === "running") } };
+    } catch {
+      return {};
+    }
+  }
+  return readJobsPayloadSafe(env);
 }
 
 function decodeBase64Bytes(value) {
@@ -3538,6 +3613,7 @@ async function handleAgencyFeedback(request, env) {
 }
 
 async function readJobsPayload(env) {
+  const today = todayUTC();
   if (env.DB && env.JOB_FEEDS) {
     try {
       const publication = await dbFirst(env, `select p.version, p.r2_key
@@ -3551,7 +3627,8 @@ async function readJobsPayload(env) {
             ...published,
             feed_version: publication.version,
             postings: Array.isArray(published.postings)
-              ? published.postings.map(posting => ({ ...posting, tier: normalizeTier(posting.tier) }))
+              ? published.postings.map(posting => ({ ...posting, tier: normalizeTier(posting.tier),
+                freshness: posting.last_filled ? "closed" : posting.last_seen === today ? "verified" : "carried_forward" }))
               : []
           };
         }
@@ -3569,7 +3646,8 @@ async function readJobsPayload(env) {
   return {
     ...payload,
     postings: Array.isArray(payload.postings)
-      ? payload.postings.map(p => ({ ...p, tier: normalizeTier(p.tier) }))
+      ? payload.postings.map(p => ({ ...p, tier: normalizeTier(p.tier),
+        freshness: p.last_filled ? "closed" : p.last_seen === today ? "verified" : "carried_forward" }))
       : []
   };
 }
@@ -3586,10 +3664,10 @@ async function readJobsPayloadSafe(env) {
 }
 
 function jobsPayloadIsStale(data) {
-  return data.last_scan !== todayUTC();
+  return data.last_scan !== todayUTC() || data.scan_cycle?.publication_complete === false;
 }
 
-async function persistSuccessfulScan(env, result, scanDate = null) {
+export async function persistSuccessfulScan(env, result, scanDate = null) {
   if (!result?.next || !env.DB) return;
   const date = scanDate || result.next.scan_cycle?.date || result.next.last_scan || todayUTC();
   const scanRunId = `scan:${date}`;
@@ -3610,7 +3688,7 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
       completed_at = excluded.completed_at`,
   scanRunId,
   date,
-  result.cycleComplete ? (Number(meta.failCount || 0) ? "degraded" : "complete") : "running",
+  "running",
   Number(result.next.scan_cycle?.total_shards || SCAN_CRONS.length),
   Number(result.next.scan_cycle?.completed_shards?.length || 0),
   Object.keys(result.next.postings || {}).length,
@@ -3619,7 +3697,7 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
   Number(meta.partialCount || 0),
   now,
   now,
-  result.cycleComplete ? now : null);
+  null);
 
   await dbRun(env, `insert into scan_shards
     (id, scan_run_id, shard_index, status, ok_count, fail_count, partial_count, started_at, completed_at)
@@ -3633,7 +3711,7 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
   `${scanRunId}:${result.shardIndex}`,
   scanRunId,
   Number(result.shardIndex || 0),
-  Number(result.failCount || 0) ? "degraded" : "complete",
+  Number(result.failCount || 0) || Number(result.partialCount || 0) ? "degraded" : "complete",
   Number(result.okCount || 0),
   Number(result.failCount || 0),
   Number(result.partialCount || 0),
@@ -3644,12 +3722,13 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
   const database = db(env);
   const sourceMeta = meta.sourceMeta || {};
   for (const sourceId of meta.okSources || []) {
+    if ((meta.partialSources || []).includes(sourceId)) continue;
     sourceStatements.push(database.prepare(`insert into scan_sources
       (id, scan_run_id, source_id, status, posting_count, updated_at)
       values (?, ?, ?, 'complete', ?, ?)
       on conflict(scan_run_id, source_id) do update set status = excluded.status,
         posting_count = excluded.posting_count, error_code = null, updated_at = excluded.updated_at`)
-      .bind(`${scanRunId}:${sourceId}`, scanRunId, sourceId, Number(sourceMeta[sourceId]?.count || 0), now));
+      .bind(`${scanRunId}:${sourceId}`, scanRunId, sourceId, Number(sourceMeta[sourceId]?.retainedJobs || 0), now));
   }
   for (const sourceId of meta.partialSources || []) {
     sourceStatements.push(database.prepare(`insert into scan_sources
@@ -3657,7 +3736,7 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
       values (?, ?, ?, 'partial', ?, ?)
       on conflict(scan_run_id, source_id) do update set status = excluded.status,
         posting_count = excluded.posting_count, updated_at = excluded.updated_at`)
-      .bind(`${scanRunId}:${sourceId}`, scanRunId, sourceId, Number(sourceMeta[sourceId]?.count || 0), now));
+      .bind(`${scanRunId}:${sourceId}`, scanRunId, sourceId, Number(sourceMeta[sourceId]?.retainedJobs || 0), now));
   }
   for (const sourceId of meta.failedSources || []) {
     sourceStatements.push(database.prepare(`insert into scan_sources
@@ -3671,13 +3750,17 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
 
   if (!result.cycleComplete) return;
   await persistScanToD1(env, result.next, date, scanRunId);
-  if (!env.JOB_FEEDS) return;
+  if (!env.JOB_FEEDS) {
+    await dbRun(env, "update scan_runs set status = ?, completed_at = ?, updated_at = ? where id = ?",
+      Number(meta.failCount || 0) || Number(meta.partialCount || 0) ? "degraded" : "complete", now, now, scanRunId);
+    return;
+  }
 
   const feedPayload = JSON.stringify({
     last_scan: result.next.last_scan,
     last_scan_at: result.next.last_scan_at,
     last_partial_scan_at: result.next.last_partial_scan_at,
-    scan_cycle: result.next.scan_cycle,
+    scan_cycle: { ...result.next.scan_cycle, publication_complete: true },
     scan_meta: result.next.scan_meta,
     postings: Object.values(result.next.postings || {})
   });
@@ -3701,10 +3784,17 @@ async function persistSuccessfulScan(env, result, scanDate = null) {
     database.prepare(`insert into feed_pointer (singleton, current_version, previous_version, updated_at)
       values (1, ?, ?, ?)
       on conflict(singleton) do update set previous_version = feed_pointer.current_version,
-        current_version = excluded.current_version, updated_at = excluded.updated_at`)
+        current_version = excluded.current_version, updated_at = excluded.updated_at
+      where feed_pointer.current_version is not excluded.current_version`)
       .bind(version, current?.current_version || null, now),
-    database.prepare("update scan_runs set feed_version = ?, updated_at = ? where id = ?").bind(version, now, scanRunId)
+    database.prepare("update scan_runs set feed_version = ?, status = ?, completed_at = ?, updated_at = ? where id = ?")
+      .bind(version, Number(meta.failCount || 0) || Number(meta.partialCount || 0) ? "degraded" : "complete", now, now, scanRunId)
   ]);
+  // KV is a scan checkpoint; durable publication is complete only after R2 and
+  // the transactional D1 pointer activation succeed. Replaying this is safe.
+  result.next.scan_cycle.publication_complete = true;
+  await env.KV.put("state", JSON.stringify(result.next));
+  await env.KV.put("jobs", feedPayload);
 }
 
 async function maybeRefreshStaleJobs(env, ctx, data) {
@@ -3964,15 +4054,14 @@ async function handlePublicJobPage(request, env, jobId) {
   }
   if (!job) return withTrustHeaders(new Response("Job not found", { status: 404, headers: { "Content-Type": "text/plain; charset=UTF-8" } }));
   const filled = Boolean(job.last_filled);
+  const stale = daysBetween(job.last_seen || "1970-01-01", todayUTC()) > PARTIAL_SOURCE_STALE_DAYS;
   const canonical = `${SITE_ORIGIN}/jobs/${encodeURIComponent(job.id)}/${slugify(job.company)}-${slugify(job.title)}`;
-  const schema = !filled ? {
+  const schema = !filled && !stale ? {
     "@context": "https://schema.org",
     "@type": "JobPosting",
     title: job.title,
     description: `${job.title} at ${job.company}. Confirm details and application requirements on the employer's careers page.`,
     datePosted: job.first_seen || lastScan,
-    validThrough: job.last_seen || undefined,
-    employmentType: "FULL_TIME",
     hiringOrganization: { "@type": "Organization", name: job.company },
     jobLocation: {
       "@type": "Place",
@@ -3989,10 +4078,11 @@ async function handlePublicJobPage(request, env, jobId) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHTML(job.title)} at ${escapeHTML(job.company)} | Live Job Index</title>
 <meta name="description" content="${escapeHTML(`${job.title} at ${job.company} in ${job.location || job.country || "a global market"}. Review current role and visa-aware hiring signals.`)}">
-<link rel="canonical" href="${escapeHTML(canonical)}">${filled ? '<meta name="robots" content="noindex,follow">' : ""}
+<link rel="canonical" href="${escapeHTML(canonical)}">${filled || stale ? '<meta name="robots" content="noindex,follow">' : ""}
 ${schema ? `<script type="application/ld+json" nonce="${nonce}">${safeJsonLd(schema)}</script>` : ""}
 <link rel="stylesheet" href="/app.css"></head><body><main class="seo-job-page">
-<p><a href="/">← Live jobs</a></p><p class="eyebrow">${filled ? "Previously listed" : "Confirmed live posting"}</p>
+<p><a href="/">← Live jobs</a></p><p class="eyebrow">${filled ? "Previously listed" : job.last_seen === todayUTC() ? "Verified in today's employer feed" : "Previously verified — current availability unconfirmed"}</p>
+<p>Last verified: ${escapeHTML(job.last_seen || "Unknown")}. Confirm availability on the employer page.</p>
 <h1>${escapeHTML(job.title)}</h1><h2>${escapeHTML(job.company)}</h2>
 <dl><dt>Location</dt><dd>${escapeHTML(job.location || job.country || "See employer page")}</dd><dt>Role family</dt><dd>${escapeHTML(job.role_family || "Other")}</dd><dt>Seniority</dt><dd>${escapeHTML(job.seniority || "Not specified")}</dd><dt>Visa signal</dt><dd>${escapeHTML(job.visa || "Unknown")} — heuristic, not a guarantee</dd></dl>
 ${filled ? "<p>This posting is no longer present in the employer feed.</p>" : `<p><a class="primary-btn" href="${escapeHTML(safeApplyUrl(job.url))}" rel="noopener noreferrer">Open employer application</a></p>`}
@@ -4313,6 +4403,7 @@ async function handleActivity(request, env) {
 async function coordinatedScan(env, options = {}) {
   if (!env.SCAN_COORDINATOR?.getByName) {
     const result = await runScan(env, options);
+    if (result.replay && result.next?.scan_cycle?.publication_complete) return { ...result, skipped: true };
     if (!result.error) await persistSuccessfulScan(env, result, options.scanDate || null);
     return result;
   }
@@ -4344,7 +4435,7 @@ export class ScanCoordinator {
     let shardIndex = normalizeShardIndex(payload.shardIndex);
     if (url.pathname === "/enqueue") {
       const current = await this.env.KV.get("state", "json");
-      if (current?.last_scan === todayUTC()) return Response.json({ queued: false });
+      if (current?.last_scan === scanDate && current?.scan_cycle?.publication_complete) return Response.json({ queued: false });
       shardIndex = nextIncompleteShard(current, todayUTC());
       const key = `queued:${shardIndex}`;
       const queuedAt = await this.state.storage.get(key);
@@ -4367,7 +4458,24 @@ export class ScanCoordinator {
     const claim = { id: crypto.randomUUID(), scanDate, shardIndex, startedAt: new Date().toISOString() };
     await this.state.storage.put("active", claim);
     try {
-      const result = await runScan(this.env, { shardIndex });
+      if (scanDate !== todayUTC()) return Response.json({ error: "expired_scan_date" }, { status: 410 });
+      const current = await this.env.KV.get("state", "json");
+      const shardSources = scanSourceShards()[shardIndex].map(sourceId);
+      const shardSucceeded = current?.scan_cycle?.date === scanDate
+        && current.scan_cycle.completed_shards?.includes(shardIndex)
+        && shardSources.every(id => {
+          const meta = current.scan_meta?.sourceMeta?.[id];
+          return ["complete", "partial"].includes(meta?.status) || (meta?.status === "failed" && meta.retryable === false);
+        });
+      if (shardSucceeded && (!current.scan_cycle.complete || current.scan_cycle.publication_complete)) {
+        return Response.json({ skipped: true, shardIndex, cycleComplete: current.scan_cycle.complete });
+      }
+      const resumePublication = current?.scan_cycle?.date === scanDate && current.scan_cycle.complete
+        && !current.scan_cycle.publication_complete;
+      const result = resumePublication ? { next: current, cycleComplete: true, shardIndex,
+        completedShards: current.scan_cycle.completed_shards, total: Object.keys(current.postings || {}).length,
+        okCount: Number(current.scan_meta?.okCount || 0), failCount: Number(current.scan_meta?.failCount || 0),
+        partialCount: Number(current.scan_meta?.partialCount || 0) } : await runScan(this.env, { shardIndex, scanDate });
       if (result.error) return Response.json(result, { status: 503 });
       await persistSuccessfulScan(this.env, result, scanDate);
       await this.state.storage.put("last_result", {
@@ -4380,6 +4488,7 @@ export class ScanCoordinator {
         okCount: result.okCount,
         failCount: result.failCount,
         partialCount: result.partialCount,
+        retryableFailCount: result.retryableFailCount,
         total: result.total,
         shardIndex: result.shardIndex,
         completedShards: result.completedShards,
@@ -4753,7 +4862,17 @@ export default {
       const allow = allowedApiMethods(url.pathname);
       return allow ? methodNotAllowed(allow) : errorResponse(404, "not_found");
     }
-    return fetchAsset(request, env);
+    const appRoutes = new Set(["/", "/jobs", "/visa-roles", "/pipeline", "/insights", "/auth/callback",
+      "/app", "/app/jobs", "/app/visa-roles", "/app/pipeline", "/app/insights", "/app/archive", "/app/resumes", "/app/settings", "/app/onboarding"]);
+    if (!appRoutes.has(url.pathname) && !/\.[a-z0-9]+$/i.test(url.pathname)) {
+      return withTrustHeaders(new Response("Page not found", { status: 404 }));
+    }
+    const asset = await fetchAsset(request, env);
+    if (!appRoutes.has(url.pathname) && asset.headers.get("content-type")?.includes("text/html")
+        && !["/index.html", "/privacy.html", "/terms.html"].includes(url.pathname)) {
+      return withTrustHeaders(new Response("File not found", { status: 404 }));
+    }
+    return asset;
   },
 
   async scheduled(event, env, ctx) {
@@ -4762,12 +4881,12 @@ export default {
     const scanPromise = coordinatedScan(env, { shardIndex, scanDate: today }).then(async result => {
       if (result.error) {
         console.error(JSON.stringify({ event: "scheduled_scan_failed", shardIndex, ...result }));
-        if (env.RESUME_QUEUE?.send) {
+        if (result.retryable !== false && env.RESUME_QUEUE?.send) {
           await env.RESUME_QUEUE.send({ type: "scan_retry", shard_index: shardIndex, scan_date: today, attempt: 1 }, { contentType: "json", delaySeconds: 300 });
         }
         return;
       }
-      if (Number(result.failCount || 0) > 0 && env.RESUME_QUEUE?.send) {
+      if (Number(result.retryableFailCount ?? result.failCount ?? 0) > 0 && env.RESUME_QUEUE?.send) {
         await env.RESUME_QUEUE.send({ type: "scan_retry", shard_index: shardIndex, scan_date: today, attempt: 1 }, { contentType: "json", delaySeconds: 300 });
       }
       if (result.cycleComplete) {
@@ -4797,8 +4916,13 @@ export default {
         continue;
       }
       try {
+        if (message.body.scan_date && message.body.scan_date !== todayUTC()) {
+          console.error(JSON.stringify({ event: "expired_scan_retry", scanDate: message.body.scan_date }));
+          message.ack?.();
+          continue;
+        }
         const result = await coordinatedScan(env, { shardIndex: normalizeShardIndex(message.body.shard_index), scanDate: message.body.scan_date || todayUTC() });
-        if ((result.error || Number(result.failCount || 0) > 0) && Number(message.body.attempt || 1) < 3 && env.RESUME_QUEUE?.send) {
+        if (((result.error && result.retryable !== false) || Number(result.retryableFailCount ?? result.failCount ?? 0) > 0) && Number(message.body.attempt || 1) < 3 && env.RESUME_QUEUE?.send) {
           await env.RESUME_QUEUE.send({ ...message.body, attempt: Number(message.body.attempt || 1) + 1 }, { contentType: "json", delaySeconds: 300 * Number(message.body.attempt || 1) });
         } else if (result.error || Number(result.failCount || 0) > 0) {
           console.error(JSON.stringify({ event: "scan_retry_exhausted", shardIndex: message.body.shard_index, scanDate: message.body.scan_date, result }));
