@@ -13,6 +13,7 @@ import {
 } from "./resume-core.js";
 import { renderResumeArtifacts } from "./resume-renderer.js";
 import { runScanStorageMaintenance } from "./scan-storage.js";
+import { greenhouseBoardToken } from "./ats-sources.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 const SOURCE_MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -265,6 +266,8 @@ function normalizeNotification(row) {
 }
 
 async function ensureBetaEntitlement(env, userId, deps) {
+  if (await deps.first(env, `select id from entitlement_grants where user_id = ?
+    and feature_key = 'application_pack' and source = 'beta' and external_reference = 'resume-studio-v1-beta' limit 1`, userId)) return;
   const now = nowISO();
   const billingId = crypto.randomUUID();
   await deps.run(env, `insert into billing_accounts (id, user_id, status, created_at, updated_at)
@@ -280,8 +283,6 @@ async function ensureBetaEntitlement(env, userId, deps) {
 async function usageSummary(env, userId, deps) {
   await ensureBetaEntitlement(env, userId, deps);
   const now = nowISO();
-  await deps.run(env, `update usage_reservations set status = 'expired', release_reason = 'reservation_expired',
-    updated_at = ? where user_id = ? and status = 'reserved' and expires_at <= ?`, now, userId, now);
   const [grants, committed, reserved] = await Promise.all([
     deps.first(env, `select coalesce(sum(quantity), 0) as total from entitlement_grants
       where user_id = ? and feature_key = 'application_pack' and starts_at <= ? and (expires_at is null or expires_at > ?)`, userId, now, now),
@@ -522,19 +523,26 @@ async function releaseMaintenanceLease(env, deps, leaseKey, token) {
 export async function runResumeMaintenance(env, deps) {
   const now = nowISO();
   await deps.run(env, `update usage_reservations set status = 'expired', release_reason = 'reservation_expired',
-    updated_at = ? where status = 'reserved' and expires_at <= ?`, now, now);
+    updated_at = ? where id in (select id from usage_reservations where status = 'reserved' and expires_at <= ? limit 25)`, now, now);
   const cleanup = await deps.all(env, `select * from provider_file_cleanup
     where status != 'complete' and (next_attempt_at is null or next_attempt_at <= ?) and attempt_count < 10
     order by created_at limit 25`, now);
   for (const item of cleanup) await deleteProviderFile(env, deps, item.user_id, item.provider_file_id);
-  await deps.run(env, "delete from anonymous_sessions where expires_at is not null and expires_at <= ?", now);
-  await deps.run(env, "delete from job_views where user_id is null and viewed_at < datetime('now','-30 days')");
-  await deps.run(env, "delete from search_queries where user_id is null and created_at < datetime('now','-30 days')");
-  await deps.run(env, "delete from page_views where user_id is null and created_at < datetime('now','-30 days')");
-  await deps.run(env, "delete from job_views where user_id is not null and viewed_at < datetime('now','-90 days')");
-  await deps.run(env, "delete from search_queries where user_id is not null and created_at < datetime('now','-90 days')");
-  await deps.run(env, "delete from page_views where user_id is not null and created_at < datetime('now','-90 days')");
-  await deps.run(env, "delete from daily_scan_stats where scan_date < date('now','-13 months')");
+  await deps.run(env, "delete from anonymous_sessions where id in (select id from anonymous_sessions where expires_at is not null and expires_at <= ? limit 25)", now);
+  for (const [table, column] of [["job_views", "viewed_at"], ["search_queries", "created_at"], ["page_views", "created_at"]]) {
+    for (const [owner, days] of [["null", 30], ["not null", 90]]) {
+      await deps.run(env, `delete from ${table} where id in (select id from ${table}
+        where user_id is ${owner} and ${column} < datetime('now','-${days} days') limit 25)`);
+    }
+  }
+  await deps.run(env, "delete from daily_scan_stats where scan_date in (select scan_date from daily_scan_stats where scan_date < date('now','-13 months') limit 25)");
+  await deps.run(env, "delete from api_idempotency_keys where id in (select id from api_idempotency_keys where expires_at <= ? limit 25)", now);
+  // Durable rows are the recovery record if dispatch failed after insertion.
+  const queued = await deps.all(env, `select id from resume_builds where status = 'QUEUED'
+    and created_at < ? order by created_at limit 5`, new Date(Date.now() - 10 * 60 * 1000).toISOString());
+  for (const build of queued) {
+    await enqueue(env, null, { type: "build", build_id: build.id }, () => processResumeBuild(env, build.id, deps));
+  }
   const scanStorage = await runScanStorageMaintenance(env, deps);
   return { provider_files_checked: cleanup.length, ...scanStorage };
 }
@@ -584,7 +592,7 @@ function greenhouseDetailURL(posting) {
   const prefix = `greenhouse-${posting.source_token}-`;
   let id = String(posting.id || "").startsWith(prefix) ? String(posting.id).slice(prefix.length) : "";
   id = id.split("-loc-")[0];
-  return /^\d+$/.test(id) ? `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(posting.source_token)}/jobs/${id}` : null;
+  return /^\d+$/.test(id) ? `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(greenhouseBoardToken(posting.source_token))}/jobs/${id}` : null;
 }
 
 const APPROVED_JOB_HOSTS = new Set([
@@ -1294,10 +1302,15 @@ async function handleSourceCollection(request, env, ctx, user, deps) {
   const key = `users/${user.id}/sources/${id}/original`;
   await env.RESUME_FILES.put(key, bytes, { httpMetadata: { contentType: validation.mime_type }, customMetadata: { filename: safeName, sha256: hash } });
   const now = nowISO();
-  await deps.run(env, `insert into resume_sources
+  try {
+    await deps.run(env, `insert into resume_sources
     (id, user_id, original_filename, safe_filename, mime_type, byte_size, sha256, r2_key, extraction_state, created_at, updated_at)
     values (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
   id, user.id, filename, safeName, validation.mime_type, bytes.byteLength, hash, key, now, now);
+  } catch (failure) {
+    await env.RESUME_FILES.delete(key);
+    throw failure;
+  }
   await enqueue(env, ctx, { type: "source_extract", source_id: id }, () => processResumeSource(env, id, deps));
   return response({ source_id: id, status: "pending", status_url: `/api/resume-sources/${id}` }, 202);
 }
@@ -1589,19 +1602,30 @@ async function createBuild(request, env, ctx, user, deps, source) {
     }
     const id = crypto.randomUUID();
     const now = nowISO();
-    await deps.run(env, `insert into resume_builds
-      (id, user_id, job_id, custom_job_input_id, profile_id, status, generation_version, idempotency_key,
-       equivalence_hash, credit_reservation_id, auto_build, build_rule_id, auto_build_local_date, created_at, updated_at)
-      values (?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id, user.id, jobId, customId, profileId, RESUME_GENERATION_VERSION, idempotencyKey, equivalenceHash,
-    reservation.id, payload.auto_build ? 1 : 0, source.ruleId || null, source.localDate || null, now, now);
-    const responseBody = { build_id: id, status: "QUEUED", status_url: `/api/resume-builds/${id}` };
-    await deps.run(env, `insert into api_idempotency_keys
-      (id, user_id, scope, idempotency_key, response_status, response_body, created_at, expires_at, request_hash)
-      values (?, ?, 'resume_build', ?, 202, ?, ?, ?, ?)`, crypto.randomUUID(), user.id, idempotencyKey,
-    json(responseBody), now, new Date(Date.now() + 86400000).toISOString(), requestHash);
-    await enqueue(env, ctx, { type: "build", build_id: id }, () => processResumeBuild(env, id, deps));
-    return response(responseBody, 202);
+    try {
+      await deps.run(env, `insert into resume_builds
+        (id, user_id, job_id, custom_job_input_id, profile_id, status, generation_version, idempotency_key,
+         equivalence_hash, credit_reservation_id, auto_build, build_rule_id, auto_build_local_date, created_at, updated_at)
+        values (?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, user.id, jobId, customId, profileId, RESUME_GENERATION_VERSION, idempotencyKey, equivalenceHash,
+      reservation.id, payload.auto_build ? 1 : 0, source.ruleId || null, source.localDate || null, now, now);
+      const responseBody = { build_id: id, status: "QUEUED", status_url: `/api/resume-builds/${id}` };
+      await deps.run(env, `insert into api_idempotency_keys
+        (id, user_id, scope, idempotency_key, response_status, response_body, created_at, expires_at, request_hash)
+        values (?, ?, 'resume_build', ?, 202, ?, ?, ?, ?)`, crypto.randomUUID(), user.id, idempotencyKey,
+      json(responseBody), now, new Date(Date.now() + 86400000).toISOString(), requestHash);
+      await enqueue(env, ctx, { type: "build", build_id: id }, () => processResumeBuild(env, id, deps));
+      return response(responseBody, 202);
+    } catch (failure) {
+      // Never release a reservation behind a durable build: dispatch may have
+      // succeeded even when its acknowledgement failed. Maintenance resumes it.
+      const durable = await deps.first(env, "select id from resume_builds where id = ? and user_id = ?", id, user.id);
+      if (durable) return response({ build_id: id, status: "QUEUED", status_url: `/api/resume-builds/${id}`, dispatch_pending: true }, 202);
+      await deps.run(env, `update usage_reservations set status = 'released', release_reason = 'build_creation_failed',
+        updated_at = ? where id = ? and user_id = ? and status = 'reserved'`, nowISO(), reservation.id, user.id);
+      await deps.run(env, `update ai_daily_budgets set accepted_builds = max(0, accepted_builds - 1), updated_at = ? where budget_date = ?`, nowISO(), now.slice(0, 10));
+      throw failure;
+    }
   } finally {
     await releaseMutationClaim(claim, claimKey);
   }
@@ -1907,7 +1931,7 @@ async function unsubscribeToken(env, userId) {
 }
 
 export async function handleOneClickUnsubscribe(request, env, deps) {
-  if (request.method !== "POST") return error(405, "method_not_allowed");
+  if (!["GET", "POST"].includes(request.method)) return error(405, "method_not_allowed");
   const token = new URL(request.url).searchParams.get("token") || "";
   const [payloadPart, signaturePart] = token.split(".");
   if (!payloadPart || !signaturePart || !env.UNSUBSCRIBE_SECRET) return error(400, "invalid_unsubscribe_token");
@@ -1916,6 +1940,12 @@ export async function handleOneClickUnsubscribe(request, env, deps) {
     const valid = await crypto.subtle.verify("HMAC", key, tokenDecode(signaturePart), new TextEncoder().encode(payloadPart));
     const payload = JSON.parse(new TextDecoder().decode(tokenDecode(payloadPart)));
     if (!valid || !payload.user_id || Number(payload.exp || 0) < Math.floor(Date.now() / 1000)) return error(400, "invalid_unsubscribe_token");
+    if (request.method === "GET") {
+      return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Manage email digests</title><h1>Unsubscribe from email digests</h1><p>Confirm below to stop Resume Studio email digests.</p><form method="post"><button type="submit">Unsubscribe</button></form></html>`, {
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+          "Content-Security-Policy": "default-src 'none'; form-action 'self'; frame-ancestors 'none'" }
+      });
+    }
     const now = nowISO();
     await deps.run(env, `update build_rules set email_opt_in = 0, notification_delivery = 'in_app',
       unsubscribed_at = ?, updated_at = ? where user_id = ?`, now, now, payload.user_id);
@@ -2006,6 +2036,7 @@ export async function dispatchResumeDigests(env, deps, date = new Date()) {
 
 export async function dispatchDailyResumeMatching(env, deps, scanDate = nowISO().slice(0, 10), ctx = null) {
   if (!boolEnv(env.RESUME_DAILY_MATCHING_ENABLED)) return { queued: 0, skipped: "matching_disabled" };
+  if (!await deps.first(env, "select id from build_rules where enabled = 1 limit 1")) return { queued: 0, skipped: "no_enabled_rules" };
   const rows = await deps.all(env, `select p.id from job_postings p join job_snapshots s on s.job_id = p.id and s.scan_date = ?
     where p.is_active = 1 and s.is_new = 1`, scanDate);
   if (env.RESUME_QUEUE?.sendBatch && rows.length) {
@@ -2025,10 +2056,11 @@ export async function dispatchDailyResumeMatching(env, deps, scanDate = nowISO()
 
 export async function runDailyResumeMatching(env, deps, scanDate = nowISO().slice(0, 10), ctx = null, onlyJobId = null) {
   if (!boolEnv(env.RESUME_DAILY_MATCHING_ENABLED)) return { matched: 0, skipped: "matching_disabled" };
+  const rules = await deps.all(env, "select * from build_rules where enabled = 1");
+  if (!rules.length) return { matched: 0, skipped: "no_enabled_rules" };
   const jobs = await deps.all(env, `select p.*, s.country, s.role_family, s.seniority, s.visa, s.score
     from job_postings p join job_snapshots s on s.job_id = p.id and s.scan_date = ?
-    where p.is_active = 1 and s.is_new = 1 and (? is null or p.id = ?)`, scanDate, onlyJobId, onlyJobId);
-  const rules = await deps.all(env, "select * from build_rules where enabled = 1");
+    where p.is_active = 1 and s.is_new = 1${onlyJobId ? " and p.id = ?" : ""}`, ...(onlyJobId ? [scanDate, onlyJobId] : [scanDate]));
   let matched = 0;
   for (const rawRule of rules) {
     const rule = normalizeRule(rawRule);

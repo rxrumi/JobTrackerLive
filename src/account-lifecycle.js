@@ -39,9 +39,11 @@ async function deleteR2Prefix(bucket, prefix) {
 }
 
 async function deleteProviderFile(env, userId, providerFileId) {
-  if (!providerFileId || !env.OPENAI_API_KEY) return;
+  if (!providerFileId) return;
+  if (!env.OPENAI_API_KEY) throw new Error("provider_cleanup_credentials_missing");
   const response = await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(providerFileId)}`, {
     method: "DELETE",
+    signal: AbortSignal.timeout(30000),
     headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` }
   });
   if (response.ok || response.status === 404) return;
@@ -74,7 +76,7 @@ async function terminateUserBuilds(env, userId) {
 }
 
 async function revokeClerkSessions(env, userId) {
-  if (!env.CLERK_SECRET_KEY) return;
+  if (!env.CLERK_SECRET_KEY) throw new Error("clerk_credentials_missing");
   const list = await fetch(`https://api.clerk.com/v1/sessions?user_id=${encodeURIComponent(userId)}&limit=100`, {
     headers: { authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
     signal: AbortSignal.timeout(30000)
@@ -142,6 +144,9 @@ export async function processAccountDeletion(env, deletionId) {
   const updateStep = async step => run(env, `update account_deletion_requests set status = 'processing', current_step = ?,
     attempt_count = attempt_count + 1, updated_at = ? where id = ?`, step, nowISO(), deletionId);
   try {
+    // Check before deleting any application data so a retry can finish safely.
+    if (request.source !== "clerk_webhook" && !env.CLERK_SECRET_KEY) throw new Error("clerk_credentials_missing");
+    if (!env.RESUME_FILES) throw new Error("private_storage_missing");
     await updateStep("fence_work");
     await run(env, "update users set lifecycle_state = 'deletion_pending', deletion_requested_at = coalesce(deletion_requested_at, ?), updated_at = ? where id = ?",
       nowISO(), nowISO(), userId);
@@ -162,7 +167,11 @@ export async function processAccountDeletion(env, deletionId) {
     await updateStep("delete_identity");
     if (env.CLERK_SECRET_KEY && request.source !== "clerk_webhook") {
       const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
-      await clerk.users.deleteUser(userId);
+      try {
+        await clerk.users.deleteUser(userId);
+      } catch (failure) {
+        if (failure?.status !== 404) throw failure;
+      }
     }
 
     await run(env, "delete from users where id = ?", userId);

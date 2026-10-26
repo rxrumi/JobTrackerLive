@@ -15,12 +15,15 @@
     "build:frontend": "node scripts/split-frontend.mjs",
     "test": "node --test",
     "test:migrations": "sh scripts/test-migrations.sh",
-    "check:types": "wrangler types .wrangler/worker-runtime.d.ts --include-env=false && wrangler types --check --include-runtime=false",
+    "check:types": "node -e \"require('node:fs').mkdirSync('.wrangler', {recursive:true})\" && wrangler types .wrangler/worker-runtime.d.ts --include-env=false && wrangler types --check --include-runtime=false",
     "check:deploy": "wrangler deploy --dry-run && wrangler deploy --dry-run -c workflow/wrangler.toml",
     "verify": "npm run build:frontend && npm audit && npm test && npm run test:migrations && npm run check:types && npm run check:deploy"
   },
   "devDependencies": {
-    "wrangler": "4.149.0"
+    "wrangler": "4.152.0"
+  },
+  "overrides": {
+    "miniflare": { "undici": "7.30.1" }
   },
   "dependencies": {
     "@clerk/backend": "^3.23.1",

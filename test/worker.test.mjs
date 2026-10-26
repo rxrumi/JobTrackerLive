@@ -104,7 +104,7 @@ function tokenFromUrl(url) {
   ];
   for (const pattern of patterns) {
     const match = href.match(pattern);
-    if (match) return match[1];
+    if (match) return match[1] === "hubspotjobs" ? "hubspot" : match[1];
   }
   return null;
 }
@@ -1530,6 +1530,7 @@ function createD1Fake({ user, rows = {} } = {}) {
       const [scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at] = params;
       upsert("daily_scan_stats", { scan_date, total_jobs, new_jobs, filled_jobs, per_source, per_industry, per_niche, per_country, per_family, per_tier, ok_count, fail_count, created_at, updated_at }, ["scan_date"]);
     } else if (q.startsWith("insert into scan_runs")
+      || q.startsWith("update scan_runs")
       || q.startsWith("insert into scan_shards")
       || q.startsWith("insert into scan_sources")
       || q.startsWith("insert into feed_publications")
@@ -2311,6 +2312,26 @@ test("me exposes signup full name from auth metadata", async () => {
   assert.equal(payload.auth_user.full_name, "Sohaib Kazmi");
 });
 
+test("repeat account reads use existing rows without issuing account writes", async () => {
+  const fake = createD1Fake({ user: { id: "synthetic-user", email: "fixture@example.com", full_name: "Fixture" } });
+  const env = { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user };
+  const request = () => new Request("https://example.com/api/me", { headers: { Cookie: "session=1" } });
+  assert.equal((await worker.fetch(request(), env)).status, 200);
+  const before = fake.calls.length;
+  assert.equal((await worker.fetch(request(), env)).status, 200);
+  assert.equal(fake.calls.length, before);
+});
+
+test("saved searches reject enabling unavailable alert delivery", async () => {
+  const fake = createD1Fake({ user: { id: "synthetic-user", email: "fixture@example.com", full_name: "Fixture" } });
+  const result = await worker.fetch(new Request("https://example.com/api/saved-searches", {
+    method: "POST", headers: { "content-type": "application/json", Cookie: "session=1" },
+    body: JSON.stringify({ name: "Example", query: {}, alerts_enabled: true })
+  }), { KV: createKV(), DB: fake.DB, CLERK_USER: fake.user });
+  assert.equal(result.status, 409);
+  assert.equal(apiError(await result.json()), "saved_search_alerts_unavailable");
+});
+
 test("public config exposes browser auth settings", async () => {
   const response = await worker.fetch(new Request("https://livejobindex.com/api/config"), {
     CLERK_PUBLISHABLE_KEY: "pk_test_livejobindex",
@@ -2540,7 +2561,7 @@ test("runScan preserves previous postings from a failed active source", async t 
     visa: "Strong",
     score: 96,
     first_seen: "2026-05-20",
-    last_seen: "2026-05-20",
+    last_seen: new Date().toISOString().slice(0, 10),
     last_filled: null
   };
   const KV = createKV({ postings: { [previousPosting.id]: previousPosting } });
@@ -2579,7 +2600,7 @@ test("runScan preserves previous postings when a custom parser source fails", as
     visa: "Likely",
     score: 88,
     first_seen: "2026-05-20",
-    last_seen: "2026-05-20",
+    last_seen: new Date().toISOString().slice(0, 10),
     last_filled: null
   };
   const KV = createKV({ postings: { [previousPosting.id]: previousPosting } });

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { persistScanToD1 } from "../src/worker.js";
+import { persistScanToD1, persistSuccessfulScan } from "../src/worker.js";
 import { runResumeMaintenance } from "../src/resume-studio.js";
 import { runScanStorageMaintenance, SNAPSHOT_CLEANUP_BATCH } from "../src/scan-storage.js";
 
@@ -40,6 +40,8 @@ function sqliteFixture(t) {
   DB.prepare = ((prepare) => sql => {
     const statement = prepare(sql);
     statement.run = async function () { const changes = execute(`${this.sql}; select changes();`); return { success: true, meta: { changes: Number(changes) } }; };
+    statement.all = async function () { return { results: JSON.parse(execute(`.mode json\n${this.sql};`) || "[]") }; };
+    statement.first = async function () { return (await this.all()).results[0] || null; };
     return statement;
   })(DB.prepare);
   return { execute, DB, batches };
@@ -162,4 +164,44 @@ test("resume maintenance expires reservations using the actual migrated schema",
   });
   assert.equal(fixture.execute("select status || ':' || release_reason from usage_reservations where id='expired';"), "expired:reservation_expired");
   assert.equal(fixture.execute("select status from usage_reservations where id='live';"), "reserved");
+});
+
+test("publication failure remains running and replay activates once without losing rollback", async t => {
+  const fixture = sqliteFixture(t);
+  const state = new Map();
+  let fail = true;
+  const env = { DB: fixture.DB,
+    KV: { async put(k,v) { state.set(k, JSON.parse(v)); } },
+    JOB_FEEDS: { async put() { if (fail) throw Error("synthetic R2 outage"); } }
+  };
+  const next = { last_scan: "2026-10-26", last_scan_at: "2026-10-26T03:40:00Z", postings: { "fixture-job": posting() },
+    scan_cycle: { date: "2026-10-26", complete: true, total_shards: 5, completed_shards: [0,1,2,3,4], publication_complete: false },
+    scan_meta: { okSources: ["example"], partialSources: ["example"], sourceMeta: { example: { retainedJobs: 7 } }, partialCount: 1 } };
+  const result = { next, cycleComplete: true, shardIndex: 4, partialCount: 1 };
+  await assert.rejects(persistSuccessfulScan(env, result), /synthetic R2 outage/);
+  assert.equal(fixture.execute("select status from scan_runs;"), "running");
+  assert.equal(fixture.execute("select count(*) from feed_pointer;"), "0");
+  assert.equal(next.scan_cycle.publication_complete, false);
+  assert.equal(fixture.execute("select posting_count || ':' || status from scan_sources;"), "7:partial");
+  assert.equal(fixture.execute("select status from scan_shards;"), "degraded");
+  fail = false;
+  await persistSuccessfulScan(env, result);
+  assert.equal(fixture.execute("select status from scan_runs;"), "degraded");
+  assert.equal(state.get("state").scan_cycle.publication_complete, true);
+  await persistSuccessfulScan(env, result);
+  assert.equal(fixture.execute("select coalesce(previous_version, 'none') from feed_pointer;"), "none");
+  assert.equal(fixture.execute("select count(*) from feed_publications;"), "1");
+});
+
+test("maintenance bounds analytics and idempotency backlog deletion", async t => {
+  const fixture = sqliteFixture(t);
+  fixture.execute(`insert into users (id,email,created_at,updated_at) values ('fixture-user','fixture@example.com','now','now');
+    insert into api_idempotency_keys (id,user_id,scope,idempotency_key,response_status,response_body,created_at,expires_at)
+    select 'expired-' || value,'fixture-user','build',value,202,'{}','2000-01-01','2000-01-01'
+    from json_each('[${Array.from({ length: 40 }, (_,i) => i).join(",")}]');
+    insert into job_views (job_id,viewed_at) select 'fixture','2000-01-01'
+    from json_each('[${Array.from({ length: 40 }, (_,i) => i).join(",")}]');`);
+  await runResumeMaintenance({}, storageDeps(fixture));
+  assert.equal(fixture.execute("select count(*) from api_idempotency_keys;"), "15");
+  assert.equal(fixture.execute("select count(*) from job_views;"), "15");
 });

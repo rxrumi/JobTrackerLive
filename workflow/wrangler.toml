@@ -35,8 +35,10 @@ REQUIRE_AI_GATEWAY = "true"
 [observability]
 enabled = true
 head_sampling_rate = 1
+redact_query_string = true
 
 # Required secrets mirror the main Worker:
+# - CLERK_SECRET_KEY (required for account deletion; separate Worker environment)
 # - OPENAI_API_KEY
 # - AI_GATEWAY_URL
 # - AI_GATEWAY_TOKEN (when the gateway is authenticated)
