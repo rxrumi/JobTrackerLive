@@ -20,7 +20,7 @@
     "verify": "npm run build:frontend && npm audit && npm test && npm run test:migrations && npm run check:types && npm run check:deploy"
   },
   "devDependencies": {
-    "wrangler": "4.149.0"
+    "wrangler": "4.156.0"
   },
   "dependencies": {
     "@clerk/backend": "^3.23.1",
